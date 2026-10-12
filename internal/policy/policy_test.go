@@ -40,9 +40,15 @@ func TestAllowsAssume(t *testing.T) {
 }
 
 func TestWebSearchPolicies(t *testing.T) {
-	off, on := UserInvoke("123456789012", ""), UserInvoke("123456789012", "us-east-1")
+	off, on := UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", ""), UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "us-east-1")
 	if strings.Contains(off, "bedrock-agentcore") {
 		t.Fatalf("web search off must not allow gateways: %s", off)
+	}
+	for _, want := range []string{`"arn:aws:budgets::123456789012:budget/bedrock-a"`, `"arn:aws:budgets::123456789012:budget/bedrock-a/action/*"`,
+		"budgets:ViewBudget", `"arn:aws:iam::123456789012:role/bedrock-users/bedrock-user-a"`, "iam:ListRoleTags"} {
+		if !strings.Contains(off, want) {
+			t.Fatalf("self-read %s missing: %s", want, off)
+		}
 	}
 	if !strings.Contains(on, `"arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/*"`) || !strings.Contains(on, "bedrock-agentcore:ListGateways") || !strings.Contains(on, "bedrock-agentcore:GetGateway") {
 		t.Fatalf("web search on: %s", on)

@@ -39,7 +39,7 @@ There are two CLIs:
 | CLI | For | Commands |
 | --- | --- | --- |
 | `bedrock-admin` | The account admin | `configure`, `doctor`, `plan`, `apply`, `export`, `uninstall`, `pause`, `unpause`, `usage` |
-| `bedrock` | Users | `setup`, `doctor`, `claude` |
+| `bedrock` | Users | `setup`, `doctor`, `claude`, `usage` |
 
 ## 2. Key concepts
 
@@ -290,7 +290,7 @@ Each user gets one role, `bedrock-user-<name>`, under the path `/bedrock-users/`
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
 | Tag `product` | `product` from the file | Charge spend to a team or product |
 | Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-what-apply-may-change)) |
-| Inline policy `bedrock-invoke` | Call and stream `anthropic.claude-*` foundation models and inference profiles; list and read models; deny the Claude Fable family | Bedrock only, Claude only |
+| Inline policy `bedrock-invoke` | Call and stream `anthropic.claude-*` foundation models and inference profiles; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
 | Max session | 1 hour | The limit for role chaining |
 
 ### Trust policy
@@ -323,6 +323,9 @@ The role trusts the account root, with three conditions that must all hold:
 hooks or plugins), to show it works, then prints the Claude Code settings (`env` block and
 `awsAuthRefresh`). It also prints the values for the Claude desktop app's Amazon Bedrock settings (region, profile, AWS CLI
 path, model list). It never writes Claude Code's settings: the user adds them, or uses `/setup-bedrock`.
+`bedrock usage` reads the user's own budget (spend, forecast, the pause action's threshold) and the
+pause state (budget action status and the role's pause tags) with the personal role. The budget name
+comes from the profile's `role_arn`. It doesn't read the cost export, which holds everyone's spend.
 
 ## 6. Budgets and the pause
 
@@ -541,7 +544,7 @@ and a real AWS account:
 | `cli` | A smoke test of the built binaries, with no AWS |
 | `account` | The account steps: `plan`, `apply`, re-runs, `uninstall` |
 | `users` | Onboarding, limit changes and offboarding |
-| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, direct SSO calls denied, a pause seen by the user |
+| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, direct SSO calls denied, a pause seen by the user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
 | `web-search` | Opt-in, needs the account setup's web search on: a personal role gets the gateway rights and can search, the pause denies it, the printed MCP server runs through the proxy, and turning `web_search` off removes the rights but leaves the account's gateway |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

@@ -637,6 +637,10 @@ bedrock-admin usage --json                # for scripts
 
 `usage` exits 2 when it finds spend outside personal roles, so a scheduled job can alert on it.
 
+Users can check their own spend and pause state with `bedrock usage`: their personal role may read
+only its own budget and its own tags. Roles created before this show a `~` on `bedrock-invoke` in
+`plan`; `apply` updates them.
+
 <details>
 <summary>Sample output</summary>
 

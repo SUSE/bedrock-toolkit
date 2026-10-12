@@ -1,5 +1,5 @@
 *** Settings ***
-Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor, the
+Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor and usage, the
 ...                 Step 1.7 block on direct SSO calls, and a manual pause seen from the user's side.
 ...                 Needs SSO_PROFILE signed in (aws sso login) in the same account. The runner is added as
 ...                 a user named <run>-me; the user CLI writes to a copy of ~/.aws/config, never the real one.
@@ -49,6 +49,12 @@ Doctor Passes
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json
     Should Be True    $d["ok"]
 
+Usage Reads The User's Own Budget
+    [Documentation]    The personal role may read its own budget and tags.
+    ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --json
+    Should Be Equal    ${u["state"]}    active
+    Should Be True    $u["limit_usd"] > 0
+
 Direct SSO Calls Are Denied
     [Documentation]    Step 1.7. Skipped with a note when the org admin hasn't applied the deny to the
     ...    runner's permission set in the test account.
@@ -62,6 +68,9 @@ A Manual Pause Denies Calls And Unpause Restores Them
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json    rc=2
     ${fixes}=    Evaluate    " ".join(c.get("fix", "") for c in $d["checks"] if not c["ok"])
     Should Contain    ${fixes}    paused
+    ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --json
+    Should Be Equal    ${u["state"]}    paused
+    Should Contain    ${u["detail"]}    e2e user-access
     Admin    unpause    ${SSO_EMAIL}
     Wait Until Keyword Succeeds    3 min    10 s    Model Call Should Work    ${PROFILE}
     [Teardown]    Admin    unpause    ${SSO_EMAIL}    rc=any

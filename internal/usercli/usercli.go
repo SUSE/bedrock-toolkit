@@ -1,4 +1,4 @@
-// Package usercli is the bedrock user CLI: setup writes the personal role profile, doctor checks it.
+// Package usercli is the bedrock user CLI: setup writes the personal role profile, doctor checks it, claude tests Claude Code and usage shows the user's own spend.
 package usercli
 
 import (
@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -34,6 +35,8 @@ type AWS interface {
 	WebSearchURL(ctx context.Context, profile, region string) (string, error)
 	// WebSearch checks the gateway with tools/list, or with one real search when search is true.
 	WebSearch(ctx context.Context, profile, region, url string, search bool) error
+	// Budget reads the user's own budget, pause threshold and pause state with their personal role.
+	Budget(ctx context.Context, profile, account, role, budget string) (Budget, error)
 }
 
 // App holds the CLI's settings and streams.
@@ -47,6 +50,8 @@ type App struct {
 	JSON     bool
 	// Claude runs the claude CLI; nil means the real one.
 	Claude ClaudeRunner
+	// Now is the clock; nil means time.Now.
+	Now func() time.Time
 }
 
 // New returns the CLI with the real AWS calls and the process streams.
@@ -81,6 +86,7 @@ monthly budget, and checks that it works.
   aws sso login        (or: aws login)
   bedrock setup
   bedrock claude       (tests Claude Code, prints its settings)
+  bedrock usage        (this month's spend against your budget)
 
 Exit codes: 0 ok, 1 error, 2 a check failed.`,
 		Version: a.Version,
@@ -88,7 +94,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed.`,
 	root.SetIn(a.In)
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
-	root.AddCommand(a.setupCmd(), a.doctorCmd(), a.claudeCmd())
+	root.AddCommand(a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd())
 	return root
 }
 

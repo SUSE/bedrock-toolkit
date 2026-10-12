@@ -184,9 +184,11 @@ func AllowedModel(model string) bool {
 	return strings.Contains(model, "anthropic.claude-") && !strings.Contains(model, "anthropic.claude-fable")
 }
 
-// UserInvoke allows Claude models only, and always denies the Claude Fable family. With a
-// webSearchRegion, it also allows calling the account's AgentCore gateways there.
-func UserInvoke(account, webSearchRegion string) string {
+// UserInvoke allows Claude models only, and always denies the Claude Fable family. It lets the
+// user read their own budget and their own role's tags, for bedrock usage. With a webSearchRegion,
+// it also allows calling the account's AgentCore gateways there.
+func UserInvoke(account, role, budget, webSearchRegion string) string {
+	budgetArn := fmt.Sprintf("arn:aws:budgets::%s:budget/%s", account, budget)
 	s := []stmt{
 		{"Sid": "InvokeClaudeModelsOnly", "Effect": "Allow",
 			"Action": []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"},
@@ -198,6 +200,11 @@ func UserInvoke(account, webSearchRegion string) string {
 			"Action": []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:CreateModelInvocationJob"},
 			"Resource": []string{"arn:aws:bedrock:*::foundation-model/anthropic.claude-fable*",
 				fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/*anthropic.claude-fable*", account)}},
+		{"Sid": "ReadOwnBudget", "Effect": "Allow", "Action": []string{"budgets:ViewBudget",
+			"budgets:DescribeBudgetActionsForBudget", "budgets:DescribeBudgetActionHistories"},
+			"Resource": []string{budgetArn, budgetArn + "/action/*"}},
+		{"Sid": "ReadOwnRole", "Effect": "Allow", "Action": []string{"iam:GetRole", "iam:ListRoleTags"},
+			"Resource": UserRoleArn(account, role)},
 	}
 	if webSearchRegion != "" {
 		s = append(s,

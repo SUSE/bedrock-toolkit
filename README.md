@@ -57,6 +57,7 @@ Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 aws sso login                        # or: aws login
 bedrock setup                        # write the bedrock profile and check it
 bedrock claude                       # test Claude Code, print its settings
+bedrock usage                        # this month's spend against your budget
 ```
 
 Download both CLIs from the GitHub release ([admin guide](admin-guide.md#install),

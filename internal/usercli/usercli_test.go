@@ -26,6 +26,14 @@ type fakeAWS struct {
 	searchURL  string
 	searchErr  error
 	searches   []bool
+	budget     Budget
+	budgetErr  error
+	budgetArgs string
+}
+
+func (f *fakeAWS) Budget(_ context.Context, profile, account, role, budget string) (Budget, error) {
+	f.budgetArgs = strings.Join([]string{profile, account, role, budget}, " ")
+	return f.budget, f.budgetErr
 }
 
 func (f *fakeAWS) Identity(_ context.Context, profile string) (string, error) {

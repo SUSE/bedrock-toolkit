@@ -20,6 +20,7 @@ minutes.
   - [Step 3. Check it](#step-3-check-it)
   - [Step 4. Set up Claude Code](#step-4-set-up-claude-code)
   - [Web search](#web-search)
+- [Check your spend](#check-your-spend)
 - [If something goes wrong](#if-something-goes-wrong)
 - [When you're paused](#when-youre-paused)
 
@@ -76,6 +77,7 @@ way in.
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
 | `bedrock doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and a model call | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
+| `bedrock usage` | Shows this month's spend against your budget, where you get paused and whether you are paused | [Check your spend](#check-your-spend) |
 
 Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for the flags.
 
@@ -319,6 +321,25 @@ which only the local proxy makes.
 
 </details>
 
+## Check your spend
+
+```text
+$ bedrock usage
+Budget     bedrock-achen, May 2026 (resets Jun 1)
+Spent      $42.50 of $100.00 (42%)
+Forecast   $90.00 by the end of the month
+Pauses at  $100.00 (100%)
+Access     active
+As of      May 14 06:30 UTC (AWS refreshes budgets a few times a day)
+
+Web search is not counted here: the account pays for it.
+```
+
+It reads only your own budget and your own role, with the `bedrock` profile; `--json` prints the same
+as JSON. The spend lags: AWS refreshes it a few times a day, so the last hours aren't in it yet.
+If it says your role cannot read its budget, your role predates `bedrock usage`: ask your admin to run
+`bedrock-admin apply`.
+
 ## If something goes wrong
 
 Run `bedrock doctor`. It stops at the first failed setup check (the model checks all run) and prints
@@ -382,6 +403,9 @@ FAIL  model us.anthropic.claude-sonnet-5-5: AccessDeniedException
 FAIL  model us.anthropic.claude-haiku-5-5: AccessDeniedException
       fix: your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st
 ```
+
+`bedrock usage` tells you why: `PAUSED: monthly budget used up`, or `PAUSED by your admin` with
+their reason.
 
 The pause can come a few hours after you cross the limit, because billing runs behind.
 
