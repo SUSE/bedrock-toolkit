@@ -10,8 +10,9 @@ ADMIN_PROFILE = "default"
 # search on there (us-east-1, eu-west-1 or ap-northeast-1).
 REGION = "us-west-2"
 
-# Models apply enables and the suites call. Empty: the Opus, Sonnet and Haiku 5.5 inference profiles
-# for REGION (us., eu. or global. prefix).
+# models: in the test config: the only models the test users may call, which apply enables and the
+# suites call. Empty: the Opus, Sonnet and Haiku 5.5 inference profiles for REGION (us., eu. or
+# global. prefix). user-access checks that an unlisted model (Claude Haiku 4.5) is denied.
 MODELS = []
 
 # The id that owns the account setup (Steps 1.1-1.7) in the test account. The account suite

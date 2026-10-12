@@ -913,6 +913,12 @@ class BedrockE2E:
             raise Failure(f"call as {profile} denied, but not by an explicit deny: {r['message']}")
         return r["message"]
 
+    def unlisted_model(self):
+        """A Claude Haiku 4.5 inference profile for REGION, or "" when MODELS lists it."""
+        geo = self.s["MODELS"][0].split(".", 1)[0]
+        m = f"{geo}.anthropic.claude-haiku-4-5-20251001-v1:0"
+        return "" if m in self.s["MODELS"] else m
+
     def model_call_is_denied(self, profile, model=None):
         r = self._call(profile, model, 1, "Reply with OK.")
         return not r["ok"] and "AccessDenied" in r["code"]

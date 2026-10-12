@@ -31,6 +31,13 @@ The Personal Role Works
         Model Call Should Work    ${PROFILE}    ${m}
     END
 
+Only Listed Models Can Be Called
+    [Documentation]    models: is an allow-list: a Claude model the file doesn't list is denied by IAM
+    ...    (no Allow, so not an explicit deny). A denied call costs nothing.
+    ${m}=    Unlisted Model
+    Skip If    not $m    MODELS lists every model this test could use
+    Model Call Should Be Denied    ${PROFILE}    ${m}    explicit=False
+
 Doctor Passes
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json
     Should Be True    $d["ok"]
