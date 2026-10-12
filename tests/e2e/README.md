@@ -36,14 +36,17 @@ Reports go to `results/<suite>-<UTC time>/report.html`, and `results/latest` poi
 `~/.aws` is mounted, so the container shares your SSO sign-in. The user CLI writes to a copy of your AWS config in the run's
 directory, never to `~/.aws/config`.
 
+Every suite except `cli` and `account` uses the account setup that's already there, whatever its id, so REGION must be that
+setup's region. A run stops at its start when plan shows a conflict (for example the cost export bucket is in another region).
+
 ## Suites
 
 | Suite | Needs | Covers |
 | --- | --- | --- |
-| `cli` | nothing | The built binaries run. `configure` writes a file that `plan` loads, and plan then stops at the missing credentials. `bedrock doctor` and `bedrock setup` work without a profile. |
+| `cli` | nothing | The built binaries run. `configure` writes a file that `plan` loads, and plan then stops at the missing credentials. |
 | `account` | admin | `apply` creates Steps 1.1–1.7 and a second `apply` changes nothing. `plan` names exactly the missing or drifted piece and `apply` fixes it. Step 1.7 handoff. `doctor`. `export` round trip. The `id` checks: resources with another id, or none, are left alone. `uninstall`. |
 | `users` | admin | Onboarding (role, budget, alerts, pause action), changes in place, and drift. Removing a user needs `--yes`, and `--no-delete` skips it. Pause and unpause by hand. `apply` and the monthly Lambda leave a manual pause in place. Off for the month. The Lambda re-arms users and saves the snapshot. |
-| `user-access` | admin, SSO | `bedrock setup` and its backup, calls through the personal role, `bedrock doctor`, direct SSO calls denied (Step 1.7), and a manual pause seen from the user's side. |
+| `user-access` | admin, SSO | `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, direct SSO calls denied (Step 1.7), and a manual pause seen from the user's side. |
 | `usage` | admin | `usage` on fixture cost export files and a snapshot uploaded under `e2e/<run>/`: totals, tracked and untracked spend, a past month from its snapshot, `--months`, and one person. |
 | `web-search` | admin; SSO optional | Opt-in. Uses its own id and the account setup's gateway, so the account setup must have `web_search` on. With `web_search` on, `apply` gives a personal role the gateway rights (the gateway shows as managed by the account setup's id); the role can search, the pause denies it and unpause restores it. With SSO: `bedrock doctor`'s web search check, and the MCP server `bedrock claude` prints, run through `uvx mcp-proxy-for-aws`. Turning it off removes the rights and leaves the gateway. Needs REGION to be the account setup's region (`us-east-1`, `eu-west-1` or `ap-northeast-1`); a run costs a few cents. |
 | `billing` | admin | Everything that waits for AWS billing, in phases (below). |

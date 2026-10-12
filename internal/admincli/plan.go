@@ -15,6 +15,17 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/plan"
 )
 
+// needsYes lists the targets of the changes apply makes only with --yes.
+func needsYes(p *plan.Plan) []string {
+	var out []string
+	for _, it := range p.Items {
+		if it.NeedsYes && it.Apply != nil {
+			out = append(out, it.Target)
+		}
+	}
+	return out
+}
+
 // buildPlan observes the account and the users.
 func (a *App) buildPlan(ctx context.Context, cfg *config.Config, c *awsx.Clients, noDelete bool) (*plan.Plan, error) {
 	p := &plan.Plan{Header: fmt.Sprintf("%s: id %s, account %s, %s, %d users", cfg.Path, cfg.ID, c.Account, cfg.Region, len(cfg.Users))}
@@ -131,13 +142,7 @@ Exit 2 when something is still pending afterwards (for example Step 1.7, which n
 				}
 				return nil
 			}
-			var needYes []string
-			for _, it := range p.Items {
-				if it.NeedsYes && it.Apply != nil {
-					needYes = append(needYes, it.Target)
-				}
-			}
-			if len(needYes) > 0 && !a.Yes {
+			if needYes := needsYes(p); len(needYes) > 0 && !a.Yes {
 				if !a.JSON {
 					plan.Render(a.Out, p, true)
 				}

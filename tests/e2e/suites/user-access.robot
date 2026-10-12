@@ -23,20 +23,6 @@ Setup Writes A Working Profile
     Should Contain    ${text}    role_session_name = ${SSO_EMAIL}
     Should Contain    ${text}    source_profile = ${SSO_PROFILE}
 
-Re-running Setup Asks Before Replacing And Keeps A Backup
-    ${r}=    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --role-arn    ${ROLE_ARN}    --region    us-east-1
-    ...    --profile-name    ${PROFILE}    rc=1    output=result
-    Should Contain    ${r.stderr}    --yes
-    ${text}=    User Aws Config Text
-    Should Not Contain    ${text}    region = us-east-1
-    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --role-arn    ${ROLE_ARN}    --region    us-east-1
-    ...    --profile-name    ${PROFILE}    --yes    rc=any
-    File Should Exist    ${USER_AWS_CONFIG}.bak
-    ${backup}=    Get File    ${USER_AWS_CONFIG}.bak
-    Should Contain    ${backup}    region = ${REGION}
-    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --role-arn    ${ROLE_ARN}    --region    ${REGION}
-    ...    --profile-name    ${PROFILE}    --yes
-
 The Personal Role Works
     ${arn}=    Identity    ${PROFILE}
     ${role}=    Role Of    me

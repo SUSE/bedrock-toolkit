@@ -168,6 +168,11 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 	if err != nil {
 		return err
 	}
+	return usageExit(sec, untracked)
+}
+
+// usageExit is exit 2 when the report shows untracked spend; --tracked alone hides it and exits 0.
+func usageExit(sec usage.Sections, untracked bool) error {
 	if sec.Untracked && untracked {
 		return cli.Exit(cli.Problem)
 	}

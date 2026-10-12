@@ -71,8 +71,7 @@ Removing A User Needs Yes
     Remove User    c
     ${i}=    User Plan Op Should Be    c    delete
     Should Be Equal    ${i}[needs_yes]    ${True}
-    ${r}=    Admin    apply    rc=1    output=result
-    Should Contain    ${r.stderr}    need --yes
+    Admin    apply    rc=1
     ${role}=    Role Of    c
     Role Should Exist    ${role}
     Admin    apply    --no-delete

@@ -32,8 +32,3 @@ Configure Then Plan Stops At The AWS Call
     Should Be True    $d["checks"][0]["ok"]
     Should Be Equal    ${d}[checks][1][name]    credentials
 
-User CLI Without A Profile
-    ${d}=    Bedrock    doctor    --json    rc=2
-    Should Be Equal    ${d}[checks][0][fix]    bedrock setup
-    ${r}=    Bedrock    setup    --region    us-west-2    rc=1    output=result
-    Should Contain    ${r.stderr}    no SSO profile

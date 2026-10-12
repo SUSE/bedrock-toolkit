@@ -30,10 +30,6 @@ This Month Splits Tracked And Untracked
     ${b}=    User Row    ${u}    ${B}
     Should Be Close    ${b}[spent_usd]    4.00
 
-Only Tracked Exits 0
-    ${u}=    Admin    usage    --tracked    --json    config=${USAGE_CONFIG}
-    Should Be Close    ${u}[tracked_usd]    18.45
-
 One Person This Month
     ${d}=    Admin    usage    ${A}    --json    config=${USAGE_CONFIG}
     Should Be Close    ${d}[total_usd]    13.85

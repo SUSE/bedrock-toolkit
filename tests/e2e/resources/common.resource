@@ -16,6 +16,12 @@ Start AWS Run
         Fail    The account isn't set up: run ./run.sh account first
     END
     Log    Account setup managed by id ${owner}    console=True
+    # Fail fast on a config that can't apply here (for example REGION isn't the setup's region).
+    ${p}=    Plan
+    ${conflicts}=    Evaluate    [i["target"] + ": " + i["status"] for i in $p["items"] if i["op"] == "conflict"]
+    IF    $conflicts
+        Fail    The run's config conflicts with the account setup (check REGION in the config): ${conflicts}
+    END
 
 Remove Run Users
     [Documentation]    Cleanup: apply the run's config with users: [].
