@@ -12,7 +12,8 @@ Two command-line tools do the work:
 
 ## How it works
 
-- Each user gets a personal IAM role that can only call Claude models, tagged with their SSO email.
+- Each user gets a personal IAM role that can only call Claude models (only the ones in `models:`, when
+  listed), tagged with their SSO email.
 - AWS bills each Bedrock call with that tag, and an AWS Budget per user tracks it.
 - At the limit, the budget attaches a deny policy to that user's role. A monthly Lambda re-arms it.
 - `bedrock-admin apply` creates all of this from `bedrock.yaml`.
@@ -114,6 +115,7 @@ bedrock usage                        # this month's spend against your budget
 | --- | --- |
 | `configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags |
 | `doctor` | Checks the admin's credentials, permissions, account setup, cost export data and models |
+| `models` | Lists the region's Claude inference profiles, the IDs `models:` takes |
 | `plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes |
 | `apply` | Makes the account and the users match `bedrock.yaml`. Removals need `--yes` |
 | `export` | Prints the current account, including its users, as a `bedrock.yaml` |

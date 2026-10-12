@@ -100,7 +100,6 @@ func TestValidation(t *testing.T) {
 		"bad name":          {base + "users: [{email: a@x.io, name: Bad_Name}]\n", "name:"},
 		"dup email":         {base + "users: [{email: a@x.io}, {email: A@x.io}]\n", "duplicate"},
 		"dup name":          {base + "users: [{email: a@x.io}, {email: a@y.io}]\n", "also used"},
-		"no models":         {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: []", 1), "models:"},
 		"non-claude":        {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.meta.llama3-3-70b-instruct-v1:0]", 1), "can't be called from personal roles"},
 		"fable":             {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.anthropic.claude-fable-1-v1:0]", 1), "can't be called from personal roles"},
 		"pause 0":           {base + "users: [{email: a@x.io, pause_at_percent: 0}]\n", "1-200"},

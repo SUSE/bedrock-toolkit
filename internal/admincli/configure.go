@@ -115,9 +115,6 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	if cur.Product == "" {
 		cur.Product = "bedrock"
 	}
-	if len(cur.Models) == 0 && cur.Region != "" {
-		cur.Models = config.DefaultModels(cur.Region)
-	}
 	if cur.Defaults.LimitUSD == nil {
 		l := 50.0
 		cur.Defaults.LimitUSD = &l
@@ -194,11 +191,8 @@ func (a *App) ask(c *config.Config, changed func(string) bool) error {
 		return err
 	}
 	if !changed("model") {
-		def := strings.Join(c.Models, ",")
-		if def == "" && c.Region != "" {
-			def = strings.Join(config.DefaultModels(c.Region), ",")
-		}
-		v, err := p.Ask("models (comma-separated inference profile IDs)", def)
+		v, err := p.Ask("models users may call (comma-separated inference profile IDs; empty: any Claude model except Fable)",
+			strings.Join(c.Models, ","))
 		if err != nil {
 			return err
 		}

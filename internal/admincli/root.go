@@ -65,7 +65,7 @@ usage found untracked spend).`,
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
 	root.AddCommand(a.planCmd(), a.applyCmd(), a.exportCmd(), a.configureCmd(), a.doctorCmd(), a.uninstallCmd(),
-		a.pauseCmd(), a.unpauseCmd(), a.usageCmd())
+		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.modelsCmd())
 	return root
 }
 

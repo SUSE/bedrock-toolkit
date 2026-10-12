@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bcmdataexports"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/spf13/cobra"
 
 	"github.com/SUSE/high-impact-ai-initiative/internal/account"
@@ -28,7 +29,7 @@ func (a *App) exportCmd() *cobra.Command {
 		Long: `export reads the account and prints a bedrock.yaml that matches it, so plan shows no changes.
 
 Settings come from the file given with -f (or found as usual) when there is one; otherwise from the
-account and the flags. Models can't be read from the account: pass --model when there is no file.
+account and the flags. Models come from --model, else the file, else a user's role policy.
 Only users with this id are exported.
 
   bedrock-admin export > bedrock.yaml`,
@@ -110,9 +111,6 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	if len(models) > 0 {
 		cfg.Models = models
 	}
-	if len(cfg.Models) == 0 {
-		return nil, errors.New("models can't be read from the account; pass --model (repeatable) or -f with a file that sets models")
-	}
 	if cfg.CostExport.Name == "" {
 		cfg.CostExport.Name = config.DefaultExportName
 	}
@@ -187,6 +185,11 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		return nil, errors.New("no product tag found; pass --product")
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].r.Email < found[j].r.Email })
+	if len(models) == 0 && base.Path == "" && len(found) > 0 {
+		if cfg.Models, err = roleModels(ctx, c, found[0].r.RoleName); err != nil {
+			return nil, err
+		}
+	}
 
 	// Defaults: the file's when there is one, else the most common values.
 	if base.Path == "" {
@@ -233,4 +236,13 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// roleModels reads the models a personal role's policy allows; nil when it allows any Claude model.
+func roleModels(ctx context.Context, c *awsx.Clients, role string) ([]string, error) {
+	p, err := c.IAM.GetRolePolicy(ctx, &iam.GetRolePolicyInput{RoleName: aws.String(role), PolicyName: aws.String(policy.InvokePolicyName)})
+	if err != nil {
+		return nil, err
+	}
+	return policy.ListedModels(policy.Decode(aws.ToString(p.PolicyDocument)))
 }

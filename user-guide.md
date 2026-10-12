@@ -38,7 +38,8 @@ below; click the folded sections for sample output and details.
 ## How it works
 
 - You use Bedrock through a personal AWS role that only you can use, from your SSO login.
-- You can use Anthropic Claude models, except the Claude Fable family, which is not approved.
+- You can use Anthropic Claude models, except the Claude Fable family, which is not approved. Your
+  admin may allow only some of them.
 - You have a monthly budget. You get an email from AWS Budgets when you pass the alert threshold
   (usually 80%). When you reach your limit, your Bedrock access is paused until your admin unpauses
   you, or until the 1st of next month.
@@ -359,7 +360,7 @@ the fix under it:
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you (and check `role_arn`, if they gave you one), or to let your SSO permission set use the `bedrock-users` roles |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
 | `model <id>` | `AccessDeniedException`, on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
-| `model <id>` | `AccessDeniedException`, on another model | Your role may only call Anthropic Claude models (not Fable). Ask your admin if you need this one. |
+| `model <id>` | `AccessDeniedException`, on another model | Your role may only call Anthropic Claude models (not Fable), and only the ones your admin allows. Ask your admin if you need this one. |
 | `model <id>` | `ValidationException` or not found | The model is not offered in your region. Use another model, or ask your admin for the right region. |
 | `uvx` | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) |
 | `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |

@@ -178,7 +178,7 @@ func (a *App) doctor(ctx context.Context) []Check {
 		}
 	}
 	out = append(out, a.exportData(ctx, cfg, c))
-	for _, m := range cfg.Models {
+	for _, m := range cfg.TestModels() {
 		ch := Check{Name: "model " + m}
 		if err := account.TestCall(ctx, c.Runtime, m); err != nil {
 			ch.Detail, ch.Fix = err.Error(), "enable the model in the Bedrock console (Model access) or check models: in the file"

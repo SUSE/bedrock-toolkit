@@ -40,7 +40,7 @@ type Config struct {
 	Region           string           `yaml:"region" json:"region"`
 	Profile          string           `yaml:"profile,omitempty" json:"profile,omitempty"`
 	Product          string           `yaml:"product" json:"product"`
-	Models           []string         `yaml:"models" json:"models"`
+	Models           []string         `yaml:"models,omitempty" json:"models,omitempty"`
 	Defaults         Defaults         `yaml:"defaults" json:"defaults"`
 	CostExport       CostExport       `yaml:"cost_export" json:"cost_export"`
 	BlockDirectCalls BlockDirectCalls `yaml:"block_direct_calls" json:"block_direct_calls"`
@@ -291,9 +291,6 @@ func (c *Config) Validate() error {
 	}
 	if !productRe.MatchString(c.Product) {
 		add("product: required; letters, digits, spaces and _.:/=+@- only (got %q)", c.Product)
-	}
-	if len(c.Models) == 0 {
-		add("models: list at least one model (inference profile ID)")
 	}
 	seenModel := map[string]bool{}
 	for i, m := range c.Models {

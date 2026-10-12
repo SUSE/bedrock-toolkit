@@ -40,7 +40,7 @@ func TestAllowsAssume(t *testing.T) {
 }
 
 func TestWebSearchPolicies(t *testing.T) {
-	off, on := UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", ""), UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "us-east-1")
+	off, on := UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "", nil), UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "us-east-1", nil)
 	if strings.Contains(off, "bedrock-agentcore") {
 		t.Fatalf("web search off must not allow gateways: %s", off)
 	}
@@ -63,5 +63,31 @@ func TestWebSearchPolicies(t *testing.T) {
 	perms := WebSearchGatewayPermissions("eu-west-1", "123456789012")
 	if !strings.Contains(perms, "arn:aws:bedrock-agentcore:eu-west-1:aws:tool/web-search.v1") || strings.Contains(perms, "bedrock:") {
 		t.Fatalf("permissions: %s", perms)
+	}
+}
+
+func TestUserInvokeModels(t *testing.T) {
+	any := UserInvoke("123456789012", "r", "b", "", nil)
+	if !strings.Contains(any, "foundation-model/anthropic.claude-*") || !strings.Contains(any, "DenyUnapprovedFableModels") {
+		t.Fatalf("no models must allow any Claude model: %s", any)
+	}
+	if m, err := ListedModels(any); err != nil || m != nil {
+		t.Fatalf("ListedModels(any) = %v, %v", m, err)
+	}
+	models := []string{"us.anthropic.claude-haiku-5-5", "anthropic.claude-opus-5-5"}
+	listed := UserInvoke("123456789012", "r", "b", "", models)
+	for _, want := range []string{`"arn:aws:bedrock:*:123456789012:inference-profile/us.anthropic.claude-haiku-5-5"`,
+		`"arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5"`, `"arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-5-5"`,
+		"DenyUnapprovedFableModels"} {
+		if !strings.Contains(listed, want) {
+			t.Fatalf("%s missing: %s", want, listed)
+		}
+	}
+	if strings.Contains(listed, "anthropic.claude-*\"") || strings.Contains(listed, "inference-profile/anthropic.claude-opus") {
+		t.Fatalf("listed models must not allow others: %s", listed)
+	}
+	got, err := ListedModels(listed)
+	if err != nil || !slices.Equal(got, models) {
+		t.Fatalf("ListedModels = %v, %v", got, err)
 	}
 }

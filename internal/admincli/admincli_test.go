@@ -3,12 +3,17 @@ package admincli
 import (
 	"bytes"
 	"context"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	btypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
+
+	"github.com/SUSE/high-impact-ai-initiative/internal/config"
+	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -71,7 +76,7 @@ func TestConfigureKeepsUsersInclude(t *testing.T) {
 	}
 	b, _ := os.ReadFile(f)
 	s := string(b)
-	for _, want := range []string{"users: !include users.yaml", "id: team", "product: p", "limit_usd: 75", "eu.anthropic.claude", `account: "123456789012"`} {
+	for _, want := range []string{"users: !include users.yaml", "id: team", "product: p", "limit_usd: 75", `account: "123456789012"`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in\n%s", want, s)
 		}
@@ -87,10 +92,13 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d\n%s", code, errs)
 	}
-	for _, want := range []string{"enabled: true", "global.anthropic.claude-opus-5-5", "users: []", "bucket: bedrock-cur-123456789012"} {
+	for _, want := range []string{"enabled: true", "users: []", "bucket: bedrock-cur-123456789012"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "models:") {
+		t.Errorf("a new file must not limit models:\n%s", out)
 	}
 	if _, err := os.Stat(f); err == nil {
 		t.Error("--dry-run wrote the file")
@@ -141,5 +149,36 @@ func TestShortAWSError(t *testing.T) {
 	in = "creating cost export x: operation error BCM Data Exports: CreateExport, https response error StatusCode: 400, RequestID: 3c, ValidationException: bad"
 	if got, want := shortAWSError(in), "creating cost export x: ValidationException: bad"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTestModels(t *testing.T) {
+	c := &config.Config{Region: "eu-west-1"}
+	if got := c.TestModels(); !slices.Equal(got, []string{"eu.anthropic.claude-haiku-5-5"}) {
+		t.Fatalf("no models: %v", got)
+	}
+	c.Models = []string{"eu.anthropic.claude-opus-5-5"}
+	if got := c.TestModels(); !slices.Equal(got, c.Models) {
+		t.Fatalf("listed: %v", got)
+	}
+}
+
+func TestModelRows(t *testing.T) {
+	p := func(id string) btypes.InferenceProfileSummary {
+		return btypes.InferenceProfileSummary{InferenceProfileId: aws.String(id), InferenceProfileName: aws.String(id), Status: "ACTIVE"}
+	}
+	profiles := []btypes.InferenceProfileSummary{p("us.anthropic.claude-sonnet-5-5"), p("us.anthropic.claude-fable-1"), p("us.anthropic.claude-haiku-5-5")}
+	users := func(rows []modelRow) string {
+		var s []string
+		for _, r := range rows {
+			s = append(s, r.ID+"="+r.Users)
+		}
+		return strings.Join(s, ",")
+	}
+	if got := users(modelRows(profiles, nil)); got != "us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=allowed" {
+		t.Fatalf("no models: %s", got)
+	}
+	if got := users(modelRows(profiles, []string{"us.anthropic.claude-haiku-5-5"})); got != "us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=not listed" {
+		t.Fatalf("listed: %s", got)
 	}
 }

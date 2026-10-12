@@ -18,22 +18,10 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 )
 
-var geoPrefixes = []string{"us.", "eu.", "apac.", "global.", "jp.", "au.", "ca.", "us-gov."}
-
-// FoundationModelID strips the cross-region inference profile prefix (us., eu., ...).
-func FoundationModelID(model string) string {
-	for _, p := range geoPrefixes {
-		if m, ok := strings.CutPrefix(model, p); ok {
-			return m
-		}
-	}
-	return model
-}
-
 // ModelAvailable reports whether the account can call a model, with the reason when it can't.
 func ModelAvailable(ctx context.Context, c *bedrock.Client, model string) (bool, string, error) {
 	r, err := c.GetFoundationModelAvailability(ctx, &bedrock.GetFoundationModelAvailabilityInput{
-		ModelId: aws.String(FoundationModelID(model))})
+		ModelId: aws.String(policy.FoundationModelID(model))})
 	if err != nil {
 		return false, "", err
 	}
@@ -61,7 +49,7 @@ func TestCall(ctx context.Context, c *bedrockruntime.Client, model string) error
 
 func (e *Env) models(ctx context.Context) ([]*plan.Item, error) {
 	var out []*plan.Item
-	for _, m := range e.Cfg.Models {
+	for _, m := range e.Cfg.TestModels() {
 		it := e.item("1.5", "model "+m)
 		ok, why, err := ModelAvailable(ctx, e.C.Bedrock, m)
 		switch {

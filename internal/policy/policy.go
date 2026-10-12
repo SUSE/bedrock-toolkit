@@ -179,21 +179,103 @@ func UserTrust(account, email string) string {
 			"StringEquals": doc{"sts:RoleSessionName": email}}})
 }
 
-// AllowedModel reports whether UserInvoke lets personal roles call a model ID or inference profile ID.
+// AllowedModel reports whether UserInvoke can let personal roles call a model ID or inference profile ID.
 func AllowedModel(model string) bool {
 	return strings.Contains(model, "anthropic.claude-") && !strings.Contains(model, "anthropic.claude-fable")
 }
 
-// UserInvoke allows Claude models only, and always denies the Claude Fable family. It lets the
-// user read their own budget and their own role's tags, for bedrock usage. With a webSearchRegion,
-// it also allows calling the account's AgentCore gateways there.
-func UserInvoke(account, role, budget, webSearchRegion string) string {
+var geoPrefixes = []string{"us.", "eu.", "apac.", "global.", "jp.", "au.", "ca.", "us-gov."}
+
+// FoundationModelID strips the cross-region inference profile prefix (us., eu., ...).
+func FoundationModelID(model string) string {
+	for _, p := range geoPrefixes {
+		if m, ok := strings.CutPrefix(model, p); ok {
+			return m
+		}
+	}
+	return model
+}
+
+// ListedModelsSid is the statement that allows only the models listed in the config.
+const ListedModelsSid = "InvokeListedModelsOnly"
+
+// invokeStmt allows calling the listed models, through their inference profiles and the foundation
+// models those route to in any region, or any Claude model when none are listed.
+func invokeStmt(account string, models []string) stmt {
+	actions := []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"}
+	if len(models) == 0 {
+		return stmt{"Sid": "InvokeClaudeModelsOnly", "Effect": "Allow", "Action": actions,
+			"Resource": []string{"arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+				fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/*anthropic.claude-*", account)}}
+	}
+	var res []string
+	seen := map[string]bool{}
+	add := func(r string) {
+		if !seen[r] {
+			seen[r] = true
+			res = append(res, r)
+		}
+	}
+	for _, m := range models {
+		if fm := FoundationModelID(m); fm != m {
+			add(fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/%s", account, m))
+		}
+		add("arn:aws:bedrock:*::foundation-model/" + FoundationModelID(m))
+	}
+	return stmt{"Sid": ListedModelsSid, "Effect": "Allow", "Action": actions, "Resource": res}
+}
+
+// ListedModels returns the models a UserInvoke document allows, or nil when it allows any Claude model.
+func ListedModels(policyDoc string) ([]string, error) {
+	var d struct {
+		Statement []struct {
+			Sid      string
+			Resource any
+		}
+	}
+	if err := json.Unmarshal([]byte(policyDoc), &d); err != nil {
+		return nil, err
+	}
+	for _, st := range d.Statement {
+		if st.Sid != ListedModelsSid {
+			continue
+		}
+		var res []string
+		switch r := st.Resource.(type) {
+		case string:
+			res = []string{r}
+		case []any:
+			for _, v := range r {
+				if s, ok := v.(string); ok {
+					res = append(res, s)
+				}
+			}
+		}
+		var out []string
+		profiles := map[string]bool{}
+		for _, r := range res {
+			if _, id, ok := strings.Cut(r, ":inference-profile/"); ok {
+				out = append(out, id)
+				profiles[FoundationModelID(id)] = true
+			}
+		}
+		for _, r := range res {
+			if _, id, ok := strings.Cut(r, "::foundation-model/"); ok && !profiles[id] {
+				out = append(out, id)
+			}
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
+// UserInvoke allows the listed models, or any Claude model when none are listed, and always denies
+// the Claude Fable family. It lets the user read their own budget and their own role's tags, for
+// bedrock usage. With a webSearchRegion, it also allows calling the account's AgentCore gateways there.
+func UserInvoke(account, role, budget, webSearchRegion string, models []string) string {
 	budgetArn := fmt.Sprintf("arn:aws:budgets::%s:budget/%s", account, budget)
 	s := []stmt{
-		{"Sid": "InvokeClaudeModelsOnly", "Effect": "Allow",
-			"Action": []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"},
-			"Resource": []string{"arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
-				fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/*anthropic.claude-*", account)}},
+		invokeStmt(account, models),
 		{"Sid": "DiscoverModels", "Effect": "Allow", "Action": []string{"bedrock:ListFoundationModels",
 			"bedrock:GetFoundationModel", "bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile"}, "Resource": "*"},
 		{"Sid": "DenyUnapprovedFableModels", "Effect": "Deny",
