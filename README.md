@@ -131,6 +131,7 @@ bedrock usage                        # this month's spend against your budget
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
 | `doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and a model call |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |
+| `usage` | Shows this month's spend against your budget, and whether you are paused |
 
 Both CLIs exit with 0 when everything is fine, 1 on an error, and 2 when they ran but found a
 problem. Run `<command> --help` for the flags.

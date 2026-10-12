@@ -12,7 +12,7 @@ is in the [README](README.md).
 | [`design.md`](design.md) | How and why it works: the model, each component, security, limits, testing, open items |
 | `cmd/bedrock-admin/` | Admin CLI |
 | `cmd/bedrock/` | User CLI |
-| `cmd/monthly-unpause/` | The monthly Lambda (`provided.al2023`), embedded in `bedrock-admin` |
+| `cmd/monthly-unpause/` | The monthly Lambda (`provided.al2023`), embedded in `bedrock-admin` by `make build` and releases (not `go install`) |
 | `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |

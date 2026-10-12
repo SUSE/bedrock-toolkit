@@ -131,7 +131,7 @@ block_direct_calls:
   admin_permission_set: BedrockAdmin
 
 web_search:                     # optional: Step 1.8
-  enabled: true
+  enabled: false                # true needs region us-east-1, eu-west-1 or ap-northeast-1
   exclude_domains: [example.com]
 
 users:
