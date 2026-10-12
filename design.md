@@ -567,9 +567,10 @@ Differences from the original design spec:
   `internal/`. One static binary per CLI, nothing else to install.
 - Libraries: the AWS SDK for Go v2, `parquet-go` for the cost export, `go.yaml.in/yaml/v3`, `cobra`,
   and `text/tabwriter` for tables.
-- CI (`.github/workflows/ci.yml`): `go generate`, `go vet`, `golangci-lint` and `go test -race`.
-- Release (`.github/workflows/release.yml`): on a `v*` tag, GoReleaser builds both CLIs for macOS,
-  Linux and Windows (amd64 and arm64), with the Lambda embedded in `bedrock-admin`, and attaches
+- CI (`.github/workflows/ci.yml`): `go generate`, `go vet`, `golangci-lint`, `go test -race` on amd64
+  and arm64 Linux runners, and a build of both CLIs for every release target.
+- Release (`.github/workflows/release.yml`): on a `v*` tag, GoReleaser builds both CLIs for macOS
+  and Linux (amd64 and arm64; no Windows), with the Lambda embedded in `bedrock-admin`, and attaches
   them and checksums to the GitHub release.
 
 ## 15. Later and open items

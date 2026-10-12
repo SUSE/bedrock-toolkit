@@ -98,12 +98,12 @@ Download `bedrock-admin` for your platform from the GitHub release, unpack it, p
 
 | File | Contents |
 | --- | --- |
-| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` (`.zip` on Windows) |
-| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` (`.zip` on Windows) |
+| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` |
+| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` |
 | `checksums.txt` | SHA-256 of every archive |
 
-`<os>` is `darwin`, `linux` or `windows`, and `<arch>` is `amd64` or `arm64`. Unpack the archive
-and put the binary on your `PATH`.
+`<os>` is `darwin` (macOS) or `linux`, and `<arch>` is `amd64` or `arm64`. There is no Windows
+build. Unpack the archive and put the binary on your `PATH`.
 
 With Go installed, you can also build from source:
 

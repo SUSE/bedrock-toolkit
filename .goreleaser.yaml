@@ -13,7 +13,7 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{ .Version }}"]
-    goos: [darwin, linux, windows]
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
   - id: bedrock
     main: ./cmd/bedrock
@@ -21,7 +21,7 @@ builds:
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{ .Version }}"]
-    goos: [darwin, linux, windows]
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
 
 archives:
@@ -29,16 +29,10 @@ archives:
     ids: [bedrock-admin]
     name_template: "bedrock-admin_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
   - id: bedrock
     ids: [bedrock]
     name_template: "bedrock_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
 
 checksum:
   name_template: checksums.txt
