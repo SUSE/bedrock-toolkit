@@ -18,7 +18,8 @@ and manage users with `bedrock-admin`, from one file, `bedrock.yaml`. Users foll
 - [7. Read spend](#7-read-spend)
 - [8. Check production](#8-check-production)
 - [9. Block direct model calls (Step 1.7)](#9-block-direct-model-calls-step-17)
-- [10. Remove everything](#10-remove-everything)
+- [10. Turn on web search (optional)](#10-turn-on-web-search-optional)
+- [11. Remove everything](#11-remove-everything)
 - [The `id` and resources you didn't create](#the-id-and-resources-you-didnt-create)
 - [Emails](#emails)
 - [Things to know](#things-to-know)
@@ -79,7 +80,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user, and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
-| `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [10](#10-remove-everything) |
+| `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
 codes: 0 ok, 1 error, 2 ran fine but found a problem. Run `bedrock-admin <command> --help` for
@@ -144,7 +145,7 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `config` | The file loads and is valid |
 | `credentials` | The profile has valid credentials. Fix: `aws sso login --profile <profile>` |
 | `permissions` | It could read every part of the account setup |
-| `Step 1.1` to `Step 1.7` | Each account setup item is in place (one line per item, as in `plan`) |
+| `Step 1.1` to `Step 1.8` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
 | `model <id>` | A test call to each model in `models:` works |
 
@@ -205,6 +206,7 @@ them all.
 | EventBridge Scheduler | The monthly schedule (Step 1.4) |
 | Cost Explorer | `ce:ListCostAllocationTags` and `ce:UpdateCostAllocationTagsStatus` for the owner tag (Step 1.6). Spend is not read from Cost Explorer. |
 | Bedrock | Model availability and the first and test calls to each model (Step 1.5, `doctor`) |
+| Bedrock AgentCore | The web search gateway and its target (Step 1.8, only with `web_search.enabled`) |
 | STS | `sts:GetCallerIdentity` |
 
 You don't need AWS Organizations rights. The one step that does, Step 1.7, is handed to your org
@@ -291,6 +293,10 @@ block_direct_calls:
   enabled: true                 # false skips Step 1.7
   method: permission-set        # how your org admin applied it: permission-set or scp
   admin_permission_set: BedrockAdmin
+
+web_search:                     # optional, see step 10
+  enabled: false
+  exclude_domains: []           # domains never returned, e.g. [example.com]
 
 users:                          # or: users: !include users.yaml
   - email: achen@example.com
@@ -460,6 +466,7 @@ Plan: 11 to create, 1 needs org admin.
 | 1.5 | Each model in `models:` is available. If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can activate it; elsewhere `plan` shows "needs org admin". |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
+| 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway`, the AgentCore gateway `bedrock-web-search` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
 
 </details>
 
@@ -801,7 +808,46 @@ to create those out of users' permission sets. The untracked section of `usage` 
 
 </details>
 
-## 10. Remove everything
+## 10. Turn on web search (optional)
+
+```yaml
+# bedrock.yaml
+web_search:
+  enabled: true
+  exclude_domains: [example.com]   # optional, up to 100
+```
+
+```bash
+bedrock-admin apply
+```
+
+Claude Code's built-in web search doesn't work on Bedrock. With `web_search.enabled`, Step 1.8
+creates an AgentCore gateway with the AWS Web Search tool, and each personal role may call it.
+Users then run `bedrock claude`, which tests one search and prints the MCP server to add to Claude
+Code and the desktop app ([user guide](user-guide.md#web-search)).
+
+<details>
+<summary>Cost, regions and what apply changes</summary>
+
+- Web Search costs $7 per 1,000 searches; the gateway itself is free. This cost is not managed
+  here: the setup manages only Bedrock model spend. Billing records no caller on search rows, so
+  searches don't count against personal budgets and nothing limits them.
+- The gateway is in the file's `region`, which must be `us-east-1`, `eu-west-1` or `ap-northeast-1`.
+- `plan` shows Step 1.8 (role, gateway, target) and a `~` on each personal role: `bedrock-invoke`
+  gains the right to call the gateway. Paused users can't search: `bedrock-deny` denies it too.
+- Searches show in `usage` under untracked spend as `web search (AgentCore)`, one line for the
+  whole account.
+- Setting `enabled: false` and running `apply` removes the gateway, its target and the role, and
+  takes the right back from the personal roles. `uninstall` removes them too.
+- `exclude_domains` are lowercase domain names; results from them are never returned. Changing the
+  list updates the target in place.
+- `doctor` shows the gateway and target status and the connector version.
+- Users' searches go to AWS only. AWS's Web Search terms ask that results shown to people keep their
+  source links; Claude Code shows them by default.
+
+</details>
+
+## 11. Remove everything
 
 ```bash
 # set users: [] in bedrock.yaml, then

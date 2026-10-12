@@ -2,6 +2,8 @@ package policy
 
 import (
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -34,5 +36,26 @@ func TestAllowsAssume(t *testing.T) {
 	}
 	if AllowsAssumePersonalRole(`{"Statement":{"Effect":"Allow","Action":"sts:AssumeRole","Resource":"arn:aws:iam::1:role/other"}}`) {
 		t.Fatal("want not allowed")
+	}
+}
+
+func TestWebSearchPolicies(t *testing.T) {
+	off, on := UserInvoke("123456789012", ""), UserInvoke("123456789012", "us-east-1")
+	if strings.Contains(off, "bedrock-agentcore") {
+		t.Fatalf("web search off must not allow gateways: %s", off)
+	}
+	if !strings.Contains(on, `"arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/*"`) || !strings.Contains(on, "bedrock-agentcore:ListGateways") || !strings.Contains(on, "bedrock-agentcore:GetGateway") {
+		t.Fatalf("web search on: %s", on)
+	}
+	if !slices.Contains(DenyActions, "bedrock-agentcore:InvokeGateway") || !strings.Contains(Deny(), "bedrock-agentcore:InvokeGateway") {
+		t.Fatal("a pause must stop web search")
+	}
+	trust := WebSearchGatewayTrust("eu-west-1", "123456789012")
+	if !strings.Contains(trust, "bedrock-agentcore.amazonaws.com") || !strings.Contains(trust, "arn:aws:bedrock-agentcore:eu-west-1:123456789012:gateway/*") {
+		t.Fatalf("trust: %s", trust)
+	}
+	perms := WebSearchGatewayPermissions("eu-west-1", "123456789012")
+	if !strings.Contains(perms, "arn:aws:bedrock-agentcore:eu-west-1:aws:tool/web-search.v1") || strings.Contains(perms, "bedrock:") {
+		t.Fatalf("permissions: %s", perms)
 	}
 }

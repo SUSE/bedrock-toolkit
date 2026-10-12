@@ -130,6 +130,10 @@ block_direct_calls:
   method: permission-set        # or scp
   admin_permission_set: BedrockAdmin
 
+web_search:                     # optional: Step 1.8
+  enabled: true
+  exclude_domains: [example.com]
+
 users:
   - email: achen@example.com
   - email: bkim@example.com
@@ -171,12 +175,13 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | Step | Creates or checks | Why |
 | --- | --- | --- |
 | 1.1 | A CUR 2.0 cost export with caller identity, and its private bucket (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
-| 1.2 | The `bedrock-deny` policy (path `/bedrock/`) | The pause: one shared policy that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob` and `CallWithBearerToken` |
+| 1.2 | The `bedrock-deny` policy (path `/bedrock/`) | The pause: one shared policy that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
 | 1.3 | The budget actions role `bedrock-budget-actions` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny` on roles under `/bedrock-users/`. |
 | 1.4 | The monthly Lambda and its schedule (06:00 UTC on the 1st) | Re-arms every pause each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
 | 1.5 | Model access: a first call to each model in `models:` | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can activate it; from a member account `plan` shows "needs org admin". |
 | 1.7 | Model calls outside personal roles are blocked | See below |
+| 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
 
 If an account step fails, `apply` skips the users. Step 1.6 shows "waiting for first use" until
 the tag can be activated. Steps that need the org admin (1.7, and 1.6 outside the management account)
@@ -240,6 +245,41 @@ The deny doesn't cover:
 
 The real checks are end to end: `user-access.robot` makes a direct SSO call and expects a deny, and
 `usage` lists any spend from SSO roles.
+
+### Step 1.8: web search
+
+Claude Code's `WebSearch` tool is a server-side Anthropic API tool, which Bedrock doesn't offer.
+Bedrock AgentCore offers Web Search as a gateway connector instead: an MCP server, with IAM (SigV4)
+inbound auth, that Claude Code reaches through AWS's local `mcp-proxy-for-aws`. IAM auth needs no
+identity provider, and calls are signed with the user's personal role, so pausing works the same as
+for models.
+
+| Resource | Name | Notes |
+| --- | --- | --- |
+| Role | `bedrock-web-search-gateway` (path `/bedrock/`) | Trusts `bedrock-agentcore.amazonaws.com` for this account's gateways. May call only `InvokeWebSearch` on the Web Search tool (and `InvokeGateway`). No model or data access. |
+| Gateway | `bedrock-web-search` | MCP, `AWS_IAM` authorizer, tagged with the `id`. Its ID and URL are generated. |
+| Target | `web-search` | Connector `web-search`, version pinned in `bedrock-admin`, credentials from the gateway role, `exclude_domains` as its domain filter. The MCP tool is `web-search___WebSearch`. |
+
+- Personal roles: with web search on, `bedrock-invoke` also allows `InvokeGateway` on
+  `gateway/*` in the region, and `ListGateways`/`GetGateway` so `bedrock claude` can find the URL.
+  `gateway/*`, not the exact ARN, keeps the policy fixed before the gateway exists. With it off, the
+  statements go away.
+- `bedrock-deny` always denies `InvokeGateway`, so the pause covers search whether web search is on
+  or not, and the pause policy doesn't change with the setting.
+- Gateway and target creation are asynchronous; `apply` waits for `READY` (2 minutes at most) and
+  retries creation while the new role propagates. A `FAILED` gateway or target is a conflict: turn
+  web search off, apply, then on again.
+- Turning it off deletes the target, then the gateway, then the role. `uninstall` does the same.
+- Only `us-east-1`, `eu-west-1` and `ap-northeast-1` offer Web Search; the config is rejected
+  elsewhere.
+- `bedrock claude` tests one search (one signed MCP `tools/call`, less than $0.01) and prints the
+  MCP server for `claude mcp add-json --scope user` and the desktop app, with `mcp-proxy-for-aws`
+  pinned to a tested version (it runs with the user's credentials). `bedrock doctor` checks `uvx`
+  and makes a free `tools/list` call.
+- Searches cost $7 per 1,000. This is a real cost that the setup doesn't manage: it manages only
+  Bedrock model spend. The cost export records no caller and no `iamPrincipal/owner` tag on
+  AgentCore rows (checked 2026-10), so personal budgets and the pause never count searches.
+  `usage` lists them as untracked spend labelled `web search (AgentCore)`.
 
 ## 5. Personal roles
 
@@ -462,6 +502,7 @@ sets.
 | `bedrock-invoke` policy | Personal roles: Claude only, Fable denied | Calls from other roles |
 | Budget and pause | Spend through personal roles | Calls outside personal roles |
 | Step 1.7 deny | Model calls from SSO roles except the admin set | IAM users, other roles, API keys, the admin set |
+| Web search gateway role | The gateway may call only the Web Search tool | Who may call the gateway: that is the personal roles' `InvokeGateway` right, and any gateway in the account |
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
 - `bedrock-admin` needs only account-level admin rights. It never touches AWS Organizations.
@@ -502,6 +543,7 @@ and a real AWS account:
 | `users` | Onboarding, limit changes and offboarding |
 | `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, direct SSO calls denied, a pause seen by the user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
+| `web-search` | Opt-in, needs the account setup's web search on: a personal role gets the gateway rights and can search, the pause denies it, the printed MCP server runs through the proxy, and turning `web_search` off removes the rights but leaves the account's gateway |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |
 
 The e2e suites are run by hand with `tests/e2e/run.sh`, not in CI. Each run uses its own `id`, so it
@@ -535,3 +577,4 @@ Differences from the original design spec:
 | Data freshness in `usage` | Show how recent the cost export data is in the untracked section |
 | IAM account access manager | Assigns the personal role directly, without role chaining. IT must enable it in the management account; only the trust policy and the user sign-in change. |
 | Exception approvals | Decide who may approve an unpause or a limit raise mid-month, and how |
+| Exact gateway ARN | `bedrock-invoke` allows `gateway/*`. Narrow it to the one gateway if the account hosts others. |

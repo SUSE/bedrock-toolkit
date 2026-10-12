@@ -16,6 +16,9 @@ Two command-line tools do the work:
 - AWS bills each Bedrock call with that tag, and an AWS Budget per user tracks it.
 - At the limit, the budget attaches a deny policy to that user's role. A monthly Lambda re-arms it.
 - `bedrock-admin apply` creates all of this from `bedrock.yaml`.
+- Optional: web search for Claude Code and the desktop app (their own search doesn't work on
+  Bedrock), through an AgentCore gateway that personal roles may call and the pause also blocks.
+  Search cost ($7 per 1,000) is not budgeted per user; the setup manages only Bedrock model spend.
 
 ```
  User (SSO login)

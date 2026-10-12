@@ -29,6 +29,9 @@ type Line struct {
 	Model     string // product['product_name'], else line_item_usage_type, else the product code
 }
 
+// WebSearchLabel names AgentCore rows: bedrock-admin uses AgentCore only for the web search gateway.
+const WebSearchLabel = "web search (AgentCore)"
+
 const (
 	colPrincipal = "line_item_iam_principal"
 	colCost      = "line_item_unblended_cost"
@@ -276,6 +279,9 @@ func ReadFile(r io.ReaderAt, size int64, fn func(Line)) error {
 			}
 			if l.Model == "" && hasUsageType {
 				l.Model = str(ut[i][0], usageType)
+			}
+			if hasCode && strings.Contains(strings.ToLower(str(pc[i][0], code)), "agentcore") {
+				l.Model = WebSearchLabel
 			}
 			if l.Model == "" && hasCode {
 				l.Model = str(pc[i][0], code)

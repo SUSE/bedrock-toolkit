@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,6 +44,7 @@ type Config struct {
 	Defaults         Defaults         `yaml:"defaults" json:"defaults"`
 	CostExport       CostExport       `yaml:"cost_export" json:"cost_export"`
 	BlockDirectCalls BlockDirectCalls `yaml:"block_direct_calls" json:"block_direct_calls"`
+	WebSearch        WebSearch        `yaml:"web_search,omitempty" json:"web_search,omitempty"`
 	Users            []User           `yaml:"users" json:"users"`
 
 	// Path is the file the config was read from ("" when built in memory).
@@ -70,6 +72,16 @@ type BlockDirectCalls struct {
 	Method             string `yaml:"method,omitempty" json:"method,omitempty"`
 	AdminPermissionSet string `yaml:"admin_permission_set,omitempty" json:"admin_permission_set,omitempty"`
 }
+
+// WebSearch turns on the AgentCore Web Search gateway for every user.
+type WebSearch struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// ExcludeDomains are left out of every search result.
+	ExcludeDomains []string `yaml:"exclude_domains,omitempty" json:"exclude_domains,omitempty"`
+}
+
+// WebSearchRegions are the regions where AgentCore Web Search is available.
+var WebSearchRegions = []string{"us-east-1", "eu-west-1", "ap-northeast-1"}
 
 type User struct {
 	Email          string   `yaml:"email" json:"email"`
@@ -107,6 +119,7 @@ var (
 	bucketRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	productRe = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,128}$`)
 	psRe      = regexp.MustCompile(`^[A-Za-z0-9+=,.@-]{1,32}$`)
+	domainRe  = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 	invalidCh = regexp.MustCompile(`[^a-z0-9.-]+`)
 )
 
@@ -327,6 +340,22 @@ func (c *Config) Validate() error {
 	}
 	if !psRe.MatchString(c.BlockDirectCalls.AdminPermissionSet) {
 		add("block_direct_calls.admin_permission_set: not a permission set name (got %q)", c.BlockDirectCalls.AdminPermissionSet)
+	}
+	if c.WebSearch.Enabled && !slices.Contains(WebSearchRegions, c.Region) {
+		add("web_search.enabled: web search is only available in %s (region is %q)", strings.Join(WebSearchRegions, ", "), c.Region)
+	}
+	if len(c.WebSearch.ExcludeDomains) > 100 {
+		add("web_search.exclude_domains: at most 100 domains (got %d)", len(c.WebSearch.ExcludeDomains))
+	}
+	seenDomain := map[string]bool{}
+	for i, d := range c.WebSearch.ExcludeDomains {
+		if !domainRe.MatchString(d) {
+			add("web_search.exclude_domains[%d]: not a lowercase domain name like example.com (got %q)", i, d)
+		}
+		if seenDomain[d] {
+			add("web_search.exclude_domains[%d]: %s is listed twice", i, d)
+		}
+		seenDomain[d] = true
 	}
 
 	emails := map[string]int{}

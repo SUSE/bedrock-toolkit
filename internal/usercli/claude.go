@@ -15,6 +15,7 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/awsconf"
 	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
 	"github.com/SUSE/high-impact-ai-initiative/internal/config"
+	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
 )
 
 // ClaudeRunner runs the claude CLI in dir with env and returns its combined output.
@@ -39,8 +40,8 @@ var claudeDropEnv = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHR
 	"ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CONFIG_DIR"}
 
 type claudeFlags struct {
-	profile, model string
-	noTest         bool
+	profile, model       string
+	noTest, noSearchTest bool
 }
 
 func (a *App) claudeCmd() *cobra.Command {
@@ -55,7 +56,10 @@ It never reads or changes your Claude Code settings: the test run uses a tempora
 folder (CLAUDE_CONFIG_DIR) and working directory, no tools, MCP servers, hooks or plugins, and
 removes it afterwards. You copy the printed settings yourself. The test is one short model call
 through your personal role. Without claude on your PATH, or with --no-test, it only prints the
-settings. It exits 2 when the test fails.`,
+settings. It exits 2 when the test fails.
+
+When your admin enabled web search, it also runs one search through the web search gateway (less
+than $0.01; skip it with --no-search-test) and prints the MCP server to add to Claude Code.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.claude(cmd.Context(), f) },
 	}
@@ -63,6 +67,7 @@ settings. It exits 2 when the test fails.`,
 	fl.StringVar(&f.profile, "profile-name", DefaultProfile, "profile Claude Code should use")
 	fl.StringVar(&f.model, "model", "", "model for the test call (default: the region's Sonnet 5.5)")
 	fl.BoolVar(&f.noTest, "no-test", false, "only print the settings")
+	fl.BoolVar(&f.noSearchTest, "no-search-test", false, "skip the web search test")
 	return cmd
 }
 
@@ -102,6 +107,20 @@ func (a *App) claude(ctx context.Context, f claudeFlags) error {
 		}
 	}
 
+	url, err := a.AWS.WebSearchURL(ctx, f.profile, region)
+	if err != nil {
+		a.printf("Couldn't check for web search: %v\n\n", short(err))
+	}
+	if url != "" && !f.noTest && !f.noSearchTest {
+		a.printf("Testing web search (one search through your personal role)...\n")
+		if err := a.AWS.WebSearch(ctx, f.profile, region, url, true); err != nil {
+			a.printf("FAIL  web search: %s\n      fix: %s\n\n", short(err), webSearchFix(err))
+			failed = true
+		} else {
+			a.printf("ok    web search: answered\n\n")
+		}
+	}
+
 	settings := map[string]any{"env": env}
 	if src := s.Keys["source_profile"]; src != "" {
 		settings["awsAuthRefresh"] = loginCommand(file, src)
@@ -130,6 +149,9 @@ Claude desktop app (Settings, Amazon Bedrock):
                      %[4]s
                      %[7]s
 `, f.profile, js, region, opus, awsPathLine(), sonnet, haiku)
+	if url != "" {
+		a.printWebSearch(f.profile, region, url)
+	}
 	if failed {
 		return cli.Exit(cli.Problem)
 	}
@@ -223,4 +245,53 @@ func awsPathLine() string {
 		return ""
 	}
 	return fmt.Sprintf("  AWS CLI path:      %s\n", p)
+}
+
+// mcpServer is the web search MCP server entry: the AWS proxy signs the calls with the profile.
+func mcpServer(command, profile, region, url string) map[string]any {
+	return map[string]any{"command": command, "args": []string{websearch.ProxyPackage, url,
+		"--service", websearch.Service, "--profile", profile, "--region", region}}
+}
+
+func (a *App) printWebSearch(profile, region, url string) {
+	one, _ := json.Marshal(mcpServer("uvx", profile, region, url))
+	uvx, err := exec.LookPath("uvx")
+	uvxNote := ""
+	if err != nil {
+		uvx = "uvx"
+		uvxNote = "\n  uvx is not on your PATH: install uv first (https://docs.astral.sh/uv/getting-started/installation/).\n"
+	}
+	server := mcpServer(uvx, profile, region, url)
+	args := ""
+	for _, s := range server["args"].([]string) {
+		args += "\n      " + s
+	}
+	a.printf(`
+Web search (enabled by your admin). Claude Code's own WebSearch tool doesn't work on Bedrock; this
+MCP server searches through your personal role instead. It needs uv. Searches are paid by the
+account, not counted against your monthly budget.
+%[1]s
+Add it for every project (with CLAUDE_CONFIG_DIR=~/.claude-work in front if you use that):
+
+  claude mcp add-json web-search '%[2]s' --scope user
+
+Claude sometimes uses WebFetch on a guessed URL instead of searching. To steer it, add this line
+to ~/.claude/CLAUDE.md:
+
+  For web searches, use the web-search MCP tool. Use WebFetch only to read specific URLs.
+
+Keep the source links Claude shows with search results when you share them: the search terms ask for it.
+
+Claude desktop app (Amazon Bedrock mode): Configure third-party inference, Connectors, Managed MCP
+servers, Add, a local (stdio) server. Not Streamable HTTP: the gateway needs AWS-signed requests,
+which only the local proxy makes.
+
+  Name:     web-search
+  Command:  %[3]s
+  Args:     (one per line)%[4]s
+  OAuth:    None; no headers
+
+Then Sign in & test, save, and quit and reopen the app. Run aws sso login --profile %[5]s first
+when your session has expired.
+`, uvxNote, one, uvx, args, profile)
 }

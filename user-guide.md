@@ -19,6 +19,7 @@ minutes.
   - [Step 2. Write your Bedrock profile](#step-2-write-your-bedrock-profile)
   - [Step 3. Check it](#step-3-check-it)
   - [Step 4. Set up Claude Code](#step-4-set-up-claude-code)
+  - [Web search](#web-search)
 - [If something goes wrong](#if-something-goes-wrong)
 - [When you're paused](#when-youre-paused)
 
@@ -171,7 +172,8 @@ bedrock claude
 ```
 
 It makes one test call with Claude Code and prints the settings to add, for Claude Code and for the
-Claude desktop app. It never changes your Claude settings: you add them yourself.
+Claude desktop app. It never changes your Claude settings: you add them yourself. If your admin
+turned on web search, it also prints how to add it to both; see [Web search](#web-search).
 
 - Your personal role can only call Claude models. For any other AWS command, use your SSO profile.
 - Credentials renew automatically while your SSO sign-in is valid.
@@ -241,6 +243,82 @@ settings and the desktop app's model list, and check one with `bedrock doctor --
 
 </details>
 
+### Web search
+
+Claude Code's own web search doesn't work on Bedrock. If your admin turned on web search,
+`bedrock claude` also runs one test search and prints an MCP server to add to Claude Code. Without
+it, there is no web search section in the output.
+
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/): Claude Code starts the
+   server with `uvx`.
+2. Run the `claude mcp add-json web-search ... --scope user` command that `bedrock claude` prints.
+   `--scope user` makes it work in every project. If you start Claude Code for work with
+   `CLAUDE_CONFIG_DIR=~/.claude-work`, put that in front of the command too.
+3. Add this line to `~/.claude/CLAUDE.md` (or `~/.claude-work/CLAUDE.md`), because Claude sometimes
+   uses WebFetch on a guessed URL instead of searching:
+   `For web searches, use the web-search MCP tool. Use WebFetch only to read specific URLs.`
+4. In Claude Code, `/mcp` shows `web-search` as connected. Ask something that needs a search.
+   On the first start `uvx` downloads the proxy, which can take longer than Claude Code waits: if
+   `web-search` shows as pending or failed, restart Claude Code, or start it once with
+   `MCP_TIMEOUT=60000`.
+
+- Each search costs about $0.007, paid by the account: it doesn't count against your monthly
+  budget. When you're paused, search stops too.
+- The server is AWS's `mcp-proxy-for-aws`, signing each call with the `bedrock` profile. Searches go
+  to AWS only.
+- When you share search results, keep the source links Claude shows: the search service's terms ask
+  for it.
+- For the Claude desktop app in Amazon Bedrock mode, add it under Configure third-party inference,
+  Connectors, Managed MCP servers, as a local (stdio) server with the command and arguments
+  `bedrock claude` prints. Not Streamable HTTP: the gateway needs AWS-signed requests, which only
+  the local proxy makes. Then Sign in & test, save, and quit and reopen the app.
+- `bedrock doctor` checks that `uvx` is installed and that you may use the gateway (no search, free).
+  `bedrock claude --no-search-test` skips the test search.
+
+<details>
+<summary>Sample output</summary>
+
+```text
+Testing web search (one search through your personal role)...
+ok    web search: answered
+
+...
+
+Web search (enabled by your admin). Claude Code's own WebSearch tool doesn't work on Bedrock; this
+MCP server searches through your personal role instead. It needs uv. Searches are paid by the
+account, not counted against your monthly budget.
+
+Add it for every project (with CLAUDE_CONFIG_DIR=~/.claude-work in front if you use that):
+
+  claude mcp add-json web-search '{"args":["mcp-proxy-for-aws@1.7.0","https://bedrock-web-search-abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp","--service","bedrock-agentcore","--profile","bedrock","--region","us-east-1"],"command":"uvx"}' --scope user
+
+Claude sometimes uses WebFetch on a guessed URL instead of searching. To steer it, add this line
+to ~/.claude/CLAUDE.md:
+
+  For web searches, use the web-search MCP tool. Use WebFetch only to read specific URLs.
+
+...
+
+Claude desktop app (Amazon Bedrock mode): Configure third-party inference, Connectors, Managed MCP
+servers, Add, a local (stdio) server. Not Streamable HTTP: the gateway needs AWS-signed requests,
+which only the local proxy makes.
+
+  Name:     web-search
+  Command:  /opt/homebrew/bin/uvx
+  Args:     (one per line)
+      mcp-proxy-for-aws@1.7.0
+      https://bedrock-web-search-abc123.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp
+      --service
+      bedrock-agentcore
+      --profile
+      bedrock
+      --region
+      us-east-1
+  OAuth:    None; no headers
+```
+
+</details>
+
 ## If something goes wrong
 
 Run `bedrock doctor`. It stops at the first failed setup check (the model checks all run) and prints
@@ -259,6 +337,8 @@ the fix under it:
 | `model <id>` | `AccessDeniedException`, on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
 | `model <id>` | `AccessDeniedException`, on another model | Your role may only call Anthropic Claude models (not Fable). Ask your admin if you need this one. |
 | `model <id>` | `ValidationException` or not found | The model is not offered in your region. Use another model, or ask your admin for the right region. |
+| `uvx` | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |
 
 `bedrock setup` itself can stop with:
 

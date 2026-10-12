@@ -71,7 +71,7 @@ func (e *Env) denyPolicy(ctx context.Context) ([]*plan.Item, error) {
 		return nil, err
 	}
 	if !policy.Equal(policy.Decode(aws.ToString(v.PolicyVersion.Document)), want) {
-		it.Op, it.Details = plan.Update, []string{"policy changed outside the file"}
+		it.Op, it.Details = plan.Update, []string{"policy differs (changed in the console, or by a bedrock-admin upgrade)"}
 		it.Apply = func(ctx context.Context) error { return newPolicyVersion(ctx, e.C.IAM, arn, want) }
 	}
 	return one(it), nil

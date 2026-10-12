@@ -17,6 +17,7 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/iamrole"
 	"github.com/SUSE/high-impact-ai-initiative/internal/plan"
 	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
 )
 
 // BucketDeleteNote warns that a deleted bucket name can't be reused right away.
@@ -65,6 +66,18 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 		out = append(out, it)
 	}
 
+	if g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway); err != nil {
+		if !awsx.IsAccessDenied(err) && !isUnsupportedRegion(err) {
+			return nil, err
+		}
+	} else if g != nil {
+		id := g.ID
+		del("1.8", "web search gateway "+policy.WebSearchGateway, g.OwnerID, func(ctx context.Context) error {
+			return websearch.Delete(ctx, e.C.AgentCore, id)
+		})
+	} else if e.Cfg.WebSearch.Enabled {
+		missing("1.8", "web search gateway "+policy.WebSearchGateway)
+	}
 	if s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(policy.ScheduleName)}); err == nil {
 		del("1.4", "schedule "+policy.ScheduleName, ScheduleID(aws.ToString(s.Description)), func(ctx context.Context) error {
 			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(policy.ScheduleName)})
@@ -86,6 +99,7 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 		return nil, err
 	}
 	for _, r := range []struct{ step, label, name string }{
+		{"1.8", "web search role ", policy.WebSearchRole},
 		{"1.4", "scheduler role ", policy.SchedulerRole},
 		{"1.4", "Lambda role ", policy.LambdaRole},
 		{"1.3", "budget actions role ", policy.BudgetActionsRole},
@@ -95,7 +109,9 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 			return nil, err
 		}
 		if !st.Exists {
-			missing(r.step, r.label+r.name)
+			if r.name != policy.WebSearchRole || e.Cfg.WebSearch.Enabled {
+				missing(r.step, r.label+r.name)
+			}
 			continue
 		}
 		name := r.name

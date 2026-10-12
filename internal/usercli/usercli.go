@@ -30,6 +30,10 @@ type AWS interface {
 	AssumeRole(ctx context.Context, profile, roleArn, session string) error
 	// Invoke makes the smallest model call with a profile.
 	Invoke(ctx context.Context, profile, region, model string) error
+	// WebSearchURL returns the web search gateway's MCP URL, or "" when the admin hasn't enabled it.
+	WebSearchURL(ctx context.Context, profile, region string) (string, error)
+	// WebSearch checks the gateway with tools/list, or with one real search when search is true.
+	WebSearch(ctx context.Context, profile, region, url string, search bool) error
 }
 
 // App holds the CLI's settings and streams.

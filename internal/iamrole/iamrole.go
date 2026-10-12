@@ -75,7 +75,7 @@ func Observe(ctx context.Context, c *iam.Client, s Spec) (State, error) {
 		case err != nil:
 			return st, fmt.Errorf("reading policy %s of %s: %w", s.InlineName, s.Name, err)
 		case !policy.Equal(policy.Decode(aws.ToString(p.PolicyDocument)), s.Inline):
-			st.Drift = append(st.Drift, "policy "+s.InlineName+" changed outside the file")
+			st.Drift = append(st.Drift, "policy "+s.InlineName+" differs from the file")
 			st.fix.inline = true
 		}
 	}

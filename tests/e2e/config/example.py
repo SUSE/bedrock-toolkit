@@ -6,7 +6,8 @@
 # Sign in before the run, for example: aws sso login --profile <ADMIN_PROFILE>
 ADMIN_PROFILE = "default"
 
-# Bedrock region of the test setup.
+# Bedrock region of the test setup. The web-search suite needs the account setup's region, with web
+# search on there (us-east-1, eu-west-1 or ap-northeast-1).
 REGION = "us-west-2"
 
 # Models apply enables and doctor tests. Empty: the Sonnet 4.5 and Haiku 4.5 inference profiles of REGION.

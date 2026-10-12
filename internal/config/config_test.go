@@ -96,21 +96,23 @@ func TestValidation(t *testing.T) {
 		"long name": {base + "users: [{email: a@x.io, name: " + strings.Repeat("x", 42) + "}]\n", "must be 1-41"},
 		"default pause": {strings.Replace(base, "  limit_usd: 50\n", "  limit_usd: 50\n  pause_at_percent: 250\n", 1),
 			"defaults.pause_at_percent: must be 1-200 (got 250)"},
-		"decimals":     {base + "users: [{email: a@x.io, limit_usd: 1.234}]\n", "two decimals"},
-		"bad name":     {base + "users: [{email: a@x.io, name: Bad_Name}]\n", "name:"},
-		"dup email":    {base + "users: [{email: a@x.io}, {email: A@x.io}]\n", "duplicate"},
-		"dup name":     {base + "users: [{email: a@x.io}, {email: a@y.io}]\n", "also used"},
-		"no models":    {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: []", 1), "models:"},
-		"non-claude":   {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.meta.llama3-3-70b-instruct-v1:0]", 1), "can't be called from personal roles"},
-		"fable":        {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.anthropic.claude-fable-1-v1:0]", 1), "can't be called from personal roles"},
-		"pause 0":      {base + "users: [{email: a@x.io, pause_at_percent: 0}]\n", "1-200"},
-		"pause 201":    {base + "users: [{email: a@x.io, pause_at_percent: 201}]\n", "1-200"},
-		"alert 300":    {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
-		"bad notify":   {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
-		"bad account":  {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
-		"bad id":       {strings.Replace(base, "acme-prod", "Acme Prod", 1), "id:"},
-		"bad method":   {base + "block_direct_calls: {method: magic}\n", "method"},
-		"no limit any": {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
+		"decimals":          {base + "users: [{email: a@x.io, limit_usd: 1.234}]\n", "two decimals"},
+		"bad name":          {base + "users: [{email: a@x.io, name: Bad_Name}]\n", "name:"},
+		"dup email":         {base + "users: [{email: a@x.io}, {email: A@x.io}]\n", "duplicate"},
+		"dup name":          {base + "users: [{email: a@x.io}, {email: a@y.io}]\n", "also used"},
+		"no models":         {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: []", 1), "models:"},
+		"non-claude":        {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.meta.llama3-3-70b-instruct-v1:0]", 1), "can't be called from personal roles"},
+		"fable":             {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.anthropic.claude-fable-1-v1:0]", 1), "can't be called from personal roles"},
+		"pause 0":           {base + "users: [{email: a@x.io, pause_at_percent: 0}]\n", "1-200"},
+		"pause 201":         {base + "users: [{email: a@x.io, pause_at_percent: 201}]\n", "1-200"},
+		"alert 300":         {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
+		"bad notify":        {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
+		"bad account":       {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
+		"bad id":            {strings.Replace(base, "acme-prod", "Acme Prod", 1), "id:"},
+		"bad method":        {base + "block_direct_calls: {method: magic}\n", "method"},
+		"web search region": {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
+		"web search domain": {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},
+		"no limit any":      {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -124,6 +126,22 @@ func TestValidation(t *testing.T) {
 				t.Fatalf("want %q in %v", tc.want, err)
 			}
 		})
+	}
+}
+
+func TestWebSearchEnabled(t *testing.T) {
+	p := write(t, t.TempDir(), "bedrock.yaml", strings.Replace(base, "us-west-2", "eu-west-1", 1)+
+		"web_search:\n  enabled: true\n  exclude_domains: [example.com, a.b.co.uk]\n")
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.WebSearch.Enabled || len(c.WebSearch.ExcludeDomains) != 2 {
+		t.Fatalf("web search: %+v", c.WebSearch)
+	}
+	// Disabled web search doesn't restrict the region.
+	if _, err := Load(write(t, t.TempDir(), "bedrock.yaml", base+"web_search: {enabled: false}\n")); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -10,7 +10,7 @@ RUN python /tmp/install-awscli.py && rm -rf /tmp/aws /tmp/awscli.zip /tmp/instal
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
-    && aws --version && python -c "import robot, boto3; print('robot', robot.__version__, 'boto3', boto3.__version__)"
+    && aws --version && python -c "import robot, boto3; print('robot', robot.__version__, 'boto3', boto3.__version__)" && uvx --version
 
 # run.sh runs the container as the host user, so HOME must be writable by any uid.
 # ~/.aws is bind-mounted under it.

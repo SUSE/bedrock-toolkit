@@ -25,7 +25,7 @@ func (a *App) uninstallCmd() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove the account setup (refuses while users remain)",
 		Long: `uninstall removes the account setup this config's id created: the monthly Lambda and its schedule,
-the budget actions role, the bedrock-deny policy and the cost export. It refuses while personal roles
+the budget actions role, the bedrock-deny policy, the web search gateway and the cost export. It refuses while personal roles
 remain (remove the users from the file and apply first). The cost export bucket, with the billing history
 and snapshots, is kept unless --delete-data is given. It asks first unless --yes is given.`,
 		Args: cobra.NoArgs,
@@ -153,7 +153,7 @@ func (a *App) doctor(ctx context.Context) []Check {
 	if err != nil {
 		fix := ""
 		if awsx.IsAccessDenied(err) {
-			fix = "use an admin role with IAM, Budgets, Data Exports, S3, Lambda, EventBridge Scheduler, Cost Explorer and Bedrock rights"
+			fix = "use an admin role with IAM, Budgets, Data Exports, S3, Lambda, EventBridge Scheduler, Cost Explorer, Bedrock and Bedrock AgentCore rights"
 		}
 		out = append(out, Check{Name: "permissions", Detail: err.Error(), Fix: fix})
 	} else {

@@ -55,8 +55,16 @@ func RoleSpec(cfg *config.Config, account string, u config.Resolved) iamrole.Spe
 	return iamrole.Spec{Name: u.RoleName, Path: policy.UsersPath,
 		Description: "Personal Bedrock role of " + u.Email,
 		Trust:       policy.UserTrust(account, u.Email), InlineName: policy.InvokePolicyName,
-		Inline: policy.UserInvoke(account), MaxSession: MaxSession,
+		Inline: policy.UserInvoke(account, WebSearchRegion(cfg)), MaxSession: MaxSession,
 		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: cfg.Product, policy.IDTag: cfg.ID}}
+}
+
+// WebSearchRegion is the region personal roles may search in, or "" when web search is off.
+func WebSearchRegion(cfg *config.Config) string {
+	if cfg.WebSearch.Enabled {
+		return cfg.Region
+	}
+	return ""
 }
 
 // SetupCommand is the command to send the user.

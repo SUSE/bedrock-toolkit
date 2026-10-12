@@ -34,7 +34,24 @@ const (
 	ProductTag             = "product"
 	IDTag                  = "bedrock-admin:id"
 	CostAllocationOwnerTag = "iamPrincipal/owner"
+	WebSearchRole          = "bedrock-web-search-gateway"
+	WebSearchPolicy        = "web-search"
+	WebSearchGateway       = "bedrock-web-search"
+	WebSearchTarget        = "web-search"
+	WebSearchConnector     = "web-search"
+	// WebSearchConnectorVersion is the tested AgentCore Web Search connector version.
+	WebSearchConnectorVersion = "1.2.0"
 )
+
+// GatewaysArn matches every AgentCore gateway of the account in region.
+func GatewaysArn(region, account string) string {
+	return fmt.Sprintf("arn:aws:bedrock-agentcore:%s:%s:gateway/*", region, account)
+}
+
+// WebSearchToolArn is the AWS-owned Web Search tool.
+func WebSearchToolArn(region string) string {
+	return fmt.Sprintf("arn:aws:bedrock-agentcore:%s:aws:tool/web-search.v1", region)
+}
 
 func DenyPolicyArn(account string) string {
 	return fmt.Sprintf("arn:aws:iam::%s:policy/bedrock/%s", account, DenyPolicyName)
@@ -51,7 +68,7 @@ func LambdaArn(region, account string) string {
 
 // DenyActions are the model-call actions blocked by a pause.
 var DenyActions = []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
-	"bedrock:CreateModelInvocationJob", "bedrock:CallWithBearerToken"}
+	"bedrock:CreateModelInvocationJob", "bedrock:CallWithBearerToken", "bedrock-agentcore:InvokeGateway"}
 
 // BlockActions are the actions Step 1.7 blocks outside personal roles.
 var BlockActions = []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
@@ -98,6 +115,24 @@ func BudgetActionsPermissions(account string) string {
 func ServiceTrust(service, account string) string {
 	return document(stmt{"Effect": "Allow", "Principal": doc{"Service": service}, "Action": "sts:AssumeRole",
 		"Condition": doc{"StringEquals": doc{"aws:SourceAccount": account}}})
+}
+
+// WebSearchGatewayTrust lets only AgentCore gateways of this account assume the gateway role.
+func WebSearchGatewayTrust(region, account string) string {
+	return document(stmt{"Effect": "Allow", "Principal": doc{"Service": "bedrock-agentcore.amazonaws.com"},
+		"Action": "sts:AssumeRole", "Condition": doc{
+			"StringEquals": doc{"aws:SourceAccount": account},
+			"ArnLike":      doc{"aws:SourceArn": GatewaysArn(region, account)}}})
+}
+
+// WebSearchGatewayPermissions lets the gateway call Web Search, and nothing else.
+func WebSearchGatewayPermissions(region, account string) string {
+	return document(
+		stmt{"Sid": "InvokeGateway", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway",
+			"Resource": GatewaysArn(region, account)},
+		stmt{"Sid": "WebSearch", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeWebSearch",
+			"Resource": WebSearchToolArn(region)},
+	)
 }
 
 // LambdaPermissions lets the monthly Lambda re-arm budget actions, keep manual pauses in place and
@@ -149,20 +184,30 @@ func AllowedModel(model string) bool {
 	return strings.Contains(model, "anthropic.claude-") && !strings.Contains(model, "anthropic.claude-fable")
 }
 
-// UserInvoke allows Claude models only, and always denies the Claude Fable family.
-func UserInvoke(account string) string {
-	return document(
-		stmt{"Sid": "InvokeClaudeModelsOnly", "Effect": "Allow",
+// UserInvoke allows Claude models only, and always denies the Claude Fable family. With a
+// webSearchRegion, it also allows calling the account's AgentCore gateways there.
+func UserInvoke(account, webSearchRegion string) string {
+	s := []stmt{
+		{"Sid": "InvokeClaudeModelsOnly", "Effect": "Allow",
 			"Action": []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"},
 			"Resource": []string{"arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
 				fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/*anthropic.claude-*", account)}},
-		stmt{"Sid": "DiscoverModels", "Effect": "Allow", "Action": []string{"bedrock:ListFoundationModels",
+		{"Sid": "DiscoverModels", "Effect": "Allow", "Action": []string{"bedrock:ListFoundationModels",
 			"bedrock:GetFoundationModel", "bedrock:ListInferenceProfiles", "bedrock:GetInferenceProfile"}, "Resource": "*"},
-		stmt{"Sid": "DenyUnapprovedFableModels", "Effect": "Deny",
+		{"Sid": "DenyUnapprovedFableModels", "Effect": "Deny",
 			"Action": []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:CreateModelInvocationJob"},
 			"Resource": []string{"arn:aws:bedrock:*::foundation-model/anthropic.claude-fable*",
 				fmt.Sprintf("arn:aws:bedrock:*:%s:inference-profile/*anthropic.claude-fable*", account)}},
-	)
+	}
+	if webSearchRegion != "" {
+		s = append(s,
+			stmt{"Sid": "WebSearch", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway",
+				"Resource": GatewaysArn(webSearchRegion, account)},
+			stmt{"Sid": "FindWebSearchGateway", "Effect": "Allow", "Action": "bedrock-agentcore:ListGateways", "Resource": "*"},
+			stmt{"Sid": "ReadWebSearchGateway", "Effect": "Allow", "Action": "bedrock-agentcore:GetGateway",
+				"Resource": GatewaysArn(webSearchRegion, account)})
+	}
+	return document(s...)
 }
 
 // BlockStatement is the Step 1.7 deny, as one statement (for an SCP or a permission set).

@@ -14,6 +14,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bcmdataexports"
 	"github.com/aws/aws-sdk-go-v2/service/bedrock"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
@@ -42,6 +43,7 @@ type Clients struct {
 	Bedrock   *bedrock.Client
 	Runtime   *bedrockruntime.Client
 	CE        *costexplorer.Client
+	AgentCore *bedrockagentcorecontrol.Client
 }
 
 // Load reads AWS credentials for profile ("" for the default chain) and region.
@@ -102,6 +104,7 @@ func FromConfig(cfg aws.Config) *Clients {
 		Bedrock:   bedrock.NewFromConfig(cfg),
 		Runtime:   bedrockruntime.NewFromConfig(cfg),
 		CE:        costexplorer.NewFromConfig(east),
+		AgentCore: bedrockagentcorecontrol.NewFromConfig(cfg),
 	}
 }
 

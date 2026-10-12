@@ -15,9 +15,13 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import boto3
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from botocore.exceptions import ClientError
 from robot.api import Failure, SkipExecution, logger
 from robot.libraries.BuiltIn import BuiltIn
@@ -34,6 +38,11 @@ ID_TAG = "bedrock-admin:id"
 OWNER_TAG = "owner"
 PAUSED_BY_TAG = "bedrock:paused-by"
 PAUSE_REASON_TAG = "bedrock:pause-reason"
+WEB_SEARCH_GATEWAY = "bedrock-web-search"
+WEB_SEARCH_TARGET = "web-search"
+WEB_SEARCH_ROLE = "bedrock-web-search-gateway"
+WEB_SEARCH_TOOL = "web-search___WebSearch"
+WEB_SEARCH_REGIONS = ("us-east-1", "eu-west-1", "ap-northeast-1")
 PENDING_OPS = {"create", "update", "delete", "needs-org-admin", "conflict"}
 
 DEFAULTS = {
@@ -1030,6 +1039,149 @@ class BedrockE2E:
 
     def delete_billing_state(self):
         self._state_path(self.run_id).unlink(missing_ok=True)
+
+    # ---------------------------------------------------------------- web search (Step 1.8)
+
+    def web_search_region_should_be_supported(self):
+        region = self._settings()["REGION"]
+        if region not in WEB_SEARCH_REGIONS:
+            raise SkipExecution(f"web search isn't offered in {region}: set REGION to one of {', '.join(WEB_SEARCH_REGIONS)}")
+
+    def _agentcore(self):
+        return self._session("admin").client("bedrock-agentcore-control")
+
+    def web_search_gateway(self):
+        """The gateway (GetGateway output) named bedrock-web-search, or None."""
+        ac = self._agentcore()
+        for page in ac.get_paginator("list_gateways").paginate():
+            for g in page["items"]:
+                if g["name"] == WEB_SEARCH_GATEWAY:
+                    return ac.get_gateway(gatewayIdentifier=g["gatewayId"])
+        return None
+
+    def web_search_target(self, gateway_id):
+        ac = self._agentcore()
+        for page in ac.get_paginator("list_gateway_targets").paginate(gatewayIdentifier=gateway_id):
+            for t in page["items"]:
+                if t["name"] == WEB_SEARCH_TARGET:
+                    return ac.get_gateway_target(gatewayIdentifier=gateway_id, targetId=t["targetId"])
+        return None
+
+    def web_search_should_be_ready(self, owner):
+        """The account's gateway: READY, IAM auth, the gateway role, managed by id owner, and its
+        Web Search target READY. Returns the gateway URL."""
+        g = self.web_search_gateway()
+        if not g:
+            raise Failure(f"no gateway {WEB_SEARCH_GATEWAY}: enable web_search in the account setup (id {owner})")
+        problems = []
+        if g["status"] != "READY":
+            problems.append(f"gateway status {g['status']}")
+        if g.get("authorizerType") != "AWS_IAM":
+            problems.append(f"authorizer {g.get('authorizerType')}")
+        if not g.get("roleArn", "").endswith(f"/{WEB_SEARCH_ROLE}"):
+            problems.append(f"role {g.get('roleArn')}")
+        tags = self._agentcore().list_tags_for_resource(resourceArn=g["gatewayArn"]).get("tags", {})
+        if tags.get(ID_TAG) != owner:
+            problems.append(f"tags {tags}, expected {ID_TAG}={owner}")
+        t = self.web_search_target(g["gatewayId"])
+        if not t:
+            problems.append(f"no target {WEB_SEARCH_TARGET}")
+        elif t["status"] != "READY":
+            problems.append(f"target status {t['status']}")
+        if problems:
+            raise Failure("web search: " + "; ".join(problems))
+        return g["gatewayUrl"]
+
+    def role_policy_text(self, role, name="bedrock-invoke"):
+        return json.dumps(self._iam().get_role_policy(RoleName=role, PolicyName=name)["PolicyDocument"])
+
+    def _mcp(self, profile, url, method, params):
+        """One SigV4-signed MCP JSON-RPC call as profile (user:<x>, sso, or a profile in the run's
+        AWS config). Returns (HTTP status, JSON-RPC result or error text)."""
+        if profile.startswith("user:"):
+            sess = self._user_session(profile[5:])
+        elif profile not in ("admin", "sso", "untracked") and self.user_aws_config:
+            os.environ["AWS_CONFIG_FILE"] = str(self.user_aws_config)
+            try:
+                sess = boto3.Session(profile_name=profile)
+            finally:
+                os.environ.pop("AWS_CONFIG_FILE", None)
+        else:
+            sess = self._session(profile)
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        req = AWSRequest(method="POST", url=url, data=body, headers={
+            "Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+        SigV4Auth(sess.get_credentials().get_frozen_credentials(), "bedrock-agentcore", self._settings()["REGION"]).add_auth(req)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=body.encode(), headers=dict(req.headers),
+                                                               method="POST"), timeout=60) as r:
+                text = r.read().decode()
+                status = r.status
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                text = line[5:].strip()
+        d = json.loads(text)
+        if "error" in d:
+            return status, json.dumps(d["error"])
+        return status, d["result"]
+
+    def web_search_should_work(self, profile, url):
+        """One real search (maxResults 1, about $0.007) as profile."""
+        status, res = self._mcp(profile, url, "tools/call", {"name": WEB_SEARCH_TOOL,
+                                                            "arguments": {"query": "Amazon Bedrock", "maxResults": 1}})
+        if status != 200 or not isinstance(res, dict) or res.get("isError"):
+            raise Failure(f"search as {profile}: HTTP {status}: {res}")
+        logger.info(json.dumps(res)[:2000])
+
+    def web_search_should_be_denied(self, profile, url):
+        """tools/list as profile is refused (HTTP 401/403)."""
+        status, res = self._mcp(profile, url, "tools/list", {})
+        if status not in (401, 403):
+            raise Failure(f"tools/list as {profile}: HTTP {status}, expected 403: {res}")
+
+    def mcp_proxy_should_list_web_search(self, server_json):
+        """Runs the MCP server printed by bedrock claude (uvx mcp-proxy-for-aws ...) over stdio, with
+        the run's AWS config, and checks that tools/list has the Web Search tool."""
+        server = json.loads(server_json)
+        env = dict(os.environ, AWS_CONFIG_FILE=str(self.user_aws_config))
+        env.pop("AWS_PROFILE", None)
+        msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                    "protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "bedrock-e2e", "version": "1"}}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+        cmd = [server["command"]] + server["args"]
+        logger.info("$ " + " ".join(cmd))
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, env=env, cwd=self.cwd)
+        try:
+            p.stdin.write(json.dumps(msgs[0]) + "\n")
+            p.stdin.flush()
+            deadline, sent = time.time() + 300, False
+            while time.time() < deadline:
+                line = p.stdout.readline()
+                if not line:
+                    break
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("id") == 1 and not sent:
+                    p.stdin.write(json.dumps(msgs[1]) + "\n" + json.dumps(msgs[2]) + "\n")
+                    p.stdin.flush()
+                    sent = True
+                elif d.get("id") == 2:
+                    names = [t["name"] for t in d.get("result", {}).get("tools", [])]
+                    if WEB_SEARCH_TOOL not in names:
+                        raise Failure(f"tools/list through the proxy: {d}")
+                    return names
+            raise Failure("no tools/list answer from the proxy")
+        finally:
+            p.kill()
+            _, err = p.communicate(timeout=30)
+            logger.info(f"proxy stderr:\n{err[-4000:]}")
 
     # ---------------------------------------------------------------- small helpers
 

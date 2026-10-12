@@ -391,3 +391,17 @@ func TestClassify(t *testing.T) {
 		}
 	}
 }
+
+func TestReadWebSearch(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data", "BILLING_PERIOD=2026-10")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := row(sts("bedrock-user-usage-a", "usage-a@example.test"), "usage-a@example.test", 0.007, "2026-10-01 09", "Amazon Bedrock AgentCore")
+	r.Code, r.UsageType = "AmazonBedrockAgentCore", "USE1-WebSearch-Requests"
+	writeParquet(t, filepath.Join(dir, "part-0.parquet"), []fixtureRow{r})
+	lines := readAll(t, DirSource{Dir: filepath.Dir(filepath.Dir(dir))}, "2026-10")
+	if len(lines) != 1 || lines[0].Model != WebSearchLabel {
+		t.Fatalf("%+v", lines)
+	}
+}

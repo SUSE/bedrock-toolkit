@@ -13,6 +13,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
+	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
 )
 
 const email = "achen@example.com"
@@ -22,6 +23,9 @@ type fakeAWS struct {
 	assumeErr  error
 	invokeErrs map[string]error
 	invoked    []string
+	searchURL  string
+	searchErr  error
+	searches   []bool
 }
 
 func (f *fakeAWS) Identity(_ context.Context, profile string) (string, error) {
@@ -36,6 +40,15 @@ func (f *fakeAWS) AssumeRole(context.Context, string, string, string) error { re
 func (f *fakeAWS) Invoke(_ context.Context, _, region, model string) error {
 	f.invoked = append(f.invoked, region+" "+model)
 	return f.invokeErrs[model]
+}
+
+func (f *fakeAWS) WebSearchURL(context.Context, string, string) (string, error) {
+	return f.searchURL, nil
+}
+
+func (f *fakeAWS) WebSearch(_ context.Context, _, _, _ string, search bool) error {
+	f.searches = append(f.searches, search)
+	return f.searchErr
 }
 
 func newFake() *fakeAWS {
@@ -226,13 +239,18 @@ func TestDoctorJSONAndModels(t *testing.T) {
 
 func runClaudeCmd(t *testing.T, cfg string, runner ClaudeRunner, args ...string) (int, string) {
 	t.Helper()
+	return runClaudeWith(t, newFake(), cfg, runner, args...)
+}
+
+func runClaudeWith(t *testing.T, f *fakeAWS, cfg string, runner ClaudeRunner, args ...string) (int, string) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "config")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AWS_CONFIG_FILE", path)
 	var o bytes.Buffer
-	a := &App{Version: "test", In: strings.NewReader(""), Out: &o, Err: &o, AWS: newFake(), Claude: runner}
+	a := &App{Version: "test", In: strings.NewReader(""), Out: &o, Err: &o, AWS: f, Claude: runner}
 	return a.Main(context.Background(), append([]string{"claude"}, args...)), o.String()
 }
 
@@ -290,5 +308,74 @@ func TestClaude(t *testing.T) {
 	}
 	if code, out := runClaudeCmd(t, ssoConfig, never); code != cli.Error || !strings.Contains(out, "run bedrock setup first") {
 		t.Fatalf("exit %d: %s", code, out)
+	}
+}
+
+const gatewayURL = "https://bedrock-web-search-abc.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
+
+func TestClaudeWebSearch(t *testing.T) {
+	cfg := ssoConfig + "\n" + strings.ReplaceAll(wantBlock, "us-west-2", "us-east-1")
+	t.Setenv("PATH", t.TempDir())
+	ok := func(context.Context, string, []string, []string) (string, error) { return "OK\n", nil }
+
+	f := newFake()
+	if code, out := runClaudeWith(t, f, cfg, ok); code != cli.OK || strings.Contains(out, "Web search") || len(f.searches) != 0 {
+		t.Fatalf("disabled: exit %d %v\n%s", code, f.searches, out)
+	}
+
+	f = newFake()
+	f.searchURL = gatewayURL
+	code, out := runClaudeWith(t, f, cfg, ok)
+	for _, want := range []string{"ok    web search: answered",
+		`claude mcp add-json web-search '{"args":["mcp-proxy-for-aws@1.7.0","` + gatewayURL +
+			`","--service","bedrock-agentcore","--profile","bedrock","--region","us-east-1"],"command":"uvx"}' --scope user`,
+		"use the web-search MCP tool", "uvx is not on your PATH", "Managed MCP", "local (stdio)", "\n      --service\n      bedrock-agentcore"} {
+		if code != cli.OK || !strings.Contains(out, want) {
+			t.Fatalf("exit %d, missing %q in\n%s", code, want, out)
+		}
+	}
+	if len(f.searches) != 1 || !f.searches[0] {
+		t.Errorf("searches = %v", f.searches)
+	}
+
+	f = newFake()
+	f.searchURL = gatewayURL
+	if code, out := runClaudeWith(t, f, cfg, ok, "--no-search-test"); code != cli.OK || len(f.searches) != 0 || !strings.Contains(out, "add-json web-search") {
+		t.Fatalf("--no-search-test: exit %d %v\n%s", code, f.searches, out)
+	}
+
+	f = newFake()
+	f.searchURL, f.searchErr = gatewayURL, &websearch.HTTPError{Status: 403, Body: "denied"}
+	if code, out := runClaudeWith(t, f, cfg, ok); code != cli.Problem || !strings.Contains(out, "FAIL  web search") || !strings.Contains(out, "paused") {
+		t.Fatalf("denied: exit %d\n%s", code, out)
+	}
+}
+
+func TestDoctorWebSearch(t *testing.T) {
+	setUp := ssoConfig + "\n" + wantBlock
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+
+	f := newFake()
+	if code, out, _ := run(t, f, setUp, "", "doctor"); code != cli.OK || strings.Contains(out, "web search") {
+		t.Fatalf("disabled: exit %d\n%s", code, out)
+	}
+
+	f = newFake()
+	f.searchURL = gatewayURL
+	code, out, _ := run(t, f, setUp, "", "doctor")
+	if code != cli.Problem || !strings.Contains(out, "FAIL  uvx") || !strings.Contains(out, "ok    web search") ||
+		len(f.searches) != 1 || f.searches[0] {
+		t.Fatalf("no uvx: exit %d %v\n%s", code, f.searches, out)
+	}
+
+	if err := os.WriteFile(filepath.Join(bin, "uvx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f = newFake()
+	f.searchURL, f.searchErr = gatewayURL, &websearch.HTTPError{Status: 403, Body: "denied"}
+	code, out, _ = run(t, f, setUp, "", "doctor")
+	if code != cli.Problem || !strings.Contains(out, "ok    uvx") || !strings.Contains(out, "FAIL  web search") || !strings.Contains(out, "paused") {
+		t.Fatalf("denied: exit %d\n%s", code, out)
 	}
 }

@@ -2,7 +2,8 @@
 # Runs an e2e suite in a container. Builds both CLIs for Linux first.
 #
 #   ./run.sh <suite> [robot options...]
-#       suites: cli account users user-access usage billing, or "fast" (all but billing)
+#       suites: cli account users user-access usage web-search billing, or "fast"
+#       (all but billing and web-search)
 #   ./run.sh shell       a shell in the test container, for debugging
 #   ./run.sh build       rebuild the image
 #
@@ -18,7 +19,7 @@ repo=$(cd ../.. && pwd)
 runtime=${E2E_RUNTIME:-docker}
 image=bedrock-e2e:$(cat Dockerfile requirements.txt install-awscli.py | shasum | cut -c1-12)
 
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 die() { echo "error: $*" >&2; exit 1; }
 build_image() { "$runtime" build -t "$image" .; }
 
@@ -51,8 +52,8 @@ build_clis() {
 suite=${1:-}; shift || true
 extra=()
 case "$suite" in
-  cli|account|users|user-access|usage|billing) target=suites/$suite.robot ;;
-  fast) target=suites; extra=(--exclude billing) ;;
+  cli|account|users|user-access|usage|web-search|billing) target=suites/$suite.robot ;;
+  fast) target=suites; extra=(--exclude billing --exclude web-search) ;;
   shell) target= ;;
   build) build_image; exit ;;
   *) usage ;;

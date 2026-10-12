@@ -1,2 +1,5 @@
 robotframework>=7.0
-boto3>=1.35
+# 1.40: the bedrock-agentcore-control client (web-search suite)
+boto3>=1.40
+# uvx, to run mcp-proxy-for-aws as bedrock claude prints it (web-search suite)
+uv>=0.8

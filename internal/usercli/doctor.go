@@ -3,9 +3,11 @@ package usercli
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	rtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -16,6 +18,7 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
 	"github.com/SUSE/high-impact-ai-initiative/internal/config"
 	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
 )
 
 func (a *App) doctorCmd() *cobra.Command {
@@ -117,7 +120,38 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 		}
 		out = append(out, c)
 	}
-	return out
+	return append(out, a.webSearchChecks(ctx, profile, region)...)
+}
+
+// webSearchChecks checks the web search gateway, when the admin enabled it: uvx for the MCP proxy
+// and a free tools/list call through the personal role.
+func (a *App) webSearchChecks(ctx context.Context, profile, region string) []cli.Check {
+	url, err := a.AWS.WebSearchURL(ctx, profile, region)
+	if err != nil {
+		return []cli.Check{{Name: "web search", Detail: short(err).Error()}}
+	}
+	if url == "" {
+		return nil
+	}
+	var out []cli.Check
+	if p, err := exec.LookPath("uvx"); err != nil {
+		out = append(out, cli.Check{Name: "uvx", Detail: "not on your PATH; Claude Code starts the web search MCP server with it",
+			Fix: "install uv: https://docs.astral.sh/uv/getting-started/installation/"})
+	} else {
+		out = append(out, cli.Check{Name: "uvx", OK: true, Detail: p})
+	}
+	c := cli.Check{Name: "web search", OK: true, Detail: "gateway answers " + url}
+	if err := a.AWS.WebSearch(ctx, profile, region, url, false); err != nil {
+		c.OK, c.Detail, c.Fix = false, short(err).Error(), webSearchFix(err)
+	}
+	return append(out, c)
+}
+
+func webSearchFix(err error) string {
+	if websearch.Denied(err) {
+		return "your access is paused (monthly budget used up, or paused by your admin), or your role predates web search: ask your admin"
+	}
+	return "ask your admin to run bedrock-admin doctor"
 }
 
 // modelFix explains a failed test call. Bedrock's AccessDenied message is often empty, so the model
@@ -191,4 +225,40 @@ func (sdkAWS) Invoke(ctx context.Context, profile, region, model string) error {
 			Content: []rtypes.ContentBlock{&rtypes.ContentBlockMemberText{Value: "Reply with OK."}}}},
 		InferenceConfig: &rtypes.InferenceConfiguration{MaxTokens: aws.Int32(1)}})
 	return err
+}
+
+func (sdkAWS) WebSearchURL(ctx context.Context, profile, region string) (string, error) {
+	cfg, err := load(ctx, profile, region)
+	if err != nil {
+		return "", err
+	}
+	g, err := websearch.FindGateway(ctx, bedrockagentcorecontrol.NewFromConfig(cfg), policy.WebSearchGateway)
+	switch {
+	case err != nil && (awsx.IsAccessDenied(err) || awsx.ErrorCode(err) == "UnknownOperationException"):
+		return "", nil // the role has no web search statement: the admin hasn't enabled it
+	case err != nil:
+		return "", err
+	case g == nil:
+		return "", nil
+	}
+	return g.URL, nil
+}
+
+func (sdkAWS) WebSearch(ctx context.Context, profile, region, url string, search bool) error {
+	cfg, err := load(ctx, profile, region)
+	if err != nil {
+		return err
+	}
+	if search {
+		_, err = websearch.Search(ctx, cfg, url, "Amazon Bedrock")
+		return err
+	}
+	res, err := websearch.MCP(ctx, cfg, url, "tools/list", map[string]any{})
+	if err != nil {
+		return err
+	}
+	if ok, err := websearch.HasTool(res); err != nil || !ok {
+		return fmt.Errorf("the gateway doesn't offer %s", websearch.ToolName)
+	}
+	return nil
 }

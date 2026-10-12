@@ -26,7 +26,8 @@ cd tests/e2e
 cp config/example.py config/$USER.py   # then fill it in
 aws sso login --profile <ADMIN_PROFILE>
 ./run.sh account             # or users, user-access, usage
-./run.sh fast                # every suite but billing
+./run.sh fast                # every suite but billing and web-search
+./run.sh web-search          # opt-in: the account setup must have web_search on
 ./run.sh users --test "Pause*"     # any robot option works after the suite
 ./run.sh shell               # a shell in the container
 ```
@@ -44,6 +45,7 @@ directory, never to `~/.aws/config`.
 | `users` | admin | Onboarding (role, budget, alerts, pause action), changes in place, and drift. Removing a user needs `--yes`, and `--no-delete` skips it. Pause and unpause by hand. `apply` and the monthly Lambda leave a manual pause in place. Off for the month. The Lambda re-arms users and saves the snapshot. |
 | `user-access` | admin, SSO | `bedrock setup` and its backup, calls through the personal role, `bedrock doctor`, direct SSO calls denied (Step 1.7), and a manual pause seen from the user's side. |
 | `usage` | admin | `usage` on fixture cost export files and a snapshot uploaded under `e2e/<run>/`: totals, tracked and untracked spend, a past month from its snapshot, `--months`, and one person. |
+| `web-search` | admin; SSO optional | Opt-in. Uses its own id and the account setup's gateway, so the account setup must have `web_search` on. With `web_search` on, `apply` gives a personal role the gateway rights (the gateway shows as managed by the account setup's id); the role can search, the pause denies it and unpause restores it. With SSO: `bedrock doctor`'s web search check, and the MCP server `bedrock claude` prints, run through `uvx mcp-proxy-for-aws`. Turning it off removes the rights and leaves the gateway. Needs REGION to be the account setup's region (`us-east-1`, `eu-west-1` or `ap-northeast-1`); a run costs a few cents. |
 | `billing` | admin | Everything that waits for AWS billing, in phases (below). |
 
 ## Safety
