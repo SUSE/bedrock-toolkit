@@ -90,34 +90,13 @@ details.
 
 ### Install
 
-Download `bedrock-admin` for your platform from the GitHub release, unpack it, put it on your
-`PATH`, and check it with `bedrock-admin --version`.
-
-<details>
-<summary>Release files and building from source</summary>
-
-| File | Contents |
-| --- | --- |
-| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` |
-| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` |
-| `checksums.txt` | SHA-256 of every archive |
-
-`<os>` is `darwin` (macOS) or `linux`, and `<arch>` is `amd64` or `arm64`. There is no Windows
-build. Unpack the archive and put the binary on your `PATH`.
-
-With Go installed, you can also build from source:
-
 ```bash
-go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock@latest
-go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock-admin@latest
+curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock-admin
+bedrock-admin --version
 ```
 
-A `bedrock-admin` built by `go install` has no monthly Lambda inside, because the Lambda package is
-generated at build time and not committed. `plan` then reports Step 1.4 as a conflict ("this
-bedrock-admin build has no Lambda code"). Use a release binary, or clone the repository and run
-`make build`.
-
-</details>
+Other versions, release files and building from source: [README](README.md#install). Use a
+release binary: a `go install` build has no monthly Lambda inside.
 
 ### Check
 

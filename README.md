@@ -39,6 +39,52 @@ Two command-line tools do the work:
                   saves a snapshot, then re-arms every pause action
 ```
 
+## Install
+
+macOS and Linux, amd64 and arm64. The installer needs only `sh` and `curl`:
+
+```bash
+# Users
+curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock
+# Admins
+curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock-admin
+```
+
+It installs the latest release to `/usr/local/bin`, or `~/.local/bin` when that isn't writable, after
+checking the download against `checksums.txt`. Name both CLIs to install both. `VERSION` picks
+another release and `INSTALL_DIR` another directory; set them on `sh`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
+```
+
+<details>
+<summary>Release files and building from source</summary>
+
+| File | Contents |
+| --- | --- |
+| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` |
+| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` |
+| `checksums.txt` | SHA-256 of every archive |
+
+`<os>` is `darwin` (macOS) or `linux`, and `<arch>` is `amd64` or `arm64`. There is no Windows
+build. To install by hand, download the archive from the GitHub release, unpack it and put the
+binary on your `PATH`.
+
+With Go installed, you can also build from source:
+
+```bash
+go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock@latest
+go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock-admin@latest
+```
+
+A `bedrock-admin` built by `go install` has no monthly Lambda inside, because the Lambda package is
+generated at build time and not committed. `plan` then reports Step 1.4 as a conflict ("this
+bedrock-admin build has no Lambda code"). Use a release binary, or clone the repository and run
+`make build`.
+
+</details>
+
 ## Quick start
 
 Admin, once per account ([admin guide](admin-guide.md)):
@@ -59,9 +105,6 @@ bedrock setup                        # write the bedrock profile and check it
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget
 ```
-
-Download both CLIs from the GitHub release ([admin guide](admin-guide.md#install),
-[user guide](user-guide.md#before-you-start)).
 
 ## Commands
 

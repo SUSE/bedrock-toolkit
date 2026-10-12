@@ -86,8 +86,11 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 - You can sign in to the AWS account with SSO, and you have an SSO profile in `~/.aws/config`
   (from `aws configure sso`), or you sign in with `aws login`.
 - The AWS CLI v2 is installed.
-- The `bedrock` CLI is installed: download it for your platform (macOS or Linux, amd64 or arm64)
-  from the GitHub release, unpack it and put it on your `PATH`. Or, with Go: `go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock@latest`.
+- The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock
+  ```
 - Your admin has onboarded you. If your SSO email doesn't receive mail, give your admin your real
   mailbox address for the budget emails.
 
