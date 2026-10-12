@@ -29,11 +29,13 @@ type App struct {
 	Out, Err io.Writer
 	Now      func() time.Time
 	Version  string
+	// ModelsURL is the models.toml configure suggests for a new file; "" skips it.
+	ModelsURL string
 }
 
 // New returns an App on the process's streams.
 func New(version string) *App {
-	return &App{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Now: time.Now, Version: version}
+	return &App{In: os.Stdin, Out: os.Stdout, Err: os.Stderr, Now: time.Now, Version: version, ModelsURL: config.SuggestedModelsURL}
 }
 
 // Root builds the command tree.

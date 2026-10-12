@@ -3,6 +3,8 @@ package admincli
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +23,7 @@ func run(t *testing.T, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
 	a := New("test")
 	a.In, a.Out, a.Err = strings.NewReader(""), &out, &errb
+	a.ModelsURL = ""
 	code := a.Main(context.Background(), args)
 	return code, out.String(), errb.String()
 }
@@ -180,5 +183,51 @@ func TestModelRows(t *testing.T) {
 	}
 	if got := users(modelRows(profiles, []string{"us.anthropic.claude-haiku-5-5"})); got != "us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=not listed" {
 		t.Fatalf("listed: %s", got)
+	}
+}
+
+func TestRepoModelsToml(t *testing.T) {
+	b, err := os.ReadFile("../../models.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := config.ParseSuggestedModels(b)
+	if err != nil || len(m) == 0 {
+		t.Fatalf("models.toml: %v, %v", m, err)
+	}
+	if got := config.WithGeo("us-west-2", m); !slices.Equal(got, config.DefaultModels("us-west-2")) {
+		t.Fatalf("models.toml with us.: %v", got)
+	}
+}
+
+func TestConfigureSuggestedModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models.toml" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`models = ["anthropic.claude-haiku-5-5", "us.anthropic.claude-opus-5-5", "anthropic.claude-fable-5", "meta.llama3"]`))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
+	configure := func(url string) (string, string) {
+		var out, errb bytes.Buffer
+		a := New("test")
+		a.In, a.Out, a.Err, a.ModelsURL = strings.NewReader(""), &out, &errb, url
+		if code := a.Main(context.Background(), []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
+			"--account", "123456789012", "--region", "eu-west-1"}); code != 0 {
+			t.Fatalf("code %d\n%s", code, errb.String())
+		}
+		return out.String(), errb.String()
+	}
+	out, _ := configure(srv.URL + "/models.toml")
+	if !strings.Contains(out, "models:\n  - eu.anthropic.claude-haiku-5-5\n  - us.anthropic.claude-opus-5-5\n") || strings.Contains(out, "fable") || strings.Contains(out, "llama") {
+		t.Fatalf("suggested models:\n%s", out)
+	}
+	out, errs := configure(srv.URL + "/missing.toml")
+	if strings.Contains(out, "models:") || !strings.Contains(errs, "models: stays empty") {
+		t.Fatalf("missing models.toml:\n%s\n%s", out, errs)
 	}
 }

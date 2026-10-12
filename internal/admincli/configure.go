@@ -100,11 +100,18 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	}
 	a.fillFromAWS(ctx, cur)
 
+	// A new file starts with the models in the repository's models.toml, when it can be read.
+	var suggested []string
+	if doc.Kind == 0 && len(cur.Models) == 0 {
+		suggested = a.suggestedModels(ctx)
+	}
 	interactive := !a.Yes && cli.IsTerminal(a.In)
 	if interactive {
-		if err := a.ask(cur, cmd.Flags().Changed); err != nil {
+		if err := a.ask(cur, cmd.Flags().Changed, suggested); err != nil {
 			return err
 		}
+	} else if len(cur.Models) == 0 && cur.Region != "" {
+		cur.Models = config.WithGeo(cur.Region, suggested)
 	}
 	if cur.Region == "" {
 		return errors.New("no region: the profile has none; pass --region")
@@ -163,7 +170,20 @@ func (a *App) fillFromAWS(ctx context.Context, c *config.Config) {
 	}
 }
 
-func (a *App) ask(c *config.Config, changed func(string) bool) error {
+// suggestedModels reads models.toml from ModelsURL; nil when it can't.
+func (a *App) suggestedModels(ctx context.Context) []string {
+	if a.ModelsURL == "" {
+		return nil
+	}
+	m, err := config.FetchSuggestedModels(ctx, a.ModelsURL)
+	if err != nil {
+		fmt.Fprintf(a.Err, "Couldn't read the suggested models (%v); models: stays empty: any Claude model except Fable.\n", err)
+		return nil
+	}
+	return m
+}
+
+func (a *App) ask(c *config.Config, changed func(string) bool, suggested []string) error {
 	p := cli.NewPrompter(a.In, a.Err)
 	q := func(flag, question string, dst *string, def string) error {
 		if changed(flag) {
@@ -191,8 +211,12 @@ func (a *App) ask(c *config.Config, changed func(string) bool) error {
 		return err
 	}
 	if !changed("model") {
+		def := c.Models
+		if len(def) == 0 {
+			def = config.WithGeo(c.Region, suggested)
+		}
 		v, err := p.Ask("models users may call (comma-separated inference profile IDs; empty: any Claude model except Fable)",
-			strings.Join(c.Models, ","))
+			strings.Join(def, ","))
 		if err != nil {
 			return err
 		}

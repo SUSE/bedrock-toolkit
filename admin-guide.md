@@ -318,7 +318,7 @@ Which file is used: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, t
 ### Choosing models
 
 Leave `models:` empty to let users call any Claude model except Fable, or list the ones they may
-call. To see which Claude models your region offers, and which your file allows:
+call. A new file from `configure` starts with the models in [`models.toml`](models.toml). To see which Claude models your region offers, and which your file allows:
 
 ```bash
 bedrock-admin models
@@ -355,7 +355,10 @@ us.anthropic.claude-sonnet-5-5           US Anthropic Claude Sonnet 5.5      ACT
 - To see one model's state: `aws bedrock get-foundation-model-availability --model-id
   anthropic.claude-sonnet-5-5` (the ID without the prefix). Ready means `AUTHORIZED`, and `AVAILABLE`
   for region, agreement and entitlement.
-- `bedrock-admin configure` leaves `models:` empty unless you enter models or pass `--model`.
+- For a new file, `bedrock-admin configure` suggests the models in the repository's
+  [`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), downloaded from GitHub, with
+  the region's prefix. When it can't download the file, or the list is empty, `models:` stays empty.
+  `--model` or your answer wins; an existing file keeps its `models:`.
   The `bedrock` user CLI uses Opus, Sonnet and Haiku 5.5 (`us.`/`eu.` by region, `global.`
   elsewhere): `bedrock doctor` tests them and `bedrock claude` prints them. The user CLI doesn't read `bedrock.yaml`: if you list other models,
   announce them. Users then update the model IDs in their own Claude Code settings and Claude
