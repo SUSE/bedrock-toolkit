@@ -48,7 +48,7 @@ Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 	fl.StringVar(&f.product, "product", "", "product tag on users' roles")
 	fl.StringSliceVar(&f.models, "model", nil, "model (inference profile ID); repeat for more")
 	fl.Float64Var(&f.limit, "limit", 0, "default monthly limit in USD")
-	fl.StringVar(&f.bucket, "bucket", "", "cost export bucket (default: bedrock-cur-<account>)")
+	fl.StringVar(&f.bucket, "bucket", "", "cost export bucket (default: bedrock-cur-<account>-<id>)")
 	fl.StringVar(&f.prefix, "prefix", "", "cost export prefix (default: cur)")
 	fl.BoolVar(&f.block, "block-direct-calls", true, "block model calls outside personal roles (Step 1.7)")
 	fl.StringVar(&f.method, "method", "", "how the org admin applies Step 1.7: permission-set or scp")

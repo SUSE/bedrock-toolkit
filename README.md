@@ -17,6 +17,8 @@ Two command-line tools do the work:
 - AWS bills each Bedrock call with that tag, and an AWS Budget per user tracks it.
 - At the limit, the budget attaches a deny policy to that user's role. A monthly Lambda re-arms it.
 - `bedrock-admin apply` creates all of this from `bedrock.yaml`.
+- Each `bedrock.yaml` is one setup with an `id` (default `bedrock`) that every AWS name carries, so
+  several setups, each with its own users, budgets and models, can share one AWS account.
 - Optional: web search for Claude Code and the desktop app (their own search doesn't work on
   Bedrock), through an AgentCore gateway that personal roles may call and the pause also blocks.
   Search cost ($7 per 1,000) is not budgeted per user; the setup manages only Bedrock model spend.
@@ -25,18 +27,18 @@ Two command-line tools do the work:
  User (SSO login)
     │  aws sso login, then profile "bedrock" (written by bedrock setup)
     ▼
- Personal role  bedrock-user-<name>      Claude models only, tagged owner=<sso-email>
+ Personal role  bedrock-user-<id>-<name> Claude models only, tagged owner=<sso-email>
     │  bedrock:InvokeModel
     ▼
  Amazon Bedrock ──► billing records the caller and the role's tags
                         │
                         ▼
-                  AWS Budget  bedrock-<name>  (filter: iamPrincipal/owner = <sso-email>)
+                  AWS Budget  bedrock-<id>-<name>  (filter: iamPrincipal/owner = <sso-email>)
                     alert_at_percent  → email
-                    pause_at_percent  → attach bedrock-deny to that person's role (paused)
+                    pause_at_percent  → attach bedrock-deny-<id> to that person's role (paused)
                         │
                         ▼
-                  1st of the month, 06:00 UTC: Lambda bedrock-monthly-unpause
+                  1st of the month, 06:00 UTC: Lambda bedrock-monthly-unpause-<id>
                   saves a snapshot, then re-arms every pause action
 ```
 

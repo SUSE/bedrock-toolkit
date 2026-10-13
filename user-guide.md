@@ -122,7 +122,7 @@ It writes a `[profile bedrock]` block in `~/.aws/config` (or `$AWS_CONFIG_FILE`)
 
 ```ini
 [profile bedrock]
-role_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen
+role_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
 source_profile = my-sso
 role_session_name = achen@example.com
 region = us-west-2
@@ -132,7 +132,9 @@ region = us-west-2
   from the email.
 - `role_session_name` is set to your exact SSO email. The role only trusts that session name.
 - The region comes from your SSO profile. Your admin adds `--region` to the command when Bedrock
-  runs in another region, and `--role-arn` when your role has a custom name.
+  runs in another region, `--id <id>` when your admin's setup has another id than `bedrock`
+  (one AWS account can hold several setups; you may be in more than one, with a role in each: use
+  `--profile-name` to keep their profiles apart), and `--role-arn` when your role has a custom name.
 - It keeps the previous file as `config.bak`. If a `bedrock` profile already exists, it shows the
   old and new block and asks before replacing it. `--yes` replaces it without asking.
 - If you have several SSO profiles, it asks which one you sign in with, or pass
@@ -156,8 +158,8 @@ failed check; see [If something goes wrong](#if-something-goes-wrong).
 ```
 ok    profile: bedrock in /Users/achen/.aws/config
 ok    SSO sign-in: achen@example.com (profile my-sso)
-ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen
-ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-achen/achen@example.com
+ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
+ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock-achen/achen@example.com
 ok    model us.anthropic.claude-opus-5-5: test call works
 ok    model us.anthropic.claude-sonnet-5-5: test call works
 ok    model us.anthropic.claude-haiku-5-5: test call works
@@ -329,7 +331,7 @@ which only the local proxy makes.
 
 ```text
 $ bedrock usage
-Budget     bedrock-achen, May 2026 (resets Jun 1)
+Budget     bedrock-bedrock-achen, May 2026 (resets Jun 1)
 Spent      $42.50 of $100.00 (42%)
 Forecast   $90.00 by the end of the month
 Pauses at  $100.00 (100%)
@@ -381,7 +383,7 @@ After your admin removes you, `doctor` stops at your role:
 $ bedrock doctor
 ok    profile: bedrock in /Users/achen/.aws/config
 ok    SSO sign-in: achen@example.com (profile my-sso)
-FAIL  permission-set access: cannot use arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen: AccessDenied: User: arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen
+FAIL  permission-set access: cannot use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen: AccessDenied: User: arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
       fix: ask your admin to onboard achen@example.com (and check role_arn, if they gave you one), or to let your SSO permission set use the bedrock-users roles
 ```
 
@@ -398,8 +400,8 @@ it on the model checks:
 $ bedrock doctor
 ok    profile: bedrock in /Users/achen/.aws/config
 ok    SSO sign-in: achen@example.com (profile my-sso)
-ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen
-ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-achen/achen@example.com
+ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
+ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock-achen/achen@example.com
 FAIL  model us.anthropic.claude-opus-5-5: AccessDeniedException
       fix: your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st
 FAIL  model us.anthropic.claude-sonnet-5-5: AccessDeniedException

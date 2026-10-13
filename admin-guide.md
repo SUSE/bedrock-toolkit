@@ -20,7 +20,7 @@ and manage users with `bedrock-admin`, from one file, `bedrock.yaml`. Users foll
 - [9. Block direct model calls (Step 1.7)](#9-block-direct-model-calls-step-17)
 - [10. Turn on web search (optional)](#10-turn-on-web-search-optional)
 - [11. Remove everything](#11-remove-everything)
-- [The `id` and resources you didn't create](#the-id-and-resources-you-didnt-create)
+- [The `id`: several setups in one account](#the-id-several-setups-in-one-account)
 - [Emails](#emails)
 - [Things to know](#things-to-know)
 - [Run the tests](#run-the-tests)
@@ -56,13 +56,13 @@ bedrock-admin usage                               # spend per user, and spend ou
 
 ## How it works, in short
 
-- Each user gets a personal IAM role, `bedrock-user-<name>`, that can only call Claude models: the
+- Each user gets a personal IAM role, `bedrock-user-<id>-<name>`, that can only call Claude models: the
   ones in `models:`, or any Claude model except Fable when `models:` is empty.
   They reach it from their SSO login.
 - The role is tagged with their SSO email. AWS bills each Bedrock call with that tag.
 - Each user has a monthly budget on that tag. At `alert_at_percent` they get an email. At
-  `pause_at_percent` AWS Budgets pauses only them, by attaching the `bedrock-deny` policy to their
-  role.
+  `pause_at_percent` AWS Budgets pauses only them, by attaching the `bedrock-deny-<id>` policy to
+  their role.
 - On the 1st of each month a Lambda saves a snapshot of everyone's limit and pause state, then
   re-arms every pause.
 - `bedrock.yaml` says who has access and how much they may spend. `bedrock-admin plan` shows what
@@ -139,17 +139,17 @@ In an account that isn't the organization's management account, Steps 1.6 and 1.
 
 ```text
 $ bedrock-admin doctor
-ok    config: bedrock.yaml (id acme-prod, 3 users)
+ok    config: bedrock.yaml (id acmeprod, 3 users)
 ok    credentials: arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_BedrockAdmin_0a1b2c/admin@example.com (account 111122223333)
 ok    permissions: read every part of the account setup
-ok    Step 1.1 cost export bucket bedrock-cur-111122223333: ok
-ok    Step 1.1 cost export bedrock-cur: ok
-ok    Step 1.2 pause policy bedrock-deny: ok
-ok    Step 1.3 budget actions role bedrock-budget-actions: ok
-ok    Step 1.4 Lambda role bedrock-monthly-unpause: ok
-ok    Step 1.4 scheduler role bedrock-monthly-unpause-scheduler: ok
-ok    Step 1.4 Lambda bedrock-monthly-unpause: ok
-ok    Step 1.4 schedule bedrock-monthly-unpause: ok
+ok    Step 1.1 cost export bucket bedrock-cur-111122223333-acmeprod: ok
+ok    Step 1.1 cost export bedrock-cur-acmeprod: ok
+ok    Step 1.2 pause policy bedrock-deny-acmeprod: ok
+ok    Step 1.3 budget actions role bedrock-budget-actions-acmeprod: ok
+ok    Step 1.4 Lambda role bedrock-monthly-unpause-acmeprod: ok
+ok    Step 1.4 scheduler role bedrock-monthly-unpause-scheduler-acmeprod: ok
+ok    Step 1.4 Lambda bedrock-monthly-unpause-acmeprod: ok
+ok    Step 1.4 schedule bedrock-monthly-unpause-acmeprod: ok
 ok    Step 1.5 model us.anthropic.claude-opus-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-sonnet-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-haiku-5-5: ok
@@ -222,7 +222,7 @@ The file holds no secrets. Keep it in Git and review changes in pull requests.
 With `--yes`, or without a terminal, it asks nothing and takes the flags and defaults:
 
 ```bash
-bedrock-admin configure --profile bedrock-admin --yes --id acme-prod --product genai-tools --limit 50
+bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product genai-tools --limit 50
 ```
 
 | Flag | Default |
@@ -233,7 +233,7 @@ bedrock-admin configure --profile bedrock-admin --yes --id acme-prod --product g
 | `--product` | `bedrock` |
 | `--limit` | 50 |
 | `--model` (repeatable) | Claude Opus, Sonnet and Haiku 5.5 through the region's `us.` or `eu.` inference profiles, or `global.` in other regions |
-| `--bucket` | `bedrock-cur-<account>` |
+| `--bucket` | `bedrock-cur-<account>-<id>` |
 | `--prefix` | `cur` |
 | `--block-direct-calls` | `true` |
 | `--method` | `permission-set` |
@@ -249,7 +249,7 @@ bedrock-admin plan and bedrock-admin apply."
 <summary>A full bedrock.yaml</summary>
 
 ```yaml
-id: acme-prod                   # apply tags what it creates, and only changes or deletes resources with this id
+id: acmeprod                    # names and tags what apply creates; default bedrock
 account: "111122223333"         # in quotes
 region: us-west-2
 profile: bedrock-admin          # AWS profile; --profile and $AWS_PROFILE win over it
@@ -266,8 +266,8 @@ defaults:
   alert_at_percent: [80]        # email at 80%; [] for none
   notify: owner                 # the user's SSO email, or a fixed address
 
-cost_export:
-  bucket: bedrock-cur-111122223333
+cost_export:                    # optional; these are the defaults
+  bucket: bedrock-cur-111122223333-acmeprod
   prefix: cur
 
 block_direct_calls:
@@ -296,15 +296,16 @@ users:                          # or: users: !include users.yaml
 
 | Key | Notes |
 | --- | --- |
-| `id` | 1–40 lowercase letters, digits or `-`. Tags everything `apply` creates. See [the id](#the-id-and-resources-you-didnt-create). |
+| `id` | 1–20 lowercase letters and digits. Default `bedrock`. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
 | `account` | 12 digits, in quotes |
 | `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those; `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` and `doctor` use Claude Haiku 5.5 (`us.`/`eu.` by region, `global.` elsewhere). Only Claude models other than Fable may be listed. |
 | `limit_usd` | More than 0, at most 1,000,000, at most 2 decimals. Each user needs one, or `defaults.limit_usd`. |
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
 | `notify` | `owner` (the user's SSO email) or an email address. Use an address when the SSO email gets no mail. |
-| `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). The role is `bedrock-user-<name>`, the budget `bedrock-<name>`. |
-| `cost_export.name` | Export name. Default `bedrock-cur`. |
+| `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). At most 30 characters, so the role name fits IAM's 64. The role is `bedrock-user-<id>-<name>`, the budget `bedrock-<id>-<name>`. |
+| `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
+| `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
 | `cost_export.snapshot_prefix` | Where the Lambda writes snapshots in the bucket. Default `bedrock-admin/snapshots`. |
 
 `!include` works anywhere in the file. Duplicate emails or names are rejected. Every problem in the
@@ -376,8 +377,8 @@ bedrock-admin export > bedrock.yaml
 <summary>Details</summary>
 
 The file starts with `# Exported from account 111122223333 by bedrock-admin export on <date>.` It
-exports only users with this config's `id`. Without a file it reads the id from the
-`bedrock-deny` policy and reads `models:` from a personal role's policy (empty when it allows any
+exports only users with this config's `id`. Without a file or `--id` it reads the id from the
+`bedrock-deny-<id>` policy; with several setups in the account it asks for `--id`. It reads `models:` from a personal role's policy (empty when it allows any
 Claude model); `--model` overrides it.
 
 </details>
@@ -405,22 +406,22 @@ hours of the first user call. Step 1.7 needs your org admin ([step 9](#9-block-d
 <summary>Sample plan output</summary>
 
 ```
-bedrock.yaml: id acme-prod, account 111122223333, us-west-2, 3 users
+bedrock.yaml: id acmeprod, account 111122223333, us-west-2, 3 users
 
 Account setup
-+ 1.1 cost export bucket bedrock-cur-111122223333        create (private, writable only by Data Exports)
-+ 1.1 cost export bedrock-cur                            create (CUR 2.0, Parquet, to s3://bedrock-cur-111122223333/cur/bedrock-cur)
-+ 1.2 pause policy bedrock-deny                          create
-+ 1.3 budget actions role bedrock-budget-actions         create
-+ 1.4 Lambda role bedrock-monthly-unpause                create
-+ 1.4 scheduler role bedrock-monthly-unpause-scheduler   create
-+ 1.4 Lambda bedrock-monthly-unpause                     create (runs 06:00 UTC on the 1st)
-+ 1.4 schedule bedrock-monthly-unpause                   create (cron(0 6 1 * ? *) UTC)
-  1.5 model us.anthropic.claude-opus-5-5                 ok
-  1.5 model us.anthropic.claude-sonnet-5-5               ok
-  1.5 model us.anthropic.claude-haiku-5-5                ok
-  1.6 cost allocation tag iamPrincipal/owner             waiting for first use (appears up to 24 h after the first personal-role call)
-? 1.7 block direct model calls                           needs org admin: deny missing on AWSAdministratorAccess, AWSPowerUserAccess
++ 1.1 cost export bucket bedrock-cur-111122223333-acmeprod  create (private, writable only by Data Exports)
++ 1.1 cost export bedrock-cur-acmeprod                     create (CUR 2.0, Parquet, to s3://bedrock-cur-111122223333-acmeprod/cur/bedrock-cur-acmeprod)
++ 1.2 pause policy bedrock-deny-acmeprod                   create
++ 1.3 budget actions role bedrock-budget-actions-acmeprod  create
++ 1.4 Lambda role bedrock-monthly-unpause-acmeprod         create
++ 1.4 scheduler role bedrock-monthly-unpause-scheduler-acmeprod  create
++ 1.4 Lambda bedrock-monthly-unpause-acmeprod              create (runs 06:00 UTC on the 1st)
++ 1.4 schedule bedrock-monthly-unpause-acmeprod            create (cron(0 6 1 * ? *) UTC)
+  1.5 model us.anthropic.claude-opus-5-5                   ok
+  1.5 model us.anthropic.claude-sonnet-5-5                 ok
+  1.5 model us.anthropic.claude-haiku-5-5                  ok
+  1.6 cost allocation tag iamPrincipal/owner               waiting for first use (appears up to 24 h after the first personal-role call)
+? 1.7 block direct model calls                             needs org admin: deny missing on AWSAdministratorAccess, AWSPowerUserAccess
 
 Users
 + achen@example.com  onboard, limit 50
@@ -447,13 +448,13 @@ Plan: 11 to create, 1 needs org admin.
 | Step | Creates or checks |
 | --- | --- |
 | 1.1 | A private S3 bucket that only AWS Data Exports may write to, and a CUR 2.0 export (Parquet, hourly, with caller identity) into it |
-| 1.2 | `bedrock-deny`, the policy that pauses someone when attached to their role |
-| 1.3 | `bedrock-budget-actions`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny` on `/bedrock-users/` roles. |
-| 1.4 | The monthly Lambda `bedrock-monthly-unpause`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
+| 1.2 | `bedrock-deny-<id>`, the policy that pauses someone when attached to their role |
+| 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles. |
+| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
 | 1.5 | Each model in `models:` (Claude Haiku 5.5 when empty) is available. If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can activate it; elsewhere `plan` shows "needs org admin". |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
-| 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway`, the AgentCore gateway `bedrock-web-search` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
+| 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
 
 </details>
 
@@ -466,7 +467,7 @@ the reason under each item. If a step fails, fix the cause and run `apply` again
 the account setup succeeds.
 
 The `bedrock setup` command it prints has `--region` when your profile's region differs from the file's region, and
-`--role-arn` when the user has a custom `name:`. Users then follow the [user guide](user-guide.md).
+`--id <id>` when the id isn't `bedrock`, or `--role-arn` when the user has a custom `name:`. Users then follow the [user guide](user-guide.md).
 
 `apply` exits 2 when something is still pending, such as Step 1.7. `apply --dry-run` shows the plan
 and changes nothing. Once Step 1.7 is done, `plan` prints `No changes.` and exits 0.
@@ -560,7 +561,7 @@ Access returns within about a minute.
 <details>
 <summary>Details</summary>
 
-When a user's spend reaches their trigger, AWS Budgets attaches `bedrock-deny` to their role. Their
+When a user's spend reaches their trigger, AWS Budgets attaches `bedrock-deny-<id>` to their role. Their
 model calls fail with an explicit deny, and the address in `notify` gets an email from AWS Budgets.
 
 **Give them more budget and keep a cap.** Raise `limit_usd` or `pause_at_percent` in the file and
@@ -598,7 +599,7 @@ Paused cdiaz@example.com by hand. Model calls now fail with an explicit deny.
 Undo: bedrock-admin unpause cdiaz@example.com
 ```
 
-`pause` attaches `bedrock-deny` to the role and tags it with who, when and why. A pause by hand
+`pause` attaches `bedrock-deny-<id>` to the role and tags it with who, when and why. A pause by hand
 stays until you `unpause`. `apply`, limit changes and the monthly Lambda leave it alone.
 `--reason` is required for `pause`.
 
@@ -825,7 +826,7 @@ Code and the desktop app ([user guide](user-guide.md#web-search)).
   searches don't count against personal budgets and nothing limits them.
 - The gateway is in the file's `region`, which must be `us-east-1`, `eu-west-1` or `ap-northeast-1`.
 - `plan` shows Step 1.8 (role, gateway, target) and a `~` on each personal role: `bedrock-invoke`
-  gains the right to call the gateway. Paused users can't search: `bedrock-deny` denies it too.
+  gains the right to call the gateway. Paused users can't search: `bedrock-deny-<id>` denies it too.
 - Searches show in `usage` under untracked spend as `web search (AgentCore)`, one line for the
   whole account.
 - Setting `enabled: false` and running `apply` removes the gateway, its target and the role, and
@@ -849,14 +850,14 @@ bedrock-admin uninstall          # add --delete-data to also delete the cost exp
 <details>
 <summary>Details</summary>
 
-`uninstall` removes the schedule, the Lambda, the roles, `bedrock-deny` and the cost export, but
-only those with this config's `id`. It asks first; without a terminal it needs `--yes`.
+`uninstall` removes this id's schedule, Lambda, roles, `bedrock-deny-<id>`, web search gateway and
+cost export. Other setups in the account are left alone. It asks first; without a terminal it needs `--yes`.
 
 It refuses while personal roles remain:
 
 ```text
 $ bedrock-admin uninstall
-error: 3 personal roles remain (bedrock-user-achen, bedrock-user-bkim, bedrock-user-cdiaz); offboard them first (users: [] then bedrock-admin apply --yes)
+error: 3 personal roles remain (bedrock-user-acmeprod-achen, bedrock-user-acmeprod-bkim, bedrock-user-acmeprod-cdiaz); offboard them first (users: [] then bedrock-admin apply --yes)
 ```
 
 Offboard everyone first: set `users: []`, then `bedrock-admin apply --yes`. `uninstall --dry-run`
@@ -870,20 +871,39 @@ AWS account could claim it. In a terminal, `uninstall` asks again before deletin
 
 </details>
 
-## The `id` and resources you didn't create
+## The `id`: several setups in one account
 
-Everything `apply` creates is tagged `bedrock-admin:id` with the file's `id` (schedules can't be
-tagged, so the id is in the schedule's description). `apply`, offboarding and `uninstall` only
-change or delete resources with that id:
+Each `bedrock.yaml` is one setup, named by its `id` (default `bedrock`). Every name `apply` creates
+ends in the id, and everything is tagged `bedrock-admin:id` with it (schedules can't be tagged, so
+the id is in the schedule's description). So several setups can share one AWS account, each with its
+own users, budgets, `models:`, pause policy, monthly Lambda, cost export and bucket:
 
-- An account resource with another id is shown as `ok (managed by <id>)` and left alone.
-- An account resource with no id tag is a conflict (`!`): "exists without a bedrock-admin:id tag
-  (made outside bedrock-admin); remove it, then apply".
-- A personal role with another id, or none, is listed under Users as `not managed (...)` and left
-  alone. A budget with another id is also left alone.
+| Resource | Name |
+| --- | --- |
+| Personal role | `bedrock-user-<id>-<name>`, path `/bedrock-users/<id>/` |
+| Budget | `bedrock-<id>-<name>` |
+| Pause policy | `bedrock-deny-<id>` |
+| Budget actions role | `bedrock-budget-actions-<id>` |
+| Monthly Lambda, its role and schedule | `bedrock-monthly-unpause-<id>` |
+| Scheduler role | `bedrock-monthly-unpause-scheduler-<id>` |
+| Web search gateway and its role | `bedrock-web-search-<id>`, `bedrock-web-search-gateway-<id>` |
+| Cost export and bucket | `bedrock-cur-<id>`, `bedrock-cur-<account>-<id>` |
 
-So you can't offboard someone by accident from a file with a different `id`, and the e2e tests,
-which use their own id, can't remove real users.
+One person can be a user of several setups; they get a role in each. `apply`, offboarding,
+`uninstall` and the monthly Lambda only touch their own id, so you can't offboard someone by accident
+from another setup's file.
+
+- A resource with the setup's name but no id tag, or another id's tag, is a conflict (`!`), for
+  example "exists without a bedrock-admin:id tag (made outside bedrock-admin); remove it, then
+  apply". It is left alone.
+- A personal role of the id without the tag is listed under Users as `not managed (...)` and left
+  alone.
+- `usage` counts spend through other setups' personal roles neither as tracked nor untracked; it
+  prints it as one line, "Other setups in this account".
+- Shared by every setup in the account: the cost allocation tag (Step 1.6) and the Step 1.7 deny
+  your org admin adds to the permission sets.
+- Users of a setup whose id isn't `bedrock` run `bedrock setup --id <id>`; `apply` prints that
+  command.
 
 ## Emails
 

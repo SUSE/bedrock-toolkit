@@ -14,7 +14,7 @@ up, see the [admin guide](admin-guide.md). Users follow the [user guide](user-gu
 7. [Pause states and limit changes](#7-pause-states-and-limit-changes)
 8. [The monthly Lambda and snapshots](#8-the-monthly-lambda-and-snapshots)
 9. [Usage and untracked spend](#9-usage-and-untracked-spend)
-10. [The `id`: what `apply` may change](#10-the-id-what-apply-may-change)
+10. [The `id`: several setups in one account](#10-the-id-several-setups-in-one-account)
 11. [Security model](#11-security-model)
 12. [Behavior and limits](#12-behavior-and-limits)
 13. [Testing](#13-testing)
@@ -105,7 +105,7 @@ Git. `bedrock-admin plan` compares it with the account, and `bedrock-admin apply
 match.
 
 ```yaml
-id: acme-prod                   # apply tags what it creates and only changes resources with this id
+id: acmeprod                    # names and tags what apply creates; default bedrock
 account: "111122223333"
 region: us-west-2
 profile: bedrock-admin          # AWS CLI profile
@@ -122,8 +122,8 @@ defaults:
   alert_at_percent: [80]        # email alerts on actual spend; [] for none
   notify: owner                 # the user's email, or a fixed address
 
-cost_export:
-  bucket: bedrock-cur-111122223333
+cost_export:                    # optional; the default bucket is bedrock-cur-<account>-<id>
+  bucket: bedrock-cur-111122223333-acmeprod
 
 block_direct_calls:
   enabled: true
@@ -144,8 +144,10 @@ users:
 - Which file: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, then
   `~/.config/bedrock-admin/bedrock.yaml`. Flags win over environment variables, which win over the
   file.
-- The user's name is derived from the email unless `name:` is set. It names the role
-  (`bedrock-user-<name>`) and the budget (`bedrock-<name>`).
+- The `id` is 1 to 20 lowercase letters and digits, default `bedrock`. Each file is one setup; see
+  [section 10](#10-the-id-several-setups-in-one-account).
+- The user's name is derived from the email unless `name:` is set, at most 30 characters. It names
+  the role (`bedrock-user-<id>-<name>`) and the budget (`bedrock-<id>-<name>`).
 - The trigger is `limit_usd × pause_at_percent / 100`. Both are percentages on the budget, so the
   trigger follows the limit. `pause_at_percent` is 1 to 200. Forecast-based pauses and fixed-dollar
   thresholds are not offered: forecasts are noisy early in the month, and fixed amounts would not
@@ -174,10 +176,10 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 
 | Step | Creates or checks | Why |
 | --- | --- | --- |
-| 1.1 | A CUR 2.0 cost export with caller identity, and its private bucket (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
-| 1.2 | The `bedrock-deny` policy (path `/bedrock/`) | The pause: one shared policy that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
-| 1.3 | The budget actions role `bedrock-budget-actions` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny` on roles under `/bedrock-users/`. |
-| 1.4 | The monthly Lambda and its schedule (06:00 UTC on the 1st) | Re-arms every pause each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
+| 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
+| 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
+| 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/`. |
+| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st) | Re-arms every pause of the id's users each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
 | 1.5 | Model access: a first call to each model in `models:` (Claude Haiku 5.5 when empty) | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can activate it; from a member account `plan` shows "needs org admin". |
 | 1.7 | Model calls outside personal roles are blocked | See below |
@@ -256,15 +258,16 @@ for models.
 
 | Resource | Name | Notes |
 | --- | --- | --- |
-| Role | `bedrock-web-search-gateway` (path `/bedrock/`) | Trusts `bedrock-agentcore.amazonaws.com` for this account's gateways. May call only `InvokeWebSearch` on the Web Search tool (and `InvokeGateway`). No model or data access. |
-| Gateway | `bedrock-web-search` | MCP, `AWS_IAM` authorizer, tagged with the `id`. Its ID and URL are generated. |
+| Role | `bedrock-web-search-gateway-<id>` (path `/bedrock/`) | Trusts `bedrock-agentcore.amazonaws.com` for the setup's gateway. May call only `InvokeWebSearch` on the Web Search tool (and `InvokeGateway`). No model or data access. |
+| Gateway | `bedrock-web-search-<id>` | MCP, `AWS_IAM` authorizer, tagged with the `id`. Its ID and URL are generated. |
 | Target | `web-search` | Connector `web-search`, version pinned in `bedrock-admin`, credentials from the gateway role, `exclude_domains` as its domain filter. The MCP tool is `web-search___WebSearch`. |
 
 - Personal roles: with web search on, `bedrock-invoke` also allows `InvokeGateway` on
-  `gateway/*` in the region, and `ListGateways`/`GetGateway` so `bedrock claude` can find the URL.
-  `gateway/*`, not the exact ARN, keeps the policy fixed before the gateway exists. With it off, the
+  the setup's gateway (`gateway/bedrock-web-search-<id>-*` in the region: AgentCore adds a random
+  suffix to the name), and `ListGateways`/`GetGateway` so `bedrock claude` can find the URL. The
+  wildcard keeps the policy fixed before the gateway exists. With it off, the
   statements go away.
-- `bedrock-deny` always denies `InvokeGateway`, so the pause covers search whether web search is on
+- `bedrock-deny-<id>` always denies `InvokeGateway`, so the pause covers search whether web search is on
   or not, and the pause policy doesn't change with the setting.
 - Gateway and target creation are asynchronous; `apply` waits for `READY` (2 minutes at most) and
   retries creation while the new role propagates. A `FAILED` gateway or target is a conflict: turn
@@ -283,13 +286,13 @@ for models.
 
 ## 5. Personal roles
 
-Each user gets one role, `bedrock-user-<name>`, under the path `/bedrock-users/`.
+Each user gets one role per setup, `bedrock-user-<id>-<name>`, under the path `/bedrock-users/<id>/`.
 
 | Property | Value | Why |
 | --- | --- | --- |
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
 | Tag `product` | `product` from the file | Charge spend to a team or product |
-| Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-what-apply-may-change)) |
+| Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-several-setups-in-one-account)) |
 | Inline policy `bedrock-invoke` | Call and stream the models in `models:`, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
 | Max session | 1 hour | The limit for role chaining |
 
@@ -329,14 +332,14 @@ comes from the profile's `role_arn`. It doesn't read the cost export, which hold
 
 ## 6. Budgets and the pause
 
-Each user has a monthly cost budget, `bedrock-<name>`:
+Each user has a monthly cost budget, `bedrock-<id>-<name>`:
 
 - Limit: `limit_usd`. Filter: the cost allocation tag `iamPrincipal/owner` equals the user's email.
   Metric: unblended cost.
 - One email notification on actual spend for each `alert_at_percent`, sent to the `notify`
   address.
 - One budget action: at `pause_at_percent` of actual spend, with automatic approval, attach
-  `bedrock-deny` to the user's role, run by the budget actions role. It also emails the `notify`
+  `bedrock-deny-<id>` to the user's role, run by the budget actions role. It also emails the `notify`
   address.
 
 `apply` updates the limit, the notifications and the action's threshold in place. It never
@@ -345,7 +348,7 @@ recreates the action for a limit change, because a new action is armed.
 The pause is a deny, so it wins over the role's allow and takes effect within seconds, including in
 running sessions. The user sees `AccessDeniedException ... explicit deny`.
 
-`bedrock-admin pause` attaches `bedrock-deny` to the role directly, without the budget action, and
+`bedrock-admin pause` attaches `bedrock-deny-<id>` to the role directly, without the budget action, and
 tags the role with `bedrock:paused-by`, `bedrock:paused-at` and `bedrock:pause-reason`. `unpause`
 records `bedrock:unpaused-by`, `-at` and `-reason`. Every change is also in CloudTrail.
 
@@ -357,8 +360,8 @@ AWS Budgets, `pause`/`unpause`, the monthly Lambda and, in one case, `apply` cha
 | State | Recorded as | Meaning | Shown as |
 | --- | --- | --- | --- |
 | Armed | Action `STANDBY` or `PENDING` | Access on; pauses at the trigger | `armed` |
-| Paused (over the limit) | Action `EXECUTION_SUCCESS` | AWS Budgets attached `bedrock-deny` | `PAUSED (date)` |
-| Paused by hand | `bedrock:paused-by` tag; `bedrock-deny` attached directly | An admin paused them; the action is untouched | `PAUSED by hand (date: reason)` |
+| Paused (over the limit) | Action `EXECUTION_SUCCESS` | AWS Budgets attached `bedrock-deny-<id>` | `PAUSED (date)` |
+| Paused by hand | `bedrock:paused-by` tag; `bedrock-deny-<id>` attached directly | An admin paused them; the action is untouched | `PAUSED by hand (date: reason)` |
 | Off for the month | Action `REVERSE_SUCCESS` | Access on; won't pause again this month | `off until <1st>` |
 
 | Event | From | To |
@@ -470,22 +473,46 @@ The "who" is the last part of the ARN: the SSO email for SSO sessions and person
 untracked spend is still attributed to a person, after the fact. The cost export lags up to about
 16 hours.
 
-## 10. The `id`: what `apply` may change
+## 10. The `id`: several setups in one account
 
-Everything `apply` creates is tagged `bedrock-admin:id` with the file's `id`. EventBridge schedules
-can't be tagged, so for the schedule the id is in its description. `apply`, offboarding and
-`uninstall` only change or delete resources with that id:
+Each `bedrock.yaml` is one setup, named by its `id`. Every account-level name ends in the id, and
+everything `apply` creates is tagged `bedrock-admin:id` with it (EventBridge schedules can't be
+tagged, so for the schedule the id is in its description). Several setups can therefore share one
+AWS account, each with its own users, limits, models, pause policy, monthly Lambda, cost export and
+bucket. One account with a single setup is the same thing with one id.
+
+| Resource | Name |
+| --- | --- |
+| Personal role | `bedrock-user-<id>-<name>` under `/bedrock-users/<id>/` (≤ 64 characters: id ≤ 20, name ≤ 30) |
+| Budget | `bedrock-<id>-<name>` |
+| Pause policy | `bedrock-deny-<id>` |
+| Budget actions role | `bedrock-budget-actions-<id>` |
+| Monthly Lambda, its role, its schedule | `bedrock-monthly-unpause-<id>` |
+| Scheduler role | `bedrock-monthly-unpause-scheduler-<id>` |
+| Web search gateway, its role | `bedrock-web-search-<id>`, `bedrock-web-search-gateway-<id>` |
+| Cost export, bucket | `bedrock-cur-<id>`, `bedrock-cur-<account>-<id>` |
+
+`apply`, offboarding, `uninstall` and the monthly Lambda only change resources of their own id:
 
 | Found | Result |
 | --- | --- |
-| Account resource with the same id | Managed: created, updated or removed as the file says |
-| Account resource with another id | `ok (managed by <id>)`, left alone |
-| Account resource without the tag | Conflict: made outside `bedrock-admin`; remove it, then apply |
-| Personal role or budget with another id, or none | `not managed`, left alone |
+| A setup resource tagged with the same id | Managed: created, updated or removed as the file says |
+| A setup resource with the same name but another id's tag, or none | Conflict: remove it, then apply |
+| A personal role under `/bedrock-users/<id>/` without the tag | `not managed`, left alone |
+| Another id's resources | Not looked at (except by `usage`, below) |
 
-So a file with a different `id`, such as an e2e run's `e2e-<run id>`, can't offboard real users or
-remove another setup's resources. There is no adoption of untagged resources. `bedrock-admin export`
-captures an existing account's users into a file, as a convenience.
+- One person can be a user of several setups, with a role and a budget in each. `bedrock setup
+  --id <id>` picks the role; `apply` prints the command with `--id` when the id isn't `bedrock`.
+- Each setup's cost export covers the whole account. `usage` counts spend through other ids'
+  personal roles as neither tracked nor untracked and prints it as one line, "Other setups in this
+  account".
+- `export` without `--id` takes the id of the only `bedrock-deny-<id>` policy, and asks for `--id`
+  when there are several.
+- Shared by every setup in the account (org level): the `iamPrincipal/owner` cost allocation tag
+  (Step 1.6) and the Step 1.7 deny on the permission sets, and Identity Center itself.
+
+There is no adoption of untagged resources. `bedrock-admin export` captures an existing setup's users
+into a file, as a convenience.
 
 ## 11. Security model
 
@@ -505,11 +532,11 @@ sets.
 | `bedrock-invoke` policy | Personal roles: Claude only, Fable denied | Calls from other roles |
 | Budget and pause | Spend through personal roles | Calls outside personal roles |
 | Step 1.7 deny | Model calls from SSO roles except the admin set | IAM users, other roles, API keys, the admin set |
-| Web search gateway role | The gateway may call only the Web Search tool | Who may call the gateway: that is the personal roles' `InvokeGateway` right, and any gateway in the account |
+| Web search gateway role | The gateway may call only the Web Search tool | Who may call the gateway: that is the personal roles' `InvokeGateway` right on their setup's gateway |
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
 - `bedrock-admin` needs only account-level admin rights. It never touches AWS Organizations.
-- `bedrock-deny` and the budget actions role are scoped to `/bedrock-users/` roles.
+- `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles.
 - The cost export bucket is private and writable only by Data Exports.
 - `bedrock.yaml` has no secrets.
 - Personal roles can call only Bedrock. An agent such as Claude Code running with the personal role
@@ -542,15 +569,16 @@ and a real AWS account:
 | Suite | Covers |
 | --- | --- |
 | `cli` | A smoke test of the built binaries, with no AWS |
-| `account` | The account steps: `plan`, `apply`, re-runs, `uninstall` |
+| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall` |
 | `users` | Onboarding, limit changes and offboarding |
 | `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, direct SSO calls denied, a pause seen by the user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
-| `web-search` | Opt-in, needs the account setup's web search on: a personal role gets the gateway rights and can search, the pause denies it, the printed MCP server runs through the proxy, and turning `web_search` off removes the rights but leaves the account's gateway |
+| `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |
 
-The e2e suites are run by hand with `tests/e2e/run.sh`, not in CI. Each run uses its own `id`, so it
-can't touch real users. See [tests/e2e/README.md](tests/e2e/README.md).
+The e2e suites are run by hand with `tests/e2e/run.sh`, not in CI. Each run applies its own setup
+(`id: e2e<run id>`) and uninstalls it at the end, so it can't touch real setups or users in the same
+account. See [tests/e2e/README.md](tests/e2e/README.md).
 
 Differences from the original design spec:
 
