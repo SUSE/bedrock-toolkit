@@ -200,7 +200,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if g, ok := mostCommon(found, func(g got) string { return fmt.Sprint(g.limit) }); ok {
 			cfg.Defaults.LimitUSD = &g.limit
 		} else {
-			l := 50.0
+			l := config.DefaultLimitUSD
 			cfg.Defaults.LimitUSD = &l
 		}
 		if g, ok := mostCommon(found, func(g got) string { return fmt.Sprint(g.pause) }); ok && g.pause != config.DefaultPauseAtPercent {

@@ -231,7 +231,7 @@ bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product ge
 | `--account` | The profile's account |
 | `--region` | The profile's region |
 | `--product` | `bedrock` |
-| `--limit` | 50 |
+| `--limit` | 100 |
 | `--model` (repeatable) | Claude Opus, Sonnet and Haiku 5.5 through the region's `us.` or `eu.` inference profiles, or `global.` in other regions |
 | `--bucket` | `bedrock-cur-<account>-<id>` |
 | `--prefix` | `cur` |

@@ -124,7 +124,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		cur.Product = "bedrock"
 	}
 	if cur.Defaults.LimitUSD == nil {
-		l := 50.0
+		l := config.DefaultLimitUSD
 		cur.Defaults.LimitUSD = &l
 	}
 	cur.ApplyDefaults()
@@ -229,7 +229,7 @@ func (a *App) ask(c *config.Config, changed func(string) bool, suggested []strin
 		}
 	}
 	if !changed("limit") {
-		def := "50"
+		def := strconv.FormatFloat(config.DefaultLimitUSD, 'f', -1, 64)
 		if c.Defaults.LimitUSD != nil {
 			def = strconv.FormatFloat(*c.Defaults.LimitUSD, 'f', -1, 64)
 		}

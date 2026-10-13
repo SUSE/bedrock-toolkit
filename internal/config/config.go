@@ -20,6 +20,9 @@ import (
 )
 
 // Defaults applied when the file leaves a value out.
+// DefaultLimitUSD is the limit configure and export suggest for a new bedrock.yaml.
+const DefaultLimitUSD = 100.0
+
 const (
 	DefaultPauseAtPercent     = 100
 	DefaultNotify             = "owner"
