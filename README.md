@@ -14,7 +14,8 @@ file; users set up their machine with one command.
 
 ## Features
 
-- **Personal access**: each user gets an IAM role that, by default, can call only Claude models, or, when overridden in `models:`, is tagged with their SSO email.
+- **Personal access**: each user gets an IAM role tagged with their SSO email, which can call any
+  Claude model (except Fable), or only the ones listed in `models:`.
 - **A budget per person**: AWS bills each Bedrock call with that tag, and a budget per user tracks it,
   with email alerts.
 - **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role.
