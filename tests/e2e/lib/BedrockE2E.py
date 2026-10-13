@@ -183,6 +183,7 @@ class BedrockE2E:
         logger.info(f"Run id: {self.run_id}", also_console=True)
         BuiltIn().set_global_variable("${RUN}", self.run_id)
         BuiltIn().set_global_variable("${ACCOUNT}", self.account)
+        BuiltIn().set_global_variable("${PRODUCT}", self.cfg["product"])
         self._publish_id()
         return self.run_id
 

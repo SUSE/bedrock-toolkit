@@ -33,6 +33,20 @@ No Alerts
     Apply
     User Should Be Set Up    c    1    90
 
+A User's Own Product Retags Only That Role
+    Set User    c    product    e2e-other
+    ${i}=    User Plan Op Should Be    c    update
+    Should Contain    ${i}[details]    tag product "${PRODUCT}" → "e2e-other"
+    Apply
+    ${c}=    Role Of    c
+    ${a}=    Role Of    a
+    Role Tag Should Be    ${c}    product    e2e-other
+    Role Tag Should Be    ${a}    product    ${PRODUCT}
+    Plan Should Show No Changes
+    Unset User    c    product
+    Apply
+    Role Tag Should Be    ${c}    product    ${PRODUCT}
+
 Changes Keep The Same Budget And Action
     ${budget}=    Budget Of    b
     ${before}=    Budget Action Id    ${budget}
