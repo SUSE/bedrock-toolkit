@@ -1,7 +1,7 @@
 # Test fixtures
 
 Synthetic CUR 2.0 cost export files and a monthly snapshot. The Go unit tests in `internal/usage`
-and the e2e suite `tests/e2e/suites/usage.robot` both use them. All emails are `usage-*@example.test`
+and the e2e suite `tests/e2e/suites/usage.robot` both use them. The personal roles are `bedrock-user-usage-<name>`, so they belong to the setup with id `usage` (names a, b, c, ghost, x), as does the snapshot. All emails are `usage-*@example.test`
 and the account is `111122223333`.
 
 Regenerate with `go test ./internal/usage -run TestFixtures -update`. The rows are defined in

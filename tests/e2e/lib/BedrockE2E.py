@@ -3,8 +3,11 @@
 The CLIs under test are run as subprocesses. Every check reads AWS directly with boto3 and never
 trusts the CLI's own output. Settings come from the variable file (see config/example.py).
 
-Each run has an id, e2e-<6 hex>, used as the config's id: and in the test users' names
-(e2e-<hex>-<x>), so a run only ever changes its own users.
+Each run is its own setup: its id, e2e<6 hex>, is the config's id:, so every account-level
+resource (bedrock-deny-<id>, bedrock-monthly-unpause-<id>, the bucket bedrock-cur-<account>-<id>, ...)
+and every personal role (bedrock-user-<id>-<name>) belongs to the run alone. A suite applies the
+setup at the start and uninstalls it, with its bucket, at the end. Test users' emails are
+<run id>-<x>@TEST_EMAIL_DOMAIN.
 """
 import datetime as dt
 import json
@@ -31,16 +34,11 @@ BIN = Path(os.environ.get("E2E_BIN", HERE / "bin"))
 FIXTURES = Path(os.environ.get("E2E_FIXTURES", HERE.parent / "fixtures"))
 STATE_DIR = HERE / "results" / "billing"
 
-LAMBDA = "bedrock-monthly-unpause"
-SCHEDULE = "bedrock-monthly-unpause"
-DENY_POLICY = "bedrock-deny"
 ID_TAG = "bedrock-admin:id"
 OWNER_TAG = "owner"
 PAUSED_BY_TAG = "bedrock:paused-by"
 PAUSE_REASON_TAG = "bedrock:pause-reason"
-WEB_SEARCH_GATEWAY = "bedrock-web-search"
 WEB_SEARCH_TARGET = "web-search"
-WEB_SEARCH_ROLE = "bedrock-web-search-gateway"
 WEB_SEARCH_TOOL = "web-search___WebSearch"
 WEB_SEARCH_REGIONS = ("us-east-1", "eu-west-1", "ap-northeast-1")
 PENDING_OPS = {"create", "update", "delete", "needs-org-admin", "conflict"}
@@ -49,12 +47,10 @@ DEFAULTS = {
     "ADMIN_PROFILE": "default",
     "REGION": "us-west-2",
     "MODELS": [],
-    "ACCOUNT_ID": "e2e",
     "PRODUCT": "bedrock-e2e",
-    "CUR_BUCKET": "",
     "ADMIN_PERMISSION_SET": "BedrockAdmin",
     "BLOCK_TEST_PERMISSION_SET": "",
-    "ALLOW_DELETE_DATA": False,
+    "KEEP_SETUP": False,
     "SSO_PROFILE": "",
     "UNTRACKED_PROFILE": "",
     "TEST_EMAIL_DOMAIN": "example.com",
@@ -84,6 +80,28 @@ def _value(v):
 def _console(msg):
     sys.__stdout__.write(msg + "\n")
     sys.__stdout__.flush()
+
+
+def name_from_email(email):
+    """config.NameFromEmail: the user name derived from an email."""
+    n = re.sub(r"[^a-z0-9.-]+", "-", email.split("@", 1)[0].lower()).strip("-.")
+    return n[:30].strip("-.") if len(n) > 30 else n
+
+
+def setup_names(account, id_):
+    """The account-level resource names of setup id_ (internal/policy)."""
+    return {
+        "deny": f"bedrock-deny-{id_}",
+        "budget_actions_role": f"bedrock-budget-actions-{id_}",
+        "lambda": f"bedrock-monthly-unpause-{id_}",
+        "lambda_role": f"bedrock-monthly-unpause-{id_}",
+        "scheduler_role": f"bedrock-monthly-unpause-scheduler-{id_}",
+        "schedule": f"bedrock-monthly-unpause-{id_}",
+        "web_search_role": f"bedrock-web-search-gateway-{id_}",
+        "web_search_gateway": f"bedrock-web-search-{id_}",
+        "export": f"bedrock-cur-{id_}",
+        "bucket": f"bedrock-cur-{account}-{id_}",
+    }
 
 
 def default_models(region):
@@ -127,7 +145,7 @@ class BedrockE2E:
             bi = BuiltIn()
             self.s = {k: bi.get_variable_value("${%s}" % k, d) for k, d in DEFAULTS.items()}
             self.s["INTERACTIVE"] = _bool(self.s["INTERACTIVE"])
-            self.s["ALLOW_DELETE_DATA"] = _bool(self.s["ALLOW_DELETE_DATA"])
+            self.s["KEEP_SETUP"] = _bool(self.s["KEEP_SETUP"])
             if not self.s["MODELS"]:
                 self.s["MODELS"] = default_models(self.s["REGION"])
             for k, v in self.s.items():
@@ -139,7 +157,7 @@ class BedrockE2E:
 
         Returns the run id. With needs_aws=False (the cli suite) nothing is read from AWS."""
         s = self._settings()
-        self.run_id = s["RUN_ID"] or "e2e-" + secrets.token_hex(3)
+        self.run_id = s["RUN_ID"] or "e2e" + secrets.token_hex(3)
         out = Path(BuiltIn().get_variable_value("${OUTPUT DIR}"))
         self.work = out / "work"
         self.work.mkdir(parents=True, exist_ok=True)
@@ -159,33 +177,46 @@ class BedrockE2E:
             "product": s["PRODUCT"],
             "models": list(s["MODELS"]),
             "defaults": {"limit_usd": 1, "notify": s["NOTIFY_EMAIL"] or "owner"},
-            "cost_export": {"bucket": self.bucket},
             "block_direct_calls": {"enabled": False},
             "users": [],
         }
         logger.info(f"Run id: {self.run_id}", also_console=True)
         BuiltIn().set_global_variable("${RUN}", self.run_id)
-        BuiltIn().set_global_variable("${RUN_CONFIG_ID}", self.run_id)
         BuiltIn().set_global_variable("${ACCOUNT}", self.account)
+        self._publish_id()
         return self.run_id
+
+    def _publish_id(self):
+        BuiltIn().set_global_variable("${ID}", self.cfg["id"])
+        BuiltIn().set_global_variable("${N}", setup_names(self.account, self.cfg["id"]))
+
+    def use_id(self, id_):
+        """Makes the run's setup use id_ instead of the run id (the usage suite: the fixtures' id)."""
+        self.cfg["id"] = id_
+        self._publish_id()
+        return id_
+
+    def enable_block_direct_calls(self):
+        """Step 1.7 on, method permission-set, as a real setup has it."""
+        self.cfg["block_direct_calls"] = {"enabled": True, "method": "permission-set",
+                                          "admin_permission_set": self._settings()["ADMIN_PERMISSION_SET"]}
+
+    def names(self, id_=None):
+        """The account-level resource names of setup id_ (default: the run's)."""
+        return setup_names(self.account, id_ or self.cfg["id"])
 
     @property
     def bucket(self):
-        return self._settings()["CUR_BUCKET"] or f"bedrock-cur-{self.account}"
-
-    def use_account_id(self):
-        """Makes this run own the account setup: id ACCOUNT_ID, and Step 1.7 enabled."""
-        s = self._settings()
-        self.cfg["id"] = s["ACCOUNT_ID"]
-        BuiltIn().set_global_variable("${RUN_CONFIG_ID}", s["ACCOUNT_ID"])
-        self.cfg["block_direct_calls"] = {"enabled": True, "method": "permission-set",
-                                          "admin_permission_set": s["ADMIN_PERMISSION_SET"]}
-        return s["ACCOUNT_ID"]
+        return self.names()["bucket"]
 
     # ---------------------------------------------------------------- the config file
 
+    def keep_setup(self):
+        """KEEP_SETUP from the variable file."""
+        return self._settings()["KEEP_SETUP"]
+
     def user_email(self, x):
-        """Email of test user x: e2e-<hex>-x@TEST_EMAIL_DOMAIN; "me" is the runner's SSO email."""
+        """Email of test user x: <run id>-x@TEST_EMAIL_DOMAIN; "me" is the runner's SSO email."""
         if x == "me":
             if not self.sso_email:
                 raise Failure("Start SSO first")
@@ -195,19 +226,21 @@ class BedrockE2E:
         return f"{self.run_id}-{x}@{self._settings()['TEST_EMAIL_DOMAIN']}"
 
     def user_name(self, x):
-        """Name of test user x: role bedrock-user-<name>, budget bedrock-<name>."""
+        """Name of test user x: its name: in the config, else the one derived from its email."""
         for u in self.cfg["users"]:
             if u["email"] == self.user_email(x) and u.get("name"):
                 return u["name"]
-        if x == "me" or "@" in x:
-            return f"{self.run_id}-{x.split('@')[0] if x != 'me' else 'me'}"
-        return f"{self.run_id}-{x}"
+        return name_from_email(self.user_email(x))
 
-    def role_of(self, x):
-        return "bedrock-user-" + self.user_name(x)
+    def role_of(self, x, id_=None):
+        return f"bedrock-user-{id_ or self.cfg['id']}-{self.user_name(x)}"
 
-    def budget_of(self, x):
-        return "bedrock-" + self.user_name(x)
+    def budget_of(self, x, id_=None):
+        return f"bedrock-{id_ or self.cfg['id']}-{self.user_name(x)}"
+
+    def role_arn_of(self, x, id_=None):
+        id_ = id_ or self.cfg["id"]
+        return f"arn:aws:iam::{self.account}:role/bedrock-users/{id_}/{self.role_of(x, id_)}"
 
     def set_users(self, *xs):
         self.cfg["users"] = []
@@ -215,11 +248,8 @@ class BedrockE2E:
             self.add_user(x)
 
     def add_user(self, x, **options):
-        """Adds test user x. "me" and full emails get name: <run id>-<local part> so they never
-        collide with a real user's role."""
+        """Adds test user x ("me": the runner's SSO email; or a full email) with options."""
         u = {"email": self.user_email(x)}
-        if x == "me" or "@" in x:
-            u["name"] = self.user_name(x)
         u.update({k: _value(v) for k, v in options.items()})
         self.cfg["users"] = [v for v in self.cfg["users"] if v["email"] != u["email"]] + [u]
 
@@ -265,7 +295,8 @@ class BedrockE2E:
         return str(path)
 
     def write_config_with_id(self, id_, *xs, name=None):
-        """Writes a copy of the config with another id and users xs (Step 1.7 off); returns its path."""
+        """Writes a copy of the config with another id (a second setup in the account) and users xs,
+        Step 1.7 off; returns its path."""
         cfg = json.loads(json.dumps(self.cfg))
         cfg["id"] = id_
         cfg["block_direct_calls"] = {"enabled": False}
@@ -417,7 +448,7 @@ class BedrockE2E:
         if c and c[1] > time.time():
             return c[0]
         email = self.user_email(x)
-        arn = f"arn:aws:iam::{self.account}:role/bedrock-users/{self.role_of(x)}"
+        arn = self.role_arn_of(x)
         sts = self._session("admin").client("sts")
         for attempt in range(12):
             try:
@@ -497,18 +528,20 @@ class BedrockE2E:
         if email not in doc:
             raise Failure(f"{role}: trust policy does not name {email}: {doc}")
 
+    def _deny_arn(self, id_=None):
+        return f"arn:aws:iam::{self.account}:policy/bedrock/{self.names(id_)['deny']}"
+
     def deny_attached(self, role):
-        arn = f"arn:aws:iam::{self.account}:policy/bedrock/{DENY_POLICY}"
         pols = self._iam().list_attached_role_policies(RoleName=role)["AttachedPolicies"]
-        return any(p["PolicyArn"] == arn for p in pols)
+        return any(p["PolicyArn"] == self._deny_arn() for p in pols)
 
     def deny_policy_should_be_attached(self, role):
         if not self.deny_attached(role):
-            raise Failure(f"{DENY_POLICY} is not attached to {role}")
+            raise Failure(f"{self.names()['deny']} is not attached to {role}")
 
     def deny_policy_should_not_be_attached(self, role):
         if self.deny_attached(role):
-            raise Failure(f"{DENY_POLICY} is attached to {role}")
+            raise Failure(f"{self.names()['deny']} is attached to {role}")
 
     def budget(self, name):
         try:
@@ -597,48 +630,67 @@ class BedrockE2E:
         self._budgets().update_budget_action(AccountId=self.account, BudgetName=name, ActionId=a["ActionId"],
                                              ApprovalModel="MANUAL")
 
+    def _lambda(self):
+        return self._session("admin").client("lambda")
+
     def change_lambda_setting_directly(self):
         """Drift: changes the monthly Lambda's SNAPSHOT_PREFIX outside the file."""
-        lam = self._session("admin").client("lambda")
-        env = lam.get_function_configuration(FunctionName=LAMBDA)["Environment"]["Variables"]
+        lam, fn = self._lambda(), self.names()["lambda"]
+        env = lam.get_function_configuration(FunctionName=fn)["Environment"]["Variables"]
         env["SNAPSHOT_PREFIX"] = "e2e-drift/"
-        lam.update_function_configuration(FunctionName=LAMBDA, Environment={"Variables": env})
-        lam.get_waiter("function_updated_v2").wait(FunctionName=LAMBDA)
+        lam.update_function_configuration(FunctionName=fn, Environment={"Variables": env})
+        lam.get_waiter("function_updated_v2").wait(FunctionName=fn)
 
-    def lambda_setting(self, key):
-        lam = self._session("admin").client("lambda")
-        return lam.get_function_configuration(FunctionName=LAMBDA)["Environment"]["Variables"].get(key)
+    def lambda_setting(self, key, id_=None):
+        fn = self.names(id_)["lambda"]
+        return self._lambda().get_function_configuration(FunctionName=fn)["Environment"]["Variables"].get(key)
 
-    def lambda_should_exist(self):
-        self._session("admin").client("lambda").get_function(FunctionName=LAMBDA)
+    def lambda_should_exist(self, id_=None):
+        self._lambda().get_function(FunctionName=self.names(id_)["lambda"])
 
-    def lambda_should_not_exist(self):
+    def lambda_should_not_exist(self, id_=None):
+        fn = self.names(id_)["lambda"]
         try:
-            self._session("admin").client("lambda").get_function(FunctionName=LAMBDA)
+            self._lambda().get_function(FunctionName=fn)
         except ClientError as e:
             if e.response["Error"]["Code"] == "ResourceNotFoundException":
                 return
             raise
-        raise Failure(f"Lambda {LAMBDA} still exists")
+        raise Failure(f"Lambda {fn} still exists")
 
-    def deny_policy_should_exist(self):
-        if not self.account_resource_owner():
-            raise Failure(f"no policy {DENY_POLICY}, or it has no {ID_TAG} tag")
-
-    def deny_policy_should_not_exist(self):
+    def deny_policy_id(self, id_=None):
+        """The bedrock-admin:id tag of setup id_'s deny policy; None when there is no policy."""
         try:
-            self._iam().get_policy(PolicyArn=f"arn:aws:iam::{self.account}:policy/bedrock/{DENY_POLICY}")
+            tags = self._iam().list_policy_tags(PolicyArn=self._deny_arn(id_))["Tags"]
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchEntity":
-                return
+                return None
             raise
-        raise Failure(f"policy {DENY_POLICY} still exists")
+        return {t["Key"]: t["Value"] for t in tags}.get(ID_TAG, "")
 
-    def cost_export_should_exist(self, name="bedrock-cur"):
+    def deny_policy_should_exist(self, id_=None):
+        id_ = id_ or self.cfg["id"]
+        got = self.deny_policy_id(id_)
+        if got != id_:
+            raise Failure(f"policy {self.names(id_)['deny']}: id tag {got!r}, expected {id_!r}")
+
+    def deny_policy_should_not_exist(self, id_=None):
+        if self.deny_policy_id(id_) is not None:
+            raise Failure(f"policy {self.names(id_)['deny']} still exists")
+
+    def _exports(self):
         c = self._session("admin").client("bcm-data-exports", region_name="us-east-1")
-        names = [e["ExportName"] for p in c.get_paginator("list_exports").paginate() for e in p["Exports"]]
-        if name not in names:
-            raise Failure(f"no cost export {name} (have {names})")
+        return [e["ExportName"] for p in c.get_paginator("list_exports").paginate() for e in p["Exports"]]
+
+    def cost_export_should_exist(self, id_=None):
+        name = self.names(id_)["export"]
+        if name not in self._exports():
+            raise Failure(f"no cost export {name}")
+
+    def cost_export_should_not_exist(self, id_=None):
+        name = self.names(id_)["export"]
+        if name in self._exports():
+            raise Failure(f"cost export {name} still exists")
 
     def cost_allocation_tag_should_be_active(self, key="iamPrincipal/owner"):
         ce = self._session("admin").client("ce", region_name="us-east-1")
@@ -652,22 +704,20 @@ class BedrockE2E:
         if not tags or tags[0]["Status"] != "Active":
             raise Failure(f"cost allocation tag {key}: {tags}")
 
-    def personal_roles(self):
+    def personal_roles(self, id_=None):
+        """The personal roles of setup id_ (under /bedrock-users/<id>/)."""
         roles = []
-        for page in self._iam().get_paginator("list_roles").paginate(PathPrefix="/bedrock-users/"):
-            roles += [r["RoleName"] for r in page["Roles"] if r["RoleName"].startswith("bedrock-user-")]
-        return roles
-
-    def non_test_personal_roles(self):
-        """Personal roles not made by an e2e run: real users."""
-        return [r for r in self.personal_roles() if not r.startswith("bedrock-user-e2e-")]
+        path = f"/bedrock-users/{id_ or self.cfg['id']}/"
+        for page in self._iam().get_paginator("list_roles").paginate(PathPrefix=path):
+            roles += [r["RoleName"] for r in page["Roles"]]
+        return sorted(roles)
 
     def create_unmanaged_role(self, x):
-        """A personal role made outside bedrock-admin (no id tag). Returns its name."""
+        """A personal role of this setup made outside bedrock-admin (no id tag). Returns its name."""
         role = self.role_of(x)
         trust = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": "sts:AssumeRole",
                  "Principal": {"AWS": f"arn:aws:iam::{self.account}:root"}}]}
-        self._iam().create_role(RoleName=role, Path="/bedrock-users/", AssumeRolePolicyDocument=json.dumps(trust),
+        self._iam().create_role(RoleName=role, Path=f"/bedrock-users/{self.cfg['id']}/", AssumeRolePolicyDocument=json.dumps(trust),
                                 Tags=[{"Key": "owner", "Value": self.user_email(x)}])
         return role
 
@@ -693,28 +743,25 @@ class BedrockE2E:
 
     def delete_monthly_schedule(self):
         """A missing piece: deletes the monthly schedule (Step 1.4)."""
-        self._session("admin").client("scheduler").delete_schedule(Name=SCHEDULE)
+        self._session("admin").client("scheduler").delete_schedule(Name=self.names()["schedule"])
 
-    def schedule_should_exist(self):
-        self._session("admin").client("scheduler").get_schedule(Name=SCHEDULE)
+    def schedule_should_exist(self, id_=None):
+        self._session("admin").client("scheduler").get_schedule(Name=self.names(id_)["schedule"])
 
-    def account_resource_owner(self):
-        """The id of the deny policy (the account setup's owner), or "" when there is none."""
-        arn = f"arn:aws:iam::{self.account}:policy/bedrock/{DENY_POLICY}"
+    def bucket_exists(self, id_=None):
         try:
-            tags = self._iam().list_policy_tags(PolicyArn=arn)["Tags"]
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "NoSuchEntity":
-                return ""
-            raise
-        return {t["Key"]: t["Value"] for t in tags}.get(ID_TAG, "")
-
-    def bucket_exists(self):
-        try:
-            self._session("admin").client("s3").head_bucket(Bucket=self.bucket)
+            self._session("admin").client("s3").head_bucket(Bucket=self.names(id_)["bucket"])
             return True
         except ClientError:
             return False
+
+    def bucket_should_exist(self, id_=None):
+        if not self.bucket_exists(id_):
+            raise Failure(f"no bucket {self.names(id_)['bucket']}")
+
+    def bucket_should_not_exist(self, id_=None):
+        if self.bucket_exists(id_):
+            raise Failure(f"bucket {self.names(id_)['bucket']} still exists")
 
     def s3_object_should_exist(self, key):
         try:
@@ -726,25 +773,17 @@ class BedrockE2E:
         self._s3().upload_file(str(local), self.bucket, key)
         logger.info(f"uploaded {local} to s3://{self.bucket}/{key}")
 
-    def delete_prefix(self, prefix):
-        if not prefix.startswith("e2e/"):
-            raise Failure(f"refusing to delete {prefix}: not under e2e/")
-        s3 = self._s3()
-        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix):
-            objs = [{"Key": o["Key"]} for o in page.get("Contents", [])]
-            if objs:
-                s3.delete_objects(Bucket=self.bucket, Delete={"Objects": objs})
-
     def upload_usage_fixtures(self):
         """Uploads the Parquet fixtures as this and last month's cost export, and the snapshot as
-        last month's, under e2e/<run id>/. Returns the path of a config that reads them."""
+        last month's, under e2e-fixtures/ in the setup's bucket (apart from the real export's prefix).
+        Returns the path of a config that reads them."""
         now = dt.datetime.now(dt.timezone.utc)
         this = now.strftime("%Y-%m")
         last = (now.replace(day=1) - dt.timedelta(days=1)).strftime("%Y-%m")
-        base = f"e2e/{self.run_id}"
+        base = "e2e-fixtures"
         cfg = json.loads(json.dumps(self.cfg))
-        cfg["cost_export"].update({"prefix": base + "/cur", "name": "bedrock-cur", "snapshot_prefix": base + "/snapshots"})
-        data = f"{base}/cur/bedrock-cur/data"
+        cfg["cost_export"] = {"prefix": base + "/cur", "snapshot_prefix": base + "/snapshots"}
+        data = f"{base}/cur/{self.names()['export']}/data"
         self.upload_file(FIXTURES / "cur-this-month.parquet", f"{data}/BILLING_PERIOD={this}/fixture-00001.parquet")
         self.upload_file(FIXTURES / "cur-last-month.parquet", f"{data}/BILLING_PERIOD={last}/fixture-00001.parquet")
         self.upload_file(FIXTURES / "snapshot-last-month.json", f"{base}/snapshots/{last}.json")
@@ -755,62 +794,17 @@ class BedrockE2E:
     # ---------------------------------------------------------------- the monthly Lambda
 
     def invoke_monthly_lambda(self):
-        """Invokes the monthly Lambda and returns its result. It acts on every user in the account,
-        so it only runs when the Lambda is managed by ACCOUNT_ID (a test account)."""
-        others = self.non_test_personal_roles()
-        if others:
-            raise SkipExecution(f"not invoking the monthly Lambda: the account has real users ({', '.join(others[:5])}), "
-                                "and it acts on every user (use a test account)")
-        lam = self._session("admin").client("lambda")
-        tags = lam.list_tags(Resource=f"arn:aws:lambda:{self.s['REGION']}:{self.account}:function:{LAMBDA}")["Tags"]
-        if tags.get(ID_TAG) != self.s["ACCOUNT_ID"]:
-            raise SkipExecution(f"the Lambda is managed by {tags.get(ID_TAG)!r}, not ACCOUNT_ID {self.s['ACCOUNT_ID']!r}: "
-                                "not invoking it, as it acts on every user in the account (use a test account)")
-        self._backup_lambda_snapshot()
-        r = lam.invoke(FunctionName=LAMBDA, Payload=b"{}")
+        """Invokes the setup's monthly Lambda (it acts only on this setup's users) and returns its result."""
+        r = self._lambda().invoke(FunctionName=self.names()["lambda"], Payload=b"{}")
         body = r["Payload"].read().decode()
         logger.info(f"Lambda result: {body}")
         if r.get("FunctionError"):
             raise Failure(f"Lambda failed: {body}")
         return json.loads(body)
 
-    def _lambda_snapshot_location(self):
-        env = self._session("admin").client("lambda").get_function_configuration(FunctionName=LAMBDA)["Environment"]["Variables"]
-        now = dt.datetime.now(dt.timezone.utc)
-        last = (now.replace(day=1) - dt.timedelta(days=1)).strftime("%Y-%m")
-        return env["SNAPSHOT_BUCKET"], f"{env['SNAPSHOT_PREFIX'].strip('/')}/{last}.json"
-
-    def _backup_lambda_snapshot(self):
-        """The Lambda overwrites last month's snapshot with the test users; keep what was there."""
-        bucket, key = self._lambda_snapshot_location()
-        s3 = self._session("admin").client("s3", region_name=self._bucket_region())
-        try:
-            body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("NoSuchKey", "404"):
-                raise
-            body = None
-        self._snapshot_backup = (bucket, key, body)
-
-    def restore_lambda_snapshot(self):
-        """Puts back last month's snapshot as it was before Invoke Monthly Lambda (or removes the
-        one the Lambda wrote)."""
-        backup = getattr(self, "_snapshot_backup", None)
-        if not backup:
-            return
-        bucket, key, body = backup
-        s3 = self._session("admin").client("s3", region_name=self._bucket_region())
-        if body is None:
-            s3.delete_object(Bucket=bucket, Key=key)
-            logger.info(f"removed the test snapshot s3://{bucket}/{key}")
-        else:
-            s3.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json")
-            logger.info(f"restored s3://{bucket}/{key}")
-        self._snapshot_backup = None
-
     def lambda_snapshot_should_exist(self, result):
         """The snapshot in the Lambda result was saved where the Lambda's settings say."""
-        env = self._session("admin").client("lambda").get_function_configuration(FunctionName=LAMBDA)["Environment"]["Variables"]
+        env = self._lambda().get_function_configuration(FunctionName=self.names()["lambda"])["Environment"]["Variables"]
         key = f"{env['SNAPSHOT_PREFIX'].strip('/')}/{result['snapshot']['month']}.json"
         try:
             self._session("admin").client("s3", region_name=self._bucket_region()).head_object(Bucket=env["SNAPSHOT_BUCKET"], Key=key)
@@ -958,7 +952,7 @@ class BedrockE2E:
         source (the trust policy only lets the SSO login with session name <email> in, so this only
         works for "me"; other users get a profile that the admin profile can't use either)."""
         profile = profile or f"e2e-{x}"
-        role = f"arn:aws:iam::{self.account}:role/bedrock-users/{self.role_of(x)}"
+        role = self.role_arn_of(x)
         with open(self.user_aws_config, "a") as f:
             f.write(f"\n[profile {profile}]\nrole_arn = {role}\nsource_profile = {self.s['SSO_PROFILE']}\n"
                     f"role_session_name = {self.user_email(x)}\nregion = {self.s['REGION']}\n")
@@ -1010,7 +1004,7 @@ class BedrockE2E:
         st = json.loads(path.read_text())
         self.run_id, self.cfg, self.sso_email = st["run_id"], st["config"], st.get("sso_email", "")
         BuiltIn().set_global_variable("${RUN}", self.run_id)
-        BuiltIn().set_global_variable("${RUN_CONFIG_ID}", self.cfg["id"])
+        self._publish_id()
         logger.info(f"Billing run {self.run_id}, phase 1 at {st['phase1_at']}", also_console=True)
         return st
 
@@ -1057,11 +1051,12 @@ class BedrockE2E:
         return self._session("admin").client("bedrock-agentcore-control")
 
     def web_search_gateway(self):
-        """The gateway (GetGateway output) named bedrock-web-search, or None."""
+        """The setup's gateway (GetGateway output), bedrock-web-search-<id>, or None."""
         ac = self._agentcore()
+        name = self.names()["web_search_gateway"]
         for page in ac.get_paginator("list_gateways").paginate():
             for g in page["items"]:
-                if g["name"] == WEB_SEARCH_GATEWAY:
+                if g["name"] == name:
                     return ac.get_gateway(gatewayIdentifier=g["gatewayId"])
         return None
 
@@ -1073,18 +1068,19 @@ class BedrockE2E:
                     return ac.get_gateway_target(gatewayIdentifier=gateway_id, targetId=t["targetId"])
         return None
 
-    def web_search_should_be_ready(self, owner):
-        """The account's gateway: READY, IAM auth, the gateway role, managed by id owner, and its
-        Web Search target READY. Returns the gateway URL."""
+    def web_search_should_be_ready(self):
+        """The setup's gateway: READY, IAM auth, the setup's gateway role and id tag, and its Web Search
+        target READY. Returns the gateway URL."""
         g = self.web_search_gateway()
+        n, owner = self.names(), self.cfg["id"]
         if not g:
-            raise Failure(f"no gateway {WEB_SEARCH_GATEWAY}: enable web_search in the account setup (id {owner})")
+            raise Failure(f"no gateway {n['web_search_gateway']}")
         problems = []
         if g["status"] != "READY":
             problems.append(f"gateway status {g['status']}")
         if g.get("authorizerType") != "AWS_IAM":
             problems.append(f"authorizer {g.get('authorizerType')}")
-        if not g.get("roleArn", "").endswith(f"/{WEB_SEARCH_ROLE}"):
+        if not g.get("roleArn", "").endswith(f"/{n['web_search_role']}"):
             problems.append(f"role {g.get('roleArn')}")
         tags = self._agentcore().list_tags_for_resource(resourceArn=g["gatewayArn"]).get("tags", {})
         if tags.get(ID_TAG) != owner:
@@ -1097,6 +1093,10 @@ class BedrockE2E:
         if problems:
             raise Failure("web search: " + "; ".join(problems))
         return g["gatewayUrl"]
+
+    def web_search_gateway_should_not_exist(self):
+        if self.web_search_gateway():
+            raise Failure(f"gateway {self.names()['web_search_gateway']} still exists")
 
     def role_policy_text(self, role, name="bedrock-invoke"):
         return json.dumps(self._iam().get_role_policy(RoleName=role, PolicyName=name)["PolicyDocument"])

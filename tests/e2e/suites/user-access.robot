@@ -2,10 +2,11 @@
 Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor and usage, the
 ...                 Step 1.7 block on direct SSO calls, and a manual pause seen from the user's side.
 ...                 Needs SSO_PROFILE signed in (aws sso login) in the same account. The runner is added as
-...                 a user named <run>-me; the user CLI writes to a copy of ~/.aws/config, never the real one.
+...                 a user of the run's own setup (id e2e<hex>); the user CLI writes to a copy of ~/.aws/config,
+...                 never the real one.
 Resource            ../resources/common.resource
 Suite Setup         Start User Access Run
-Suite Teardown      Remove Run Users
+Suite Teardown      Tear Down Run
 Test Tags           user-access
 
 
@@ -15,13 +16,17 @@ ${PROFILE}      bedrock
 
 *** Test Cases ***
 Setup Writes A Working Profile
-    ${r}=    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --role-arn    ${ROLE_ARN}    --region    ${REGION}
+    [Documentation]    bedrock setup --id finds the personal role from the SSO email, as the setup
+    ...    command apply prints for a setup that isn't the default id.
+    Should Be Equal    ${SETUP_COMMAND}    bedrock setup --id ${ID}
+    ${r}=    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
     ...    --profile-name    ${PROFILE}    output=result    rc=any
     Should Be Equal As Integers    ${r.rc}    0    setup or its doctor failed:\n${r.stdout}\n${r.stderr}
     ${text}=    User Aws Config Text
     Should Contain    ${text}    [profile ${PROFILE}]
     Should Contain    ${text}    role_session_name = ${SSO_EMAIL}
     Should Contain    ${text}    source_profile = ${SSO_PROFILE}
+    Should Contain    ${text}    role_arn = ${ROLE_ARN}
 
 The Personal Role Works
     ${arn}=    Identity    ${PROFILE}
@@ -74,9 +79,11 @@ Start User Access Run
     Start AWS Run
     Start SSO
     Add User    me
-    Apply
-    ${role}=    Role Of    me
-    Set Suite Variable    ${ROLE_ARN}    arn:aws:iam::${ACCOUNT}:role/bedrock-users/${role}
+    ${r}=    Apply
+    ${cmds}=    Evaluate    [c["command"] for c in $r.json["setup_commands"] if c["email"] == $SSO_EMAIL]
+    Set Suite Variable    ${SETUP_COMMAND}    ${cmds}[0]
+    ${arn}=    Role Arn Of    me
+    Set Suite Variable    ${ROLE_ARN}    ${arn}
     Wait Until Sso Can Assume    ${ROLE_ARN}
     ${ps}=    Get Sso Permission Set
     Set Suite Variable    ${SSO_PERMISSION_SET}    ${ps}

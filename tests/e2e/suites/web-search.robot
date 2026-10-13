@@ -1,15 +1,13 @@
 *** Settings ***
-Documentation       Web search (Step 1.8) for personal roles: with web_search on, apply gives a role the gateway
-...                 rights and it can search; the pause denies search; turning web_search off removes the
-...                 rights. With SSO_PROFILE set, also the user side: bedrock doctor, and the MCP server printed
-...                 by bedrock claude run through uvx and mcp-proxy-for-aws.
-...                 Uses its own id (e2e-<run>) and the gateway of the account setup, so the account setup must
-...                 have web_search on (in REGION: us-east-1, eu-west-1 or ap-northeast-1). The gateway itself
-...                 (create, update, delete) belongs to the account setup's id and isn't changed here.
-...                 A run costs a few cents.
+Documentation       Web search (Step 1.8) in the run's own setup (id e2e<hex>): turning web_search on creates
+...                 the setup's gateway and its role and gives personal roles the gateway rights, and a role
+...                 can search; the pause denies search; turning it off removes the rights, the gateway and
+...                 its role. With SSO_PROFILE set, also the user side: bedrock doctor, and the MCP server
+...                 printed by bedrock claude run through uvx and mcp-proxy-for-aws.
+...                 REGION must be us-east-1, eu-west-1 or ap-northeast-1. A run costs a few cents.
 Resource            ../resources/common.resource
 Suite Setup         Start Web Search Run
-Suite Teardown      Remove Run Users
+Suite Teardown      Tear Down Run
 Test Tags           web-search
 
 
@@ -18,17 +16,19 @@ ${PROFILE}      bedrock
 
 
 *** Test Cases ***
-Apply Gives A Personal Role The Gateway Rights
+Apply Creates The Gateway And Gives A Personal Role The Rights
     Set Config    web_search.enabled    true
     ${p}=    Plan
-    ${gw}=    Plan Op Should Be    ${p}    web search gateway    info
-    Should Contain    ${gw}[status]    managed by ${OWNER}
+    Plan Op Should Be    ${p}    web search gateway ${N}[web_search_gateway]    create
+    Plan Op Should Be    ${p}    web search role ${N}[web_search_role]    create
     Apply
     ${role}=    Role Of    a
     ${doc}=    Role Policy Text    ${role}
     Should Contain    ${doc}    bedrock-agentcore:InvokeGateway
-    ${url}=    Web Search Should Be Ready    ${OWNER}
-    Should Be Equal    ${url}    ${URL}
+    ${url}=    Web Search Should Be Ready
+    Set Suite Variable    ${URL}    ${url}
+    ${p}=    Plan
+    Plan Should Have No Changes    ${p}
 
 A Personal Role Can Search
     Let Admin Assume    a
@@ -49,10 +49,9 @@ The User CLI Finds And Uses Web Search
     Start SSO
     Add User    me
     Apply
-    ${role}=    Role Of    me
-    ${arn}=    Set Variable    arn:aws:iam::${ACCOUNT}:role/bedrock-users/${role}
+    ${arn}=    Role Arn Of    me
     Wait Until Sso Can Assume    ${arn}
-    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --role-arn    ${arn}    --region    ${REGION}
+    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
     ...    --profile-name    ${PROFILE}    --yes
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json
     ${names}=    Evaluate    [c["name"] for c in $d["checks"] if c["ok"]]
@@ -63,27 +62,25 @@ The User CLI Finds And Uses Web Search
     Should Contain    ${json}[0]    ${URL}
     Mcp Proxy Should List Web Search    ${json}[0]
 
-Turning It Off Removes The Rights But Not The Gateway
+Turning It Off Removes The Rights And The Gateway
     Set Config    web_search.enabled    false
+    ${p}=    Plan
+    Plan Op Should Be    ${p}    web search gateway ${N}[web_search_gateway]    delete
+    Plan Op Should Be    ${p}    web search role ${N}[web_search_role]    delete
     Apply
     ${role}=    Role Of    a
     ${doc}=    Role Policy Text    ${role}
     Should Not Contain    ${doc}    bedrock-agentcore:InvokeGateway
-    Wait Until Keyword Succeeds    3 min    10 s    Web Search Should Be Denied    user:a    ${URL}
-    ${url}=    Web Search Should Be Ready    ${OWNER}
-    Should Be Equal    ${url}    ${URL}
+    Web Search Gateway Should Not Exist
+    Role Should Not Exist    ${N}[web_search_role]
+    ${p}=    Plan
+    Plan Should Have No Changes    ${p}
 
 
 *** Keywords ***
 Start Web Search Run
     Start Run
     Web Search Region Should Be Supported
-    ${owner}=    Account Resource Owner
-    IF    not $owner
-        Fail    The account isn't set up: run ./run.sh account first
-    END
-    Set Suite Variable    ${OWNER}    ${owner}
-    ${url}=    Web Search Should Be Ready    ${owner}
-    Set Suite Variable    ${URL}    ${url}
-    Log    Account setup and web search gateway managed by id ${owner}    console=True
     Add User    a
+    Set Up Account
+

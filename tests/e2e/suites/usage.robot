@@ -1,12 +1,13 @@
 *** Settings ***
 Documentation       bedrock-admin usage against a real bucket: the Parquet fixtures in tests/fixtures are
-...                 uploaded as this and last month's cost export under e2e/<run>/, with last month's
-...                 snapshot. The users usage-a/b/c@example.test are applied for real, so this month's
-...                 limits and pause state come from their budgets. Numbers: tests/fixtures/README.md.
+...                 uploaded as this and last month's cost export, with last month's snapshot. Their personal
+...                 roles are bedrock-user-usage-<a|b|c>, so this suite's setup has id usage (don't run two at
+...                 once in one account). The users a, b and c are applied for real, so this month's limits
+...                 and pause state come from their budgets. Numbers: tests/fixtures/README.md.
 ...                 Report layout and formatting are covered by the Go unit tests.
 Resource            ../resources/common.resource
 Suite Setup         Start Usage Run
-Suite Teardown      Finish Usage Run
+Suite Teardown      Tear Down Run
 Test Tags           usage
 
 
@@ -59,14 +60,10 @@ Several Months
 
 *** Keywords ***
 Start Usage Run
-    Start AWS Run
-    Add User    ${A}    limit_usd=10
-    Add User    ${B}    limit_usd=10
-    Add User    ${C}    limit_usd=10
+    Start AWS Run    usage
+    Add User    ${A}    name=a    limit_usd=10
+    Add User    ${B}    name=b    limit_usd=10
+    Add User    ${C}    name=c    limit_usd=10
     Apply
     ${f}=    Upload Usage Fixtures
     Set Suite Variable    ${USAGE_CONFIG}    ${f}
-
-Finish Usage Run
-    Run Keyword And Ignore Error    Delete Prefix    e2e/${RUN}/
-    Remove Run Users

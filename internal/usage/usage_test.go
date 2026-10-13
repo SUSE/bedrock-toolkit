@@ -103,13 +103,13 @@ func lastMonth() []fixtureRow {
 
 func lastSnapshot() pause.Snapshot {
 	return pause.Snapshot{
-		Month: "2026-09", TakenAt: time.Date(2026, 10, 1, 6, 0, 5, 0, time.UTC), Account: acct,
+		Month: "2026-09", TakenAt: time.Date(2026, 10, 1, 6, 0, 5, 0, time.UTC), Account: acct, ID: "usage",
 		Users: []pause.SnapshotUser{
-			{Email: "usage-a@example.test", Name: "usage-a", Budget: "bedrock-usage-a", Role: "bedrock-user-usage-a", LimitUSD: 50, PauseAtPercent: 100, TriggerUSD: 50,
+			{Email: "usage-a@example.test", Name: "a", Budget: "bedrock-usage-a", Role: "bedrock-user-usage-a", LimitUSD: 50, PauseAtPercent: 100, TriggerUSD: 50,
 				State: pause.Paused, PausedAt: time.Date(2026, 9, 12, 14, 0, 0, 0, time.UTC)},
-			{Email: "usage-b@example.test", Name: "usage-b", Budget: "bedrock-usage-b", Role: "bedrock-user-usage-b", LimitUSD: 100, PauseAtPercent: 100, TriggerUSD: 100,
+			{Email: "usage-b@example.test", Name: "b", Budget: "bedrock-usage-b", Role: "bedrock-user-usage-b", LimitUSD: 100, PauseAtPercent: 100, TriggerUSD: 100,
 				State: pause.Armed},
-			{Email: "usage-c@example.test", Name: "usage-c", Budget: "bedrock-usage-c", Role: "bedrock-user-usage-c", LimitUSD: 30, PauseAtPercent: 100, TriggerUSD: 30,
+			{Email: "usage-c@example.test", Name: "c", Budget: "bedrock-usage-c", Role: "bedrock-user-usage-c", LimitUSD: 30, PauseAtPercent: 100, TriggerUSD: 30,
 				State: pause.PausedByHand, PausedAt: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC), By: "admin@example.test", Reason: "key leak"},
 		},
 	}

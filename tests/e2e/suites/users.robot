@@ -1,9 +1,9 @@
 *** Settings ***
 Documentation       Personal roles, budgets and pause actions: onboarding, changes in place, offboarding,
-...                 manual pause and unpause. Uses its own id (e2e-<run>); needs the account set up first.
+...                 manual pause and unpause, and the monthly Lambda. The run's own setup (id e2e<hex>).
 Resource            ../resources/common.resource
 Suite Setup         Start AWS Run
-Suite Teardown      Remove Run Users
+Suite Teardown      Tear Down Run
 Test Tags           users
 
 
@@ -109,7 +109,6 @@ The Monthly Lambda Leaves A Manual Pause And Saves A Snapshot
     ${u}=    Evaluate    [i for i in $result["snapshot"]["users"] if i["email"] == $email][0]
     Should Be Equal    ${u}[state]    paused-by-hand
     Should Be Equal As Numbers    ${u}[limit_usd]    1
-    [Teardown]    Restore Lambda Snapshot
 
 Unpause
     ${role}=    Role Of    a

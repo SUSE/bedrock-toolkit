@@ -5,6 +5,9 @@ Documentation       Everything that waits for AWS billing, in phases that hand o
 ...                 Too early, or billing not caught up yet: skipped with "retry after <time>"; 48 h after
 ...                 phase 1 with no result: failed. A full run costs about $4 in model calls.
 ...
+...                 Phase 1 applies the run's own setup (id e2e<hex>, with its own cost export); phase 3
+...                 removes it.
+...
 ...                 Test users spend through their own personal role: a test-only trust statement lets the
 ...                 admin profile assume it with session name <email> (only the runner's own SSO login
 ...                 could otherwise), so the role's owner tag attributes the spend as for a real user.
@@ -109,7 +112,7 @@ Phase 3: Reported
     ${who}=    Evaluate    " ".join(c["who"] for c in $unt["untracked"])
     ${caller}=    Evaluate    $st["untracked_caller"].rstrip("/").split("/")[-1]
     Should Contain    ${who}    ${caller}
-    Remove Run Users
+    Tear Down Run
     Delete Billing State
 
 Manual: Budget Email Arrived
@@ -123,6 +126,6 @@ Manual: Budget Email Arrived
 *** Keywords ***
 Load Run
     [Arguments]    ${hours}
-    Start AWS Run
+    Start Run
     Load Billing State
     Require Hours Since Phase1    ${hours}

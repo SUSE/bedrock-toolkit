@@ -2,10 +2,11 @@
   "month": "2026-09",
   "taken_at": "2026-10-01T06:00:05Z",
   "account": "111122223333",
+  "id": "usage",
   "users": [
     {
       "email": "usage-a@example.test",
-      "name": "usage-a",
+      "name": "a",
       "budget": "bedrock-usage-a",
       "role": "bedrock-user-usage-a",
       "limit_usd": 50,
@@ -16,7 +17,7 @@
     },
     {
       "email": "usage-b@example.test",
-      "name": "usage-b",
+      "name": "b",
       "budget": "bedrock-usage-b",
       "role": "bedrock-user-usage-b",
       "limit_usd": 100,
@@ -26,7 +27,7 @@
     },
     {
       "email": "usage-c@example.test",
-      "name": "usage-c",
+      "name": "c",
       "budget": "bedrock-usage-c",
       "role": "bedrock-user-usage-c",
       "limit_usd": 30,

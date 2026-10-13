@@ -8,25 +8,32 @@ Library             ../lib/BedrockE2E.py
 
 *** Keywords ***
 Start AWS Run
-    [Documentation]    Starts a run that uses the admin profile. The account setup must exist (run the
-    ...    account suite once); this run only adds and removes its own users.
+    [Documentation]    Starts a run that uses the admin profile and applies its own setup (id ${ID}).
+    ...    Pass an id to use it instead of the run id. Tear Down Run removes the setup again.
+    [Arguments]    ${id}=${EMPTY}
     Start Run
-    ${owner}=    Account Resource Owner
-    IF    not $owner
-        Fail    The account isn't set up: run ./run.sh account first
-    END
-    Log    Account setup managed by id ${owner}    console=True
-    # Fail fast on a config that can't apply here (for example REGION isn't the setup's region).
-    ${p}=    Plan
-    ${conflicts}=    Evaluate    [i["target"] + ": " + i["status"] for i in $p["items"] if i["op"] == "conflict"]
-    IF    $conflicts
-        Fail    The run's config conflicts with the account setup (check REGION in the config): ${conflicts}
-    END
+    IF    $id    Use Id    ${id}
+    Set Up Account
 
-Remove Run Users
-    [Documentation]    Cleanup: apply the run's config with users: [].
+Set Up Account
+    [Documentation]    Applies the run's config. Fails on conflicts (for example a leftover setup
+    ...    of the same id, made outside bedrock-admin).
+    ${r}=    Apply    rc=any
+    Should Be True    ${r.rc} in (0, 2)    apply failed:\n${r.stdout}\n${r.stderr}
+    ${conflicts}=    Evaluate    [i["target"] + ": " + i["status"] for i in ($r.json.get("pending") or []) if i["op"] == "conflict"]
+    Should Be Empty    ${conflicts}    apply has conflicts: ${conflicts}
+
+Tear Down Run
+    [Documentation]    Offboards the run's users and uninstalls its setup with the bucket
+    ...    (KEEP_SETUP=True keeps everything, to look at it after a failure).
+    ${keep}=    Keep Setup
+    IF    ${keep}
+        Log    KEEP_SETUP: setup ${ID} left in place; remove it with bedrock-admin uninstall --delete-data    console=True
+        RETURN
+    END
     Set Users
     Run Keyword And Ignore Error    Admin    apply    --yes
+    Admin    uninstall    --yes    --delete-data
 
 Apply
     [Documentation]    apply --yes --json; returns the result (rc, stdout, stderr, json).
@@ -58,7 +65,7 @@ User Should Be Set Up
     ${email}=    User Email    ${x}
     Role Should Exist    ${role}
     Role Tag Should Be    ${role}    owner    ${email}
-    Role Tag Should Be    ${role}    bedrock-admin:id    ${RUN_CONFIG_ID}
+    Role Tag Should Be    ${role}    bedrock-admin:id    ${ID}
     Role Should Have Trust For    ${role}    ${email}
     Budget Limit Should Be    ${budget}    ${limit}
     Budget Alerts Should Be    ${budget}    @{alerts}

@@ -1,26 +1,25 @@
 *** Settings ***
-Documentation       The account setup (Steps 1.1-1.7): apply, plan, drift, the Step 1.7 handoff, doctor,
-...                 export, id safety and uninstall. This suite owns the account setup with id ACCOUNT_ID
-...                 and leaves it in place at the end, for the other suites.
+Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
+...                 doctor, export, a second setup in the same account, and uninstall. The run's setup has
+...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
 Resource            ../resources/common.resource
 Suite Setup         Start Account Run
-Suite Teardown      Leave The Account Set Up
+Suite Teardown      Tear Down If Set Up
 Test Tags           account
 
 
 *** Test Cases ***
 Apply Creates The Account Setup
-    ${r}=    Apply    rc=any
-    Should Be True    ${r.rc} in (0, 2)    apply failed: ${r.stderr}
+    [Documentation]    Suite Setup applied the setup; every account-level name carries the id.
     Bucket Should Exist
     Cost Export Should Exist
     Deny Policy Should Exist
-    ${owner}=    Account Resource Owner
-    Should Be Equal    ${owner}    ${ACCOUNT_ID}
-    Role Should Exist    bedrock-budget-actions
-    Role Should Exist    bedrock-monthly-unpause
-    Role Should Exist    bedrock-monthly-unpause-scheduler
+    Role Should Exist    ${N}[budget_actions_role]
+    Role Should Exist    ${N}[lambda_role]
+    Role Should Exist    ${N}[scheduler_role]
     Lambda Should Exist
+    ${env_id}=    Lambda Setting    BEDROCK_ID
+    Should Be Equal    ${env_id}    ${ID}
     Schedule Should Exist
     ${p}=    Plan
     FOR    ${m}    IN    @{MODELS}
@@ -35,7 +34,7 @@ Apply Creates The Account Setup
 
 Second Apply Changes Nothing
     ${p}=    Plan
-    Plan Should Have No Changes But The Handoff    ${p}
+    Plan Should Have No Changes    ${p}
     ${a}=    Apply    rc=any
     ${ops}=    Evaluate    sorted({x["op"] for x in $a.json["applied"]})
     Should Be True    $ops in ([], ["needs-org-admin"])    second apply changed: ${a.json}[applied]
@@ -44,10 +43,10 @@ Plan Names Exactly The Missing Piece
     Delete Monthly Schedule
     ${p}=    Plan    rc=2
     ${pending}=    Changes But Handoffs    ${p}
-    Should Be Equal    ${pending}    ${{ ["schedule bedrock-monthly-unpause"] }}
-    Plan Op Should Be    ${p}    schedule bedrock-monthly-unpause    create
+    Should Be Equal    ${pending}    ${{ ["schedule " + $N["schedule"]] }}
+    Plan Op Should Be    ${p}    schedule ${N}[schedule]    create
     ${out}=    Admin    plan    rc=2
-    Should Contain    ${out}    + 1.4 schedule bedrock-monthly-unpause
+    Should Contain    ${out}    + 1.4 schedule ${N}[schedule]
     Apply    rc=any
     Schedule Should Exist
 
@@ -55,7 +54,7 @@ Doctor Names The Missing Piece
     Delete Monthly Schedule
     ${d}=    Admin    doctor    --json    rc=2
     ${bad}=    Evaluate    [c["name"] for c in $d["checks"] if not c["ok"]]
-    Should Contain    ${bad}    Step 1.4 schedule bedrock-monthly-unpause
+    Should Contain    ${bad}    Step 1.4 schedule ${N}[schedule]
     Apply    rc=any
     Schedule Should Exist
 
@@ -70,13 +69,13 @@ Doctor Passes
 Drift Is Shown By Plan And Fixed By Apply
     Change Lambda Setting Directly
     ${p}=    Plan    rc=2
-    ${i}=    Plan Op Should Be    ${p}    Lambda bedrock-monthly-unpause    update
+    ${i}=    Plan Op Should Be    ${p}    Lambda ${N}[lambda]    update
     Should Contain    ${i}[details]    settings changed outside the file
     Apply    rc=any
     ${prefix}=    Lambda Setting    SNAPSHOT_PREFIX
     Should Not Contain    ${prefix}    e2e-drift
     ${p}=    Plan
-    Plan Op Should Be    ${p}    Lambda bedrock-monthly-unpause    ok
+    Plan Op Should Be    ${p}    Lambda ${N}[lambda]    ok
 
 Step 1.7 Handoff
     [Documentation]    apply writes the policy file. plan says "needs org admin" until every permission set
@@ -97,38 +96,11 @@ Step 1.7 Handoff
 
 Export Then Plan Shows No Changes
     ${models}=    Evaluate    [a for m in $MODELS for a in ("--model", m)]
-    ${yaml}=    Admin    export    --id    ${ACCOUNT_ID}    --region    ${REGION}    --product    ${PRODUCT}    @{models}
+    ${yaml}=    Admin    export    --id    ${ID}    --region    ${REGION}    --product    ${PRODUCT}    @{models}
     ...    config=none
     ${f}=    Write Raw Config    ${yaml}    exported.yaml
     ${p}=    Admin    plan    --json    config=${f}    rc=any
-    Plan Should Have No Changes But The Handoff    ${p}
-
-Roles With Another Id Are Left Alone
-    [Documentation]    A role and budget made with another id are "not managed" here, and apply --yes keeps them.
-    ${other}=    Set Variable    ${RUN}-other
-    ${f}=    Write Config With Id    ${other}    x
-    Admin    apply    --yes    config=${f}    rc=any
-    ${role}=    Role Of    x
-    Role Should Exist    ${role}
-    ${budget}=    Budget Of    x
-    Role Tag Should Be    ${role}    bedrock-admin:id    ${other}
-    ${p}=    Plan
-    ${email}=    User Email    x
-    ${i}=    Plan Op Should Be    ${p}    ${email}    info
-    Should Be Equal    ${i}[status]    not managed (id ${other})
-    Apply    rc=any
-    Role Should Exist    ${role}
-    Add User    x
-    ${p}=    Plan    rc=2
-    ${i}=    Plan Op Should Be    ${p}    ${email}    conflict
-    Should Contain    ${i}[details][0]    is managed by ${other}; left alone
-    Apply    rc=2
-    Role Tag Should Be    ${role}    bedrock-admin:id    ${other}
-    Budget Limit Should Be    ${budget}    1
-    [Teardown]    Run Keywords    Remove User    x
-    ...    AND    Write Config With Id    ${other}    name=${other}.yaml
-    ...    AND    Admin    apply    --yes    config=${OUTPUT DIR}/work/${other}.yaml    rc=any
-    ...    AND    User Should Be Gone    x
+    Plan Should Have No Changes    ${p}
 
 Roles Without An Id Are Left Alone
     ${role}=    Create Unmanaged Role    y
@@ -148,47 +120,68 @@ Uninstall Refuses While Users Remain
     Lambda Should Exist
     [Teardown]    Run Keywords    Set Users    AND    Apply    rc=any
 
+A Second Setup In The Same Account Is Separate
+    [Documentation]    Another id in the same account gets its own resources and personal roles. One person
+    ...    can be a user of both. Each setup's plan, Lambda and uninstall only touch their own id.
+    ${other}=    Set Variable    ${ID}b
+    ${f}=    Write Config With Id    ${other}    x
+    Add User    x
+    Apply
+    Admin    apply    --yes    config=${f}    rc=any
+    Deny Policy Should Exist    ${other}
+    Lambda Should Exist    ${other}
+    Schedule Should Exist    ${other}
+    Cost Export Should Exist    ${other}
+    Bucket Should Exist    ${other}
+    ${r1}=    Role Of    x
+    ${r2}=    Role Of    x    ${other}
+    Role Tag Should Be    ${r1}    bedrock-admin:id    ${ID}
+    Role Tag Should Be    ${r2}    bedrock-admin:id    ${other}
+    ${b2}=    Budget Of    x    ${other}
+    Budget Limit Should Be    ${b2}    1
+    ${roles}=    Personal Roles
+    Should Be Equal    ${roles}    ${{ [$r1] }}
+    Plan Should Show No Changes
+    ${r}=    Admin    export    --region    ${REGION}    config=none    rc=1    output=result
+    Should Contain    ${r.stderr}    pass --id
+    ${result}=    Invoke Monthly Lambda
+    ${roles}=    Evaluate    [u["role"] for u in $result["snapshot"]["users"]]
+    Should Be Equal    ${roles}    ${{ [$r1] }}
+    Admin    uninstall    --yes    --delete-data    config=${f}    rc=1
+    Write Config With Id    ${other}    name=${other}.yaml
+    Admin    apply    --yes    config=${f}
+    Admin    uninstall    --yes    --delete-data    config=${f}
+    Lambda Should Not Exist    ${other}
+    Deny Policy Should Not Exist    ${other}
+    Bucket Should Not Exist    ${other}
+    Role Should Not Exist    ${r2}
+    Lambda Should Exist
+    Role Should Exist    ${r1}
+    Plan Should Show No Changes
+    [Teardown]    Run Keywords    Remove User    x    AND    Apply    rc=any
+    ...    AND    Write Config With Id    ${other}    name=${other}.yaml
+    ...    AND    Admin    apply    --yes    config=${f}    rc=any
+    ...    AND    Admin    uninstall    --yes    --delete-data    config=${f}    rc=any
+
 Uninstall Keeps The Bucket
-    Skip If Real Users
     Admin    uninstall    --yes
     Lambda Should Not Exist
     Deny Policy Should Not Exist
-    Role Should Not Exist    bedrock-budget-actions
+    Role Should Not Exist    ${N}[budget_actions_role]
+    Cost Export Should Not Exist
     Bucket Should Exist
-    [Teardown]    Apply    rc=any
 
 Uninstall With Delete Data Removes The Bucket
-    Skip If Real Users
-    Skip If    not ${ALLOW_DELETE_DATA}    ALLOW_DELETE_DATA is False: the bucket holds the billing history
     Admin    uninstall    --yes    --delete-data
-    Lambda Should Not Exist
-    ${exists}=    Bucket Exists
-    Should Not Be True    ${exists}
-    [Teardown]    Apply    rc=any
+    Bucket Should Not Exist
 
 
 *** Keywords ***
 Start Account Run
     Start Run
-    Use Account Id
-    ${owner}=    Account Resource Owner
-    IF    $owner and $owner != $ACCOUNT_ID
-        Fail    The account setup is managed by id ${owner}: set ACCOUNT_ID to it, or use a test account
-    END
+    Enable Block Direct Calls
+    Set Up Account
 
-Leave The Account Set Up
-    Set Users
-    Apply    rc=any
-
-Plan Should Have No Changes But The Handoff
-    [Arguments]    ${p}
-    ${pending}=    Changes But Handoffs    ${p}
-    Should Be Empty    ${pending}    plan has changes: ${pending}
-
-Bucket Should Exist
+Tear Down If Set Up
     ${exists}=    Bucket Exists
-    Should Be True    ${exists}    no bucket
-
-Skip If Real Users
-    ${others}=    Non Test Personal Roles
-    Skip If    ${others}    the account has real users (${others}): uninstall would refuse
+    IF    ${exists}    Tear Down Run

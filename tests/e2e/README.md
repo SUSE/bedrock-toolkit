@@ -27,7 +27,7 @@ cp config/example.py config/$USER.py   # then fill it in
 aws sso login --profile <ADMIN_PROFILE>
 ./run.sh account             # or users, user-access, usage
 ./run.sh fast                # every suite but billing and web-search
-./run.sh web-search          # opt-in: the account setup must have web_search on
+./run.sh web-search          # opt-in: REGION us-east-1, eu-west-1 or ap-northeast-1
 ./run.sh users --test "Pause*"     # any robot option works after the suite
 ./run.sh shell               # a shell in the container
 ```
@@ -36,30 +36,33 @@ Reports go to `results/<suite>-<UTC time>/report.html`, and `results/latest` poi
 `~/.aws` is mounted, so the container shares your SSO sign-in. The user CLI writes to a copy of your AWS config in the run's
 directory, never to `~/.aws/config`.
 
-Every suite except `cli` and `account` uses the account setup that's already there, whatever its id, so REGION must be that
-setup's region. A run stops at its start when plan shows a conflict (for example the cost export bucket is in another region).
+Every suite except `cli` applies its own setup, with id `e2e<run id>` (6 hex digits), next to any
+other setup in the account: its own deny policy, budget actions role, monthly Lambda and schedule,
+cost export and bucket `bedrock-cur-<account>-<id>`, and personal roles `bedrock-user-<id>-<name>`.
+At the end it removes its users and uninstalls the setup with `--delete-data`. `KEEP_SETUP = True`
+leaves it in place to look at after a failure. A run stops at its start when apply shows a conflict.
 
 ## Suites
 
 | Suite | Needs | Covers |
 | --- | --- | --- |
 | `cli` | nothing | The built binaries run. `configure` writes a file that `plan` loads, and plan then stops at the missing credentials. |
-| `account` | admin | `apply` creates Steps 1.1–1.7 and a second `apply` changes nothing. `plan` names exactly the missing or drifted piece and `apply` fixes it. Step 1.7 handoff. `doctor`. `export` round trip. The `id` checks: resources with another id, or none, are left alone. `uninstall`. |
+| `account` | admin | `apply` creates Steps 1.1–1.7 and a second `apply` changes nothing. `plan` names exactly the missing or drifted piece and `apply` fixes it. Step 1.7 handoff. `doctor`. `export` round trip. A personal role without the id tag is left alone. A second setup (another id) in the same account: its own resources, the same person a user of both, the Lambda and `uninstall` touching only their own id, `export` asking for `--id`. `uninstall` refuses while users remain, keeps the bucket, and `--delete-data` removes it. |
 | `users` | admin | Onboarding (role, budget, alerts, pause action), changes in place, and drift. Removing a user needs `--yes`, and `--no-delete` skips it. Pause and unpause by hand. `apply` and the monthly Lambda leave a manual pause in place. Off for the month. The Lambda re-arms users and saves the snapshot. |
 | `user-access` | admin, SSO | `bedrock setup`, calls through the personal role, an unlisted model denied (`models:` allow-list), `bedrock doctor`, `bedrock usage`, direct SSO calls denied (Step 1.7), and a manual pause seen from the user's side. |
-| `usage` | admin | `usage` on fixture cost export files and a snapshot uploaded under `e2e/<run>/`: totals, tracked and untracked spend, a past month from its snapshot, `--months`, and one person. |
-| `web-search` | admin; SSO optional | Opt-in. Uses its own id and the account setup's gateway, so the account setup must have `web_search` on. With `web_search` on, `apply` gives a personal role the gateway rights (the gateway shows as managed by the account setup's id); the role can search, the pause denies it and unpause restores it. With SSO: `bedrock doctor`'s web search check, and the MCP server `bedrock claude` prints, run through `uvx mcp-proxy-for-aws`. Turning it off removes the rights and leaves the gateway. Needs REGION to be the account setup's region (`us-east-1`, `eu-west-1` or `ap-northeast-1`); a run costs a few cents. |
+| `usage` | admin | `usage` on fixture cost export files and a snapshot uploaded to the setup's bucket: totals, tracked and untracked spend, a past month from its snapshot, `--months`, and one person. |
+| `web-search` | admin; SSO optional | Opt-in. Turning `web_search` on creates the setup's gateway `bedrock-web-search-<id>` and its role, and gives a personal role the gateway rights; the role can search, the pause denies it and unpause restores it. With SSO: `bedrock doctor`'s web search check, and the MCP server `bedrock claude` prints, run through `uvx mcp-proxy-for-aws`. Turning it off removes the rights, the gateway and its role. Needs REGION `us-east-1`, `eu-west-1` or `ap-northeast-1`; a run costs a few cents. |
 | `billing` | admin | Everything that waits for AWS billing, in phases (below). |
 
 ## Safety
 
-- Each run uses its own config with `id: e2e-<run id>` and users `e2e-<run id>-*`. `apply` deletes
-  only resources tagged with its id, so a run can't offboard real users. Cleanup applies the run's
-  config with `users: []`.
-- Use a dedicated test account anyway. The `account` suite changes shared account resources
-  (under `ACCOUNT_ID`). The monthly Lambda acts on every user in the account, so the library
-  invokes it only when the Lambda is managed by `ACCOUNT_ID` and no personal roles except test
-  users exist. `uninstall --delete-data` runs only with `ALLOW_DELETE_DATA = True`.
+- Each run is its own setup (`id: e2e<run id>`, users `e2e<run id>-*`). `apply`, `uninstall` and
+  the setup's monthly Lambda only touch resources of their own id, so a run can't change a real
+  setup or its users in the same account. The `usage` suite uses id `usage` (the fixtures' personal
+  roles are `bedrock-user-usage-*`), so don't run two `usage` runs at once in one account.
+- Org-level settings are shared: the cost allocation tag activation and the Step 1.7 permission set
+  policies. The suites only read them.
+- Use a dedicated test account anyway if you can.
 - Every suite except `cli` creates real AWS resources, and `user-access` and `billing` make paid
   model calls. A full `billing` run costs about $4.
 

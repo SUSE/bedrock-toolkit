@@ -23,7 +23,7 @@ Configure Then Plan Stops At The AWS Call
     [Documentation]    configure writes a file that loads; plan then fails on the missing credentials (exit 1).
     ${f}=    Set Variable    ${OUTPUT DIR}/work/configured.yaml
     Admin    configure    --yes    --account    111122223333    --region    eu-central-1    --product    p
-    ...    --id    e2e-cli    config=${f}
+    ...    --id    e2ecli    config=${f}
     File Should Exist    ${f}
     ${r}=    Admin    plan    config=${f}    rc=1    output=result
     Should Not Contain    ${r.stderr}    invalid config
