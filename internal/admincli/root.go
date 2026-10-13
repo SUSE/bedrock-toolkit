@@ -131,5 +131,5 @@ func (a *App) profileRegion(ctx context.Context, cfg *config.Config) string {
 }
 
 func (a *App) usersEnv(ctx context.Context, cfg *config.Config, c *awsx.Clients) *users.Env {
-	return &users.Env{C: c, Cfg: cfg, Pause: users.NewPause(c), Out: a.Err, Now: a.Now, ProfileRegion: a.profileRegion(ctx, cfg)}
+	return &users.Env{C: c, Cfg: cfg, Pause: users.NewPause(c, cfg.ID), Out: a.Err, Now: a.Now, ProfileRegion: a.profileRegion(ctx, cfg)}
 }

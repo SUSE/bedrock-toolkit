@@ -24,6 +24,7 @@ type Snapshot struct {
 	Month   string         `json:"month"`
 	TakenAt time.Time      `json:"taken_at"`
 	Account string         `json:"account"`
+	ID      string         `json:"id"`
 	Users   []SnapshotUser `json:"users"`
 }
 
@@ -62,11 +63,6 @@ func PreviousMonth(t time.Time) string {
 	return time.Date(t.Year(), t.Month()-1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01")
 }
 
-// RoleForBudget maps a budget name to its personal role by convention: bedrock-X ↔ bedrock-user-X.
-func RoleForBudget(budget string) string {
-	return "bedrock-user-" + strings.TrimPrefix(budget, "bedrock-")
-}
-
 // MonthlyResult says what the monthly run did for each user.
 type MonthlyResult struct {
 	Snapshot Snapshot          `json:"snapshot"`
@@ -84,7 +80,7 @@ func (m *Manager) pauseActions(ctx context.Context) ([]btypes.Action, error) {
 			return nil, err
 		}
 		for _, a := range r.Actions {
-			if IsPauseAction(a, m.Account) && strings.HasPrefix(aws.ToString(a.BudgetName), "bedrock-") {
+			if IsPauseAction(a, m.Account, m.ID) && strings.HasPrefix(aws.ToString(a.BudgetName), policy.BudgetName(m.ID, "")) {
 				out = append(out, a)
 			}
 		}
@@ -118,9 +114,9 @@ func (m *Manager) limits(ctx context.Context) (map[string]float64, error) {
 	}
 }
 
-// TakeSnapshot reads every user's limit and pause state.
+// TakeSnapshot reads the limit and pause state of every user of the id.
 func (m *Manager) TakeSnapshot(ctx context.Context, month string) (Snapshot, []btypes.Action, map[string]map[string]string, error) {
-	s := Snapshot{Month: month, TakenAt: m.now().UTC(), Account: m.Account, Users: []SnapshotUser{}}
+	s := Snapshot{Month: month, TakenAt: m.now().UTC(), Account: m.Account, ID: m.ID, Users: []SnapshotUser{}}
 	actions, err := m.pauseActions(ctx)
 	if err != nil {
 		return s, nil, nil, fmt.Errorf("listing budget actions: %w", err)
@@ -132,7 +128,7 @@ func (m *Manager) TakeSnapshot(ctx context.Context, month string) (Snapshot, []b
 	tags := map[string]map[string]string{}
 	for _, a := range actions {
 		budget := aws.ToString(a.BudgetName)
-		role := RoleForBudget(budget)
+		role := policy.RoleForBudget(budget)
 		t, err := m.RoleTags(ctx, role)
 		if err != nil && !isNoSuchEntity(err) {
 			return s, nil, nil, fmt.Errorf("reading tags of %s: %w", role, err)
@@ -147,7 +143,7 @@ func (m *Manager) TakeSnapshot(ctx context.Context, month string) (Snapshot, []b
 			pct = int(a.ActionThreshold.ActionThresholdValue)
 		}
 		limit := limits[budget]
-		s.Users = append(s.Users, SnapshotUser{Email: t[policy.OwnerTag], Name: strings.TrimPrefix(budget, "bedrock-"),
+		s.Users = append(s.Users, SnapshotUser{Email: t[policy.OwnerTag], Name: strings.TrimPrefix(budget, policy.BudgetName(m.ID, "")),
 			Budget: budget, Role: role, LimitUSD: limit, PauseAtPercent: pct, TriggerUSD: float64(int64(limit*float64(pct)+0.5)) / 100,
 			State: st.State, PausedAt: st.PausedAt, By: st.By, Reason: st.Reason})
 	}
@@ -187,11 +183,11 @@ func (m *Manager) Monthly(ctx context.Context, save func(context.Context, Snapsh
 			res.Done[budget] = "failed"
 			res.Errors = append(res.Errors, err.Error())
 		}
-		role := RoleForBudget(budget)
+		role := policy.RoleForBudget(budget)
 		if _, ok := tags[role][TagPausedBy]; ok {
 			// Reversing the action detaches bedrock-deny, even from a role paused by hand.
 			if _, err := m.IAM.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{RoleName: aws.String(role),
-				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account))}); err != nil {
+				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("keeping the pause by hand of %s: %v", role, err))
 			} else {
 				res.Done[budget] += "; still paused by hand"

@@ -67,7 +67,7 @@ Only users with this id are exported.
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&id, "id", "", "id to export (default: from the file, else the bedrock-deny policy's id)")
+	cmd.Flags().StringVar(&id, "id", "", "id to export (default: from the file, else the only bedrock-deny-<id> policy's id)")
 	cmd.Flags().StringVar(&region, "region", "", "Bedrock region (default: from the file, else the profile's)")
 	cmd.Flags().StringVar(&product, "product", "", "product tag (default: from the file, else the users' roles)")
 	cmd.Flags().StringSliceVar(&models, "model", nil, "model (inference profile ID); repeat for more (default: from the file)")
@@ -99,20 +99,24 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		cfg.ID = id
 	}
 	if cfg.ID == "" {
-		pid, ok, err := account.PolicyID(ctx, c.IAM, policy.DenyPolicyArn(c.Account))
+		ids, err := account.SetupIDs(ctx, c.IAM)
 		if err != nil {
 			return nil, err
 		}
-		if !ok || pid == "" {
-			return nil, errors.New("no bedrock-deny policy with a bedrock-admin:id tag in this account; pass --id")
+		switch len(ids) {
+		case 0:
+			return nil, errors.New("no bedrock-deny-<id> policy in this account; pass --id")
+		case 1:
+			cfg.ID = ids[0]
+		default:
+			return nil, fmt.Errorf("several setups in this account (ids %s); pass --id", strings.Join(ids, ", "))
 		}
-		cfg.ID = pid
 	}
 	if len(models) > 0 {
 		cfg.Models = models
 	}
 	if cfg.CostExport.Name == "" {
-		cfg.CostExport.Name = config.DefaultExportName
+		cfg.CostExport.Name = policy.ExportName(cfg.ID)
 	}
 	if cfg.CostExport.Bucket == "" {
 		arn, err := account.FindExport(ctx, c.Exports, cfg.CostExport.Name)
@@ -134,7 +138,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	}
 
 	// Users: every personal role with this id.
-	roles, err := account.UserRoles(ctx, c.IAM)
+	roles, err := account.UserRoles(ctx, c.IAM, cfg.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +166,8 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if product == "" && cfg.Product == "" {
 			cfg.Product = tags[policy.ProductTag]
 		}
-		name := strings.TrimPrefix(role, "bedrock-user-")
-		r := config.Resolved{Email: email, Name: name, RoleName: role, BudgetName: config.BudgetName(name)}
+		name := strings.TrimPrefix(role, policy.UserRoleName(cfg.ID, ""))
+		r := config.Resolved{Email: email, Name: name, RoleName: role, BudgetName: policy.BudgetName(cfg.ID, name)}
 		o, err := env.Observe(ctx, r)
 		if err != nil {
 			return nil, err

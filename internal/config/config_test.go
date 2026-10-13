@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const base = `id: acme-prod
+const base = `id: acmeprod
 account: "123456789012"
 region: us-west-2
 product: genai-tools
@@ -44,12 +44,12 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.CostExport.Prefix != "cur" || c.CostExport.Name != "bedrock-cur" || c.BlockDirectCalls.AdminPermissionSet != "BedrockAdmin" {
+	if c.CostExport.Prefix != "cur" || c.CostExport.Name != "bedrock-cur-acmeprod" || c.BlockDirectCalls.AdminPermissionSet != "BedrockAdmin" {
 		t.Fatalf("defaults not applied: %+v %+v", c.CostExport, c.BlockDirectCalls)
 	}
 	us := c.Resolve()
 	a, b, cc := us[0], us[1], us[2]
-	if a.Name != "alice.smith" || a.RoleName != "bedrock-user-alice.smith" || a.BudgetName != "bedrock-alice.smith" {
+	if a.Name != "alice.smith" || a.RoleName != "bedrock-user-acmeprod-alice.smith" || a.BudgetName != "bedrock-acmeprod-alice.smith" {
 		t.Errorf("alice names: %+v", a)
 	}
 	if a.LimitUSD != 50 || a.PauseAtPercent != 100 || len(a.AlertAtPercent) != 1 || a.AlertAtPercent[0] != 80 || a.Notify != a.Email {
@@ -61,7 +61,7 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	if cc.Name != "carol-x" || !cc.CustomName || cc.Notify != "lead@acme.com" {
 		t.Errorf("carol: %+v", cc)
 	}
-	if c.ExportPrefix() != "cur/bedrock-cur" {
+	if c.ExportPrefix() != "cur/bedrock-cur-acmeprod" {
 		t.Errorf("export prefix %q", c.ExportPrefix())
 	}
 }
@@ -90,10 +90,12 @@ func TestIncludeLoop(t *testing.T) {
 
 func TestValidation(t *testing.T) {
 	cases := map[string]struct{ body, want string }{
-		"bad email": {base + "users: [{email: nope}]\n", "not an email"},
-		"bad limit": {base + "users: [{email: a@x.io, limit_usd: -1}]\n", "limit_usd"},
-		"limit max": {base + "users: [{email: a@x.io, limit_usd: 1000001}]\n", "at most 1000000 (got 1000001)"},
-		"long name": {base + "users: [{email: a@x.io, name: " + strings.Repeat("x", 42) + "}]\n", "must be 1-41"},
+		"bad email":    {base + "users: [{email: nope}]\n", "not an email"},
+		"bad limit":    {base + "users: [{email: a@x.io, limit_usd: -1}]\n", "limit_usd"},
+		"limit max":    {base + "users: [{email: a@x.io, limit_usd: 1000001}]\n", "at most 1000000 (got 1000001)"},
+		"long name":    {base + "users: [{email: a@x.io, name: " + strings.Repeat("x", 31) + "}]\n", "must be 1-30"},
+		"id with dash": {strings.Replace(base, "id: acmeprod", "id: acme-prod", 1), "id: must be 1-20"},
+		"id too long":  {strings.Replace(base, "id: acmeprod", "id: "+strings.Repeat("a", 21), 1), "id: must be 1-20"},
 		"default pause": {strings.Replace(base, "  limit_usd: 50\n", "  limit_usd: 50\n  pause_at_percent: 250\n", 1),
 			"defaults.pause_at_percent: must be 1-200 (got 250)"},
 		"decimals":          {base + "users: [{email: a@x.io, limit_usd: 1.234}]\n", "two decimals"},
@@ -107,7 +109,7 @@ func TestValidation(t *testing.T) {
 		"alert 300":         {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
 		"bad notify":        {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
 		"bad account":       {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
-		"bad id":            {strings.Replace(base, "acme-prod", "Acme Prod", 1), "id:"},
+		"bad id":            {strings.Replace(base, "acmeprod", "Acme Prod", 1), "id:"},
 		"bad method":        {base + "block_direct_calls: {method: magic}\n", "method"},
 		"web search region": {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
 		"web search domain": {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},

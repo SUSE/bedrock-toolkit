@@ -62,7 +62,7 @@ func (f *fakeAWS) WebSearch(_ context.Context, _, _, _ string, search bool) erro
 func newFake() *fakeAWS {
 	return &fakeAWS{identity: map[string]string{
 		"sso":     "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/" + email,
-		"bedrock": "arn:aws:sts::111122223333:assumed-role/bedrock-user-achen/" + email,
+		"bedrock": "arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock-achen/" + email,
 	}}
 }
 
@@ -93,7 +93,7 @@ func read(t *testing.T, path string) string {
 	return string(b)
 }
 
-const wantBlock = "[profile bedrock]\nrole_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-achen\n" +
+const wantBlock = "[profile bedrock]\nrole_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen\n" +
 	"source_profile = sso\nrole_session_name = achen@example.com\nregion = us-west-2\n"
 
 func TestSetupWritesProfile(t *testing.T) {
@@ -129,12 +129,12 @@ func TestSetupFlags(t *testing.T) {
 	f := newFake()
 	f.identity["br"] = f.identity["bedrock"]
 	code, out, path := run(t, f, ssoConfig, "", "setup", "--region", "eu-central-1",
-		"--role-arn", "arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-alex", "--profile-name", "br")
+		"--role-arn", "arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-alex", "--profile-name", "br")
 	if code != cli.OK {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	got := read(t, path)
-	for _, want := range []string{"[profile br]\n", "role_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock-user-alex\n",
+	for _, want := range []string{"[profile br]\n", "role_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-alex\n",
 		"region = eu-central-1\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("config lacks %q:\n%s", want, got)

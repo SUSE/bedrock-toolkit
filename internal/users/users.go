@@ -46,16 +46,16 @@ func (e *Env) now() time.Time {
 }
 
 // NewPause builds the pause manager for these clients.
-func NewPause(c *awsx.Clients) *pause.Manager {
-	return &pause.Manager{Budgets: c.Budgets, IAM: c.IAM, Account: c.Account, Poll: 3 * time.Second, Wait: 5 * time.Minute}
+func NewPause(c *awsx.Clients, id string) *pause.Manager {
+	return &pause.Manager{Budgets: c.Budgets, IAM: c.IAM, Account: c.Account, ID: id, Poll: 3 * time.Second, Wait: 5 * time.Minute}
 }
 
 // RoleSpec is the personal role of a user.
 func RoleSpec(cfg *config.Config, account string, u config.Resolved) iamrole.Spec {
-	return iamrole.Spec{Name: u.RoleName, Path: policy.UsersPath,
+	return iamrole.Spec{Name: u.RoleName, Path: policy.UserPath(cfg.ID),
 		Description: "Personal Bedrock role of " + u.Email,
 		Trust:       policy.UserTrust(account, u.Email), InlineName: policy.InvokePolicyName,
-		Inline: policy.UserInvoke(account, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.Models), MaxSession: MaxSession,
+		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.Models), MaxSession: MaxSession,
 		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: cfg.Product, policy.IDTag: cfg.ID}}
 }
 
@@ -74,7 +74,9 @@ func SetupCommand(cfg *config.Config, account, profileRegion string, u config.Re
 		cmd += " --region " + cfg.Region
 	}
 	if u.CustomName {
-		cmd += " --role-arn " + policy.UserRoleArn(account, u.RoleName)
+		cmd += " --role-arn " + policy.UserRoleArn(account, cfg.ID, u.RoleName)
+	} else if cfg.ID != policy.DefaultID {
+		cmd += " --id " + cfg.ID
 	}
 	return cmd
 }
@@ -182,7 +184,7 @@ func (e *Env) Observe(ctx context.Context, u config.Resolved) (Observed, error) 
 	}
 	if a != nil {
 		o.ActionExists, o.ActionID = true, aws.ToString(a.ActionId)
-		o.ActionShapeOK = actionShapeOK(*a, acct, u.RoleName)
+		o.ActionShapeOK = actionShapeOK(*a, acct, e.Cfg.ID, u.RoleName)
 		if a.ActionThreshold != nil {
 			o.ActionThreshold = int(a.ActionThreshold.ActionThresholdValue)
 		}
@@ -196,11 +198,11 @@ func (e *Env) Observe(ctx context.Context, u config.Resolved) (Observed, error) 
 	return o, nil
 }
 
-func actionShapeOK(a btypes.Action, acct, role string) bool {
+func actionShapeOK(a btypes.Action, acct, id, role string) bool {
 	d := a.Definition.IamActionDefinition
 	return a.NotificationType == btypes.NotificationTypeActual && a.ApprovalModel == btypes.ApprovalModelAuto &&
 		a.ActionThreshold != nil && a.ActionThreshold.ActionThresholdType == btypes.ThresholdTypePercentage &&
-		aws.ToString(a.ExecutionRoleArn) == policy.BudgetActionsRoleArn(acct) &&
+		aws.ToString(a.ExecutionRoleArn) == policy.BudgetActionsRoleArn(acct, id) &&
 		slices.Equal(d.Roles, []string{role}) && len(d.Users) == 0 && len(d.Groups) == 0
 }
 
@@ -230,7 +232,7 @@ func (e *Env) Plan(ctx context.Context, noDelete bool) ([]*plan.Item, error) {
 		}
 		out = append(out, it)
 	}
-	roles, err := account.UserRoles(ctx, e.C.IAM)
+	roles, err := account.UserRoles(ctx, e.C.IAM, e.Cfg.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing personal roles: %w", err)
 	}
@@ -254,8 +256,7 @@ func (e *Env) Plan(ctx context.Context, noDelete bool) ([]*plan.Item, error) {
 				it.Op, it.Details, it.Status = plan.Info, nil, "offboard skipped (--no-delete)"
 			} else {
 				it.NeedsYes = true
-				name := strings.TrimPrefix(role, "bedrock-user-")
-				it.Apply = func(ctx context.Context) error { return e.remove(ctx, role, config.BudgetName(name)) }
+				it.Apply = func(ctx context.Context) error { return e.remove(ctx, role, policy.BudgetForRole(role)) }
 			}
 		case "":
 			it.Op, it.Status = plan.Info, "not managed (role "+role+" has no "+policy.IDTag+" tag)"
@@ -356,8 +357,8 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 		in := &budgets.CreateBudgetActionInput{AccountId: acct, BudgetName: bn, NotificationType: btypes.NotificationTypeActual,
 			ActionType: btypes.ActionTypeIam, ActionThreshold: threshold,
 			Definition: &btypes.Definition{IamActionDefinition: &btypes.IamActionDefinition{
-				PolicyArn: aws.String(policy.DenyPolicyArn(e.C.Account)), Roles: []string{u.RoleName}}},
-			ExecutionRoleArn: aws.String(policy.BudgetActionsRoleArn(e.C.Account)), ApprovalModel: btypes.ApprovalModelAuto,
+				PolicyArn: aws.String(policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)), Roles: []string{u.RoleName}}},
+			ExecutionRoleArn: aws.String(policy.BudgetActionsRoleArn(e.C.Account, e.Cfg.ID)), ApprovalModel: btypes.ApprovalModelAuto,
 			Subscribers: email(u.Notify)}
 		err := iamrole.Retry(ctx, 60*time.Second, retryable, func() error { _, err := e.C.Budgets.CreateBudgetAction(ctx, in); return err })
 		if err != nil {

@@ -52,7 +52,7 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 				plan.Render(a.Out, p, a.Quiet)
 				return nil
 			}
-			roles, err := account.UserRoles(ctx, c.IAM)
+			roles, err := account.UserRoles(ctx, c.IAM, cfg.ID)
 			if err != nil {
 				return err
 			}

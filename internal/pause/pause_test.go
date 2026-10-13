@@ -33,10 +33,15 @@ func newFake() *fake {
 }
 
 func (f *fake) user(name, email string, status btypes.ActionStatus) {
-	b, r := "bedrock-"+name, "bedrock-user-"+name
+	f.userIn(testID, name, email, status)
+}
+
+// userIn adds a user of the setup id.
+func (f *fake) userIn(id, name, email string, status btypes.ActionStatus) {
+	b, r := policy.BudgetName(id, name), policy.UserRoleName(id, name)
 	f.actions[b] = &btypes.Action{ActionId: aws.String("id-" + name), BudgetName: aws.String(b), ActionType: btypes.ActionTypeIam,
 		Status: status, ActionThreshold: &btypes.ActionThreshold{ActionThresholdValue: 100, ActionThresholdType: btypes.ThresholdTypePercentage},
-		Definition: &btypes.Definition{IamActionDefinition: &btypes.IamActionDefinition{PolicyArn: aws.String(policy.DenyPolicyArn(acct)), Roles: []string{r}}}}
+		Definition: &btypes.Definition{IamActionDefinition: &btypes.IamActionDefinition{PolicyArn: aws.String(policy.DenyPolicyArn(acct, id)), Roles: []string{r}}}}
 	f.limits[b] = "50.0"
 	f.tags[r] = map[string]string{policy.OwnerTag: email}
 	f.deny[r] = status == btypes.ActionStatusExecutionSuccess
@@ -147,10 +152,12 @@ func (f *fake) DetachRolePolicy(_ context.Context, in *iam.DetachRolePolicyInput
 	return &iam.DetachRolePolicyOutput{}, nil
 }
 
+const testID = "t"
+
 var now = time.Date(2026, 11, 1, 6, 0, 0, 0, time.UTC)
 
 func manager(f *fake) *Manager {
-	return &Manager{Budgets: f, IAM: f, Account: acct, Now: func() time.Time { return now }, Sleep: func(time.Duration) {}}
+	return &Manager{Budgets: f, IAM: f, Account: acct, ID: testID, Now: func() time.Time { return now }, Sleep: func(time.Duration) {}}
 }
 
 func TestPauseUnpauseByHand(t *testing.T) {
@@ -158,24 +165,24 @@ func TestPauseUnpauseByHand(t *testing.T) {
 	f.user("erin", "erin@acme.com", btypes.ActionStatusStandby)
 	m := manager(f)
 	ctx := context.Background()
-	if err := m.Pause(ctx, "bedrock-user-erin", "admin@acme.com", "key leak!"); err != nil {
+	if err := m.Pause(ctx, "bedrock-user-t-erin", "admin@acme.com", "key leak!"); err != nil {
 		t.Fatal(err)
 	}
-	s, _ := m.Status(ctx, "bedrock-user-erin", "bedrock-erin")
-	if s.State != PausedByHand || s.Underlying != Armed || !f.deny["bedrock-user-erin"] || s.Reason != "key leak" {
+	s, _ := m.Status(ctx, "bedrock-user-t-erin", "bedrock-t-erin")
+	if s.State != PausedByHand || s.Underlying != Armed || !f.deny["bedrock-user-t-erin"] || s.Reason != "key leak" {
 		t.Fatalf("got %+v", s)
 	}
 	if got := s.Text(now); got != "PAUSED by hand (Nov 1: key leak)" {
 		t.Fatalf("text %q", got)
 	}
-	r, err := m.Unpause(ctx, "bedrock-user-erin", "bedrock-erin", "admin@acme.com", "")
-	if err != nil || r != RemovedManual || f.deny["bedrock-user-erin"] {
-		t.Fatalf("got %s %v deny=%v", r, err, f.deny["bedrock-user-erin"])
+	r, err := m.Unpause(ctx, "bedrock-user-t-erin", "bedrock-t-erin", "admin@acme.com", "")
+	if err != nil || r != RemovedManual || f.deny["bedrock-user-t-erin"] {
+		t.Fatalf("got %s %v deny=%v", r, err, f.deny["bedrock-user-t-erin"])
 	}
-	if f.tags["bedrock-user-erin"][TagUnpausedBy] != "admin@acme.com" {
+	if f.tags["bedrock-user-t-erin"][TagUnpausedBy] != "admin@acme.com" {
 		t.Fatal("unpause not recorded")
 	}
-	if r, _ := m.Unpause(ctx, "bedrock-user-erin", "bedrock-erin", "x", ""); r != NotPaused {
+	if r, _ := m.Unpause(ctx, "bedrock-user-t-erin", "bedrock-t-erin", "x", ""); r != NotPaused {
 		t.Fatalf("second unpause: %s", r)
 	}
 }
@@ -184,9 +191,9 @@ func TestUnpauseOverLimitTurnsOff(t *testing.T) {
 	f := newFake()
 	f.user("dave", "dave@acme.com", btypes.ActionStatusExecutionSuccess)
 	m := manager(f)
-	r, err := m.Unpause(context.Background(), "bedrock-user-dave", "bedrock-dave", "admin", "raised")
-	if err != nil || r != TurnedOff || f.actions["bedrock-dave"].Status != btypes.ActionStatusReverseSuccess || f.deny["bedrock-user-dave"] {
-		t.Fatalf("got %s %v %+v", r, err, f.actions["bedrock-dave"].Status)
+	r, err := m.Unpause(context.Background(), "bedrock-user-t-dave", "bedrock-t-dave", "admin", "raised")
+	if err != nil || r != TurnedOff || f.actions["bedrock-t-dave"].Status != btypes.ActionStatusReverseSuccess || f.deny["bedrock-user-t-dave"] {
+		t.Fatalf("got %s %v %+v", r, err, f.actions["bedrock-t-dave"].Status)
 	}
 }
 
@@ -195,9 +202,9 @@ func TestUnpauseHandOverAWSPauseKeepsDeny(t *testing.T) {
 	f.user("dave", "dave@acme.com", btypes.ActionStatusExecutionSuccess)
 	m := manager(f)
 	ctx := context.Background()
-	_ = m.Pause(ctx, "bedrock-user-dave", "admin", "x")
-	r, err := m.Unpause(ctx, "bedrock-user-dave", "bedrock-dave", "admin", "")
-	if err != nil || r != StillPausedByAWS || !f.deny["bedrock-user-dave"] {
+	_ = m.Pause(ctx, "bedrock-user-t-dave", "admin", "x")
+	r, err := m.Unpause(ctx, "bedrock-user-t-dave", "bedrock-t-dave", "admin", "")
+	if err != nil || r != StillPausedByAWS || !f.deny["bedrock-user-t-dave"] {
 		t.Fatalf("got %s %v", r, err)
 	}
 }
@@ -208,9 +215,11 @@ func TestMonthly(t *testing.T) {
 	f.user("carol", "carol@acme.com", btypes.ActionStatusReverseSuccess)
 	f.user("dave", "dave@acme.com", btypes.ActionStatusExecutionSuccess)
 	f.user("erin", "erin@acme.com", btypes.ActionStatusExecutionSuccess)
+	// Another setup in the account: its Lambda re-arms it, not this one.
+	f.userIn("other", "dave", "dave@acme.com", btypes.ActionStatusExecutionSuccess)
 	m := manager(f)
 	ctx := context.Background()
-	_ = m.Pause(ctx, "bedrock-user-erin", "admin", "key leak")
+	_ = m.Pause(ctx, "bedrock-user-t-erin", "admin", "key leak")
 	var saved Snapshot
 	var order []string
 	res, err := m.Monthly(ctx, func(_ context.Context, s Snapshot) error {
@@ -235,19 +244,25 @@ func TestMonthly(t *testing.T) {
 	if e.State != PausedByHand || e.Reason != "key leak" {
 		t.Fatalf("erin %+v", e)
 	}
-	for _, b := range []string{"bedrock-alice", "bedrock-carol", "bedrock-dave", "bedrock-erin"} {
+	for _, b := range []string{"bedrock-t-alice", "bedrock-t-carol", "bedrock-t-dave", "bedrock-t-erin"} {
 		if s := f.actions[b].Status; s != btypes.ActionStatusStandby {
 			t.Errorf("%s: %s", b, s)
 		}
 	}
-	if f.deny["bedrock-user-dave"] || f.deny["bedrock-user-carol"] {
+	if f.deny["bedrock-user-t-dave"] || f.deny["bedrock-user-t-carol"] {
 		t.Error("dave and carol should be unpaused")
 	}
-	if !f.deny["bedrock-user-erin"] {
+	if !f.deny["bedrock-user-t-erin"] {
 		t.Error("erin's pause by hand must stay")
 	}
-	if res.Done["bedrock-alice"] != "unchanged (STANDBY)" {
-		t.Errorf("alice: %s", res.Done["bedrock-alice"])
+	if f.actions["bedrock-other-dave"].Status != btypes.ActionStatusExecutionSuccess || !f.deny["bedrock-user-other-dave"] {
+		t.Error("another id's users must be left alone")
+	}
+	if _, ok := res.Done["bedrock-other-dave"]; ok || saved.ID != testID {
+		t.Errorf("snapshot id %q, done %v", saved.ID, res.Done)
+	}
+	if res.Done["bedrock-t-alice"] != "unchanged (STANDBY)" {
+		t.Errorf("alice: %s", res.Done["bedrock-t-alice"])
 	}
 }
 
@@ -255,8 +270,8 @@ func TestMonthlySaveFailureStillRearms(t *testing.T) {
 	f := newFake()
 	f.user("dave", "dave@acme.com", btypes.ActionStatusExecutionSuccess)
 	_, err := manager(f).Monthly(context.Background(), func(context.Context, Snapshot) error { return errors.New("s3 down") })
-	if err == nil || f.actions["bedrock-dave"].Status != btypes.ActionStatusStandby {
-		t.Fatalf("err=%v status=%s", err, f.actions["bedrock-dave"].Status)
+	if err == nil || f.actions["bedrock-t-dave"].Status != btypes.ActionStatusStandby {
+		t.Fatalf("err=%v status=%s", err, f.actions["bedrock-t-dave"].Status)
 	}
 }
 

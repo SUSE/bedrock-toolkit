@@ -40,34 +40,34 @@ func TestAllowsAssume(t *testing.T) {
 }
 
 func TestWebSearchPolicies(t *testing.T) {
-	off, on := UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "", nil), UserInvoke("123456789012", "bedrock-user-a", "bedrock-a", "us-east-1", nil)
+	off, on := UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "", nil), UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "us-east-1", nil)
 	if strings.Contains(off, "bedrock-agentcore") {
 		t.Fatalf("web search off must not allow gateways: %s", off)
 	}
-	for _, want := range []string{`"arn:aws:budgets::123456789012:budget/bedrock-a"`, `"arn:aws:budgets::123456789012:budget/bedrock-a/action/*"`,
-		"budgets:ViewBudget", `"arn:aws:iam::123456789012:role/bedrock-users/bedrock-user-a"`, "iam:ListRoleTags"} {
+	for _, want := range []string{`"arn:aws:budgets::123456789012:budget/bedrock-t-a"`, `"arn:aws:budgets::123456789012:budget/bedrock-t-a/action/*"`,
+		"budgets:ViewBudget", `"arn:aws:iam::123456789012:role/bedrock-users/t/bedrock-user-t-a"`, "iam:ListRoleTags"} {
 		if !strings.Contains(off, want) {
 			t.Fatalf("self-read %s missing: %s", want, off)
 		}
 	}
-	if !strings.Contains(on, `"arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/*"`) || !strings.Contains(on, "bedrock-agentcore:ListGateways") || !strings.Contains(on, "bedrock-agentcore:GetGateway") {
+	if !strings.Contains(on, `"arn:aws:bedrock-agentcore:us-east-1:123456789012:gateway/bedrock-web-search-t-*"`) || !strings.Contains(on, "bedrock-agentcore:ListGateways") || !strings.Contains(on, "bedrock-agentcore:GetGateway") {
 		t.Fatalf("web search on: %s", on)
 	}
 	if !slices.Contains(DenyActions, "bedrock-agentcore:InvokeGateway") || !strings.Contains(Deny(), "bedrock-agentcore:InvokeGateway") {
 		t.Fatal("a pause must stop web search")
 	}
-	trust := WebSearchGatewayTrust("eu-west-1", "123456789012")
-	if !strings.Contains(trust, "bedrock-agentcore.amazonaws.com") || !strings.Contains(trust, "arn:aws:bedrock-agentcore:eu-west-1:123456789012:gateway/*") {
+	trust := WebSearchGatewayTrust("eu-west-1", "123456789012", "t")
+	if !strings.Contains(trust, "bedrock-agentcore.amazonaws.com") || !strings.Contains(trust, "arn:aws:bedrock-agentcore:eu-west-1:123456789012:gateway/bedrock-web-search-t-*") {
 		t.Fatalf("trust: %s", trust)
 	}
-	perms := WebSearchGatewayPermissions("eu-west-1", "123456789012")
+	perms := WebSearchGatewayPermissions("eu-west-1", "123456789012", "t")
 	if !strings.Contains(perms, "arn:aws:bedrock-agentcore:eu-west-1:aws:tool/web-search.v1") || strings.Contains(perms, "bedrock:") {
 		t.Fatalf("permissions: %s", perms)
 	}
 }
 
 func TestUserInvokeModels(t *testing.T) {
-	any := UserInvoke("123456789012", "r", "b", "", nil)
+	any := UserInvoke("123456789012", "t", "r", "b", "", nil)
 	if !strings.Contains(any, "foundation-model/anthropic.claude-*") || !strings.Contains(any, "DenyUnapprovedFableModels") {
 		t.Fatalf("no models must allow any Claude model: %s", any)
 	}
@@ -75,7 +75,7 @@ func TestUserInvokeModels(t *testing.T) {
 		t.Fatalf("ListedModels(any) = %v, %v", m, err)
 	}
 	models := []string{"us.anthropic.claude-haiku-5-5", "anthropic.claude-opus-5-5"}
-	listed := UserInvoke("123456789012", "r", "b", "", models)
+	listed := UserInvoke("123456789012", "t", "r", "b", "", models)
 	for _, want := range []string{`"arn:aws:bedrock:*:123456789012:inference-profile/us.anthropic.claude-haiku-5-5"`,
 		`"arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5"`, `"arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-5-5"`,
 		"DenyUnapprovedFableModels"} {
@@ -89,5 +89,35 @@ func TestUserInvokeModels(t *testing.T) {
 	got, err := ListedModels(listed)
 	if err != nil || !slices.Equal(got, models) {
 		t.Fatalf("ListedModels = %v, %v", got, err)
+	}
+}
+
+func TestNames(t *testing.T) {
+	id := strings.Repeat("x", 20)
+	for _, n := range []string{DenyPolicyName(id), BudgetActionsRole(id), LambdaRole(id), SchedulerRole(id), WebSearchRole(id),
+		UserRoleName(id, strings.Repeat("n", 30))} {
+		if len(n) > 64 {
+			t.Errorf("%s: %d characters, IAM allows 64", n, len(n))
+		}
+	}
+	if b := BucketName("123456789012", id); len(b) > 63 {
+		t.Errorf("%s: %d characters, S3 allows 63", b, len(b))
+	}
+	if UserRoleArn("1", "acme", "bedrock-user-acme-bob") != "arn:aws:iam::1:role/bedrock-users/acme/bedrock-user-acme-bob" {
+		t.Error(UserRoleArn("1", "acme", "bedrock-user-acme-bob"))
+	}
+	if RoleForBudget("bedrock-acme-bob") != "bedrock-user-acme-bob" || BudgetForRole("bedrock-user-acme-bob") != "bedrock-acme-bob" {
+		t.Error("role and budget must map to each other")
+	}
+	for role, want := range map[string][3]string{
+		"bedrock-user-acme-bob.smith": {"acme", "bob.smith", "ok"},
+		"bedrock-user-acme-a-b":       {"acme", "a-b", "ok"},
+		"bedrock-user-acme":           {},
+		"bedrock-budget-actions-acme": {},
+	} {
+		id, name, ok := SplitUserRole(role)
+		if got := [3]string{id, name, map[bool]string{true: "ok"}[ok]}; got != want {
+			t.Errorf("SplitUserRole(%s) = %v, want %v", role, got, want)
+		}
 	}
 }

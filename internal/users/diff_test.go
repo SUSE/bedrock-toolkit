@@ -13,7 +13,7 @@ import (
 var now = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 
 func want(limit float64, pauseAt int) config.Resolved {
-	return config.Resolved{Email: "dave@acme.com", Name: "dave", RoleName: "bedrock-user-dave", BudgetName: "bedrock-dave",
+	return config.Resolved{Email: "dave@acme.com", Name: "dave", RoleName: "bedrock-user-acme-dave", BudgetName: "bedrock-acme-dave",
 		LimitUSD: limit, PauseAtPercent: pauseAt, AlertAtPercent: []int{80}, Notify: "dave@acme.com"}
 }
 
@@ -130,14 +130,18 @@ func TestMissingBudget(t *testing.T) {
 }
 
 func TestSetupCommand(t *testing.T) {
-	cfg := &config.Config{Region: "us-west-2"}
+	cfg := &config.Config{ID: "bedrock", Region: "us-west-2"}
 	u := want(50, 100)
 	if got := SetupCommand(cfg, "123456789012", "us-west-2", u); got != "bedrock setup" {
 		t.Fatalf("got %q", got)
 	}
-	u.CustomName, u.RoleName = true, "bedrock-user-dv"
+	cfg.ID = "acme"
+	if got := SetupCommand(cfg, "123456789012", "us-west-2", u); got != "bedrock setup --id acme" {
+		t.Fatalf("got %q", got)
+	}
+	u.CustomName, u.RoleName = true, "bedrock-user-acme-dv"
 	got := SetupCommand(cfg, "123456789012", "eu-west-1", u)
-	if got != "bedrock setup --region us-west-2 --role-arn arn:aws:iam::123456789012:role/bedrock-users/bedrock-user-dv" {
+	if got != "bedrock setup --region us-west-2 --role-arn arn:aws:iam::123456789012:role/bedrock-users/acme/bedrock-user-acme-dv" {
 		t.Fatalf("got %q", got)
 	}
 }

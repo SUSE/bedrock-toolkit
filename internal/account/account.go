@@ -32,19 +32,18 @@ func (e *Env) item(step, target string) *plan.Item {
 	return &plan.Item{Section: "account", Step: step, Target: target, Op: plan.OK, Status: "ok"}
 }
 
-// owned decides what to do with an existing resource from its bedrock-admin:id. It returns true
-// when this config manages it; otherwise it marks the item.
+// owned reports whether an existing resource, named after this config's id, carries the id's
+// bedrock-admin:id tag. Otherwise it marks the item as a conflict.
 func (e *Env) owned(it *plan.Item, id string) bool {
 	switch id {
 	case e.Cfg.ID:
 		return true
 	case "":
-		it.Op = plan.Conflict
 		it.Status = "exists without a " + policy.IDTag + " tag (made outside bedrock-admin); remove it, then apply"
 	default:
-		it.Op = plan.Info
-		it.Status = "ok (managed by " + id + ")"
+		it.Status = "tagged " + policy.IDTag + "=" + id + ", not " + e.Cfg.ID + "; remove it, then apply"
 	}
+	it.Op = plan.Conflict
 	return false
 }
 

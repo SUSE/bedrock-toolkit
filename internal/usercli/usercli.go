@@ -99,8 +99,8 @@ Exit codes: 0 ok, 1 error, 2 a check failed.`,
 }
 
 type setupFlags struct {
-	ssoProfile, roleArn, region, profile string
-	yes                                  bool
+	ssoProfile, roleArn, region, profile, id string
+	yes                                      bool
 }
 
 func (a *App) setupCmd() *cobra.Command {
@@ -111,9 +111,9 @@ func (a *App) setupCmd() *cobra.Command {
 		Long: `setup writes the [profile bedrock] block in ~/.aws/config (or $AWS_CONFIG_FILE).
 
 It reads your SSO identity to find the account and your SSO email, derives your personal role
-(arn:aws:iam::<account>:role/bedrock-users/bedrock-user-<name>), sets role_session_name to your SSO
-email and takes the region from your SSO profile. Your admin tells you when you need --region or
---role-arn. The previous file is kept as config.bak; an existing bedrock profile is replaced only
+(arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>, id bedrock by default),
+sets role_session_name to your SSO email and takes the region from your SSO profile. Your admin
+tells you when you need --id, --region or --role-arn. The previous file is kept as config.bak; an existing bedrock profile is replaced only
 after asking (or with --yes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.setup(cmd.Context(), f) },
@@ -121,6 +121,7 @@ after asking (or with --yes).`,
 	fl := cmd.Flags()
 	fl.StringVar(&f.ssoProfile, "sso-profile", "", "profile you sign in with (default: the only SSO or aws login profile)")
 	fl.StringVar(&f.roleArn, "role-arn", "", "personal role ARN, when your admin gave you one")
+	fl.StringVar(&f.id, "id", policy.DefaultID, "id of your admin's setup")
 	fl.StringVar(&f.region, "region", "", "Bedrock region (default: the SSO profile's region)")
 	fl.StringVar(&f.profile, "profile-name", DefaultProfile, "name of the profile to write")
 	fl.BoolVarP(&f.yes, "yes", "y", false, "replace an existing profile without asking")
@@ -128,6 +129,9 @@ after asking (or with --yes).`,
 }
 
 func (a *App) setup(ctx context.Context, f setupFlags) error {
+	if !config.ValidID(f.id) {
+		return fmt.Errorf("--id %q: must be 1-20 lowercase letters and digits", f.id)
+	}
 	path, err := awsconf.Path()
 	if err != nil {
 		return err
@@ -165,7 +169,7 @@ func (a *App) setup(ctx context.Context, f setupFlags) error {
 	}
 	roleArn := f.roleArn
 	if roleArn == "" {
-		roleArn = policy.UserRoleArn(account, config.RoleName(config.NameFromEmail(email)))
+		roleArn = policy.UserRoleArn(account, f.id, policy.UserRoleName(f.id, config.NameFromEmail(email)))
 	}
 	kvs := []awsconf.KV{{Key: "role_arn", Value: roleArn}, {Key: "source_profile", Value: src},
 		{Key: "role_session_name", Value: email}, {Key: "region", Value: region}}

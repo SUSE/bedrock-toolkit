@@ -11,19 +11,16 @@ import (
 	"strings"
 )
 
-// Names and paths of the shared account resources.
+// Paths and fixed names. Every account resource name ends in the setup's id (see Names below), so
+// several setups can share an account.
 const (
+	// DefaultID is the id configure suggests and bedrock setup assumes.
+	DefaultID              = "bedrock"
 	Path                   = "/bedrock/"
 	UsersPath              = "/bedrock-users/"
-	DenyPolicyName         = "bedrock-deny"
-	BudgetActionsRole      = "bedrock-budget-actions"
 	BudgetActionsPolicy    = "attach-bedrock-deny"
-	LambdaName             = "bedrock-monthly-unpause"
-	LambdaRole             = "bedrock-monthly-unpause"
 	LambdaPolicy           = "monthly-unpause"
-	SchedulerRole          = "bedrock-monthly-unpause-scheduler"
 	SchedulerPolicy        = "invoke-unpause-lambda"
-	ScheduleName           = "bedrock-monthly-unpause"
 	ScheduleExpression     = "cron(0 6 1 * ? *)"
 	InvokePolicyName       = "bedrock-invoke"
 	BlockPolicyName        = "bedrock-personal-role-only"
@@ -34,18 +31,61 @@ const (
 	ProductTag             = "product"
 	IDTag                  = "bedrock-admin:id"
 	CostAllocationOwnerTag = "iamPrincipal/owner"
-	WebSearchRole          = "bedrock-web-search-gateway"
 	WebSearchPolicy        = "web-search"
-	WebSearchGateway       = "bedrock-web-search"
 	WebSearchTarget        = "web-search"
 	WebSearchConnector     = "web-search"
 	// WebSearchConnectorVersion is the tested AgentCore Web Search connector version.
 	WebSearchConnectorVersion = "1.2.0"
 )
 
-// GatewaysArn matches every AgentCore gateway of the account in region.
-func GatewaysArn(region, account string) string {
-	return fmt.Sprintf("arn:aws:bedrock-agentcore:%s:%s:gateway/*", region, account)
+// Names of an id's account resources. An id is 1-20 lowercase letters and digits, so every name
+// fits AWS limits (IAM role names: 64) and a name maps back to exactly one id.
+func UserPath(id string) string          { return UsersPath + id + "/" }
+func DenyPolicyName(id string) string    { return "bedrock-deny-" + id }
+func BudgetActionsRole(id string) string { return "bedrock-budget-actions-" + id }
+func LambdaName(id string) string        { return "bedrock-monthly-unpause-" + id }
+func LambdaRole(id string) string        { return "bedrock-monthly-unpause-" + id }
+func SchedulerRole(id string) string     { return "bedrock-monthly-unpause-scheduler-" + id }
+func ScheduleName(id string) string      { return "bedrock-monthly-unpause-" + id }
+func WebSearchRole(id string) string     { return "bedrock-web-search-gateway-" + id }
+func WebSearchGateway(id string) string  { return "bedrock-web-search-" + id }
+func ExportName(id string) string        { return "bedrock-cur-" + id }
+func BucketName(account, id string) string {
+	return "bedrock-cur-" + account + "-" + id
+}
+
+// UserRoleName and BudgetName are a user's personal role and budget: bedrock-user-<id>-<name> and
+// bedrock-<id>-<name>.
+func UserRoleName(id, name string) string { return "bedrock-user-" + id + "-" + name }
+func BudgetName(id, name string) string   { return "bedrock-" + id + "-" + name }
+
+// RoleForBudget maps a budget name to its personal role: bedrock-X ↔ bedrock-user-X.
+func RoleForBudget(budget string) string {
+	return "bedrock-user-" + strings.TrimPrefix(budget, "bedrock-")
+}
+
+// BudgetForRole maps a personal role name to its budget: bedrock-user-X ↔ bedrock-X.
+func BudgetForRole(role string) string {
+	return "bedrock-" + strings.TrimPrefix(role, "bedrock-user-")
+}
+
+// SplitUserRole returns the id and user name of a personal role name, ok false for other names.
+func SplitUserRole(role string) (id, name string, ok bool) {
+	rest, found := strings.CutPrefix(role, "bedrock-user-")
+	if !found {
+		return "", "", false
+	}
+	id, name, ok = strings.Cut(rest, "-")
+	if !ok || id == "" || name == "" {
+		return "", "", false
+	}
+	return id, name, true
+}
+
+// GatewaysArn matches the id's AgentCore gateway in region: AgentCore makes a gateway's ID from its
+// name, a '-' and a random suffix.
+func GatewaysArn(region, account, id string) string {
+	return fmt.Sprintf("arn:aws:bedrock-agentcore:%s:%s:gateway/%s-*", region, account, WebSearchGateway(id))
 }
 
 // WebSearchToolArn is the AWS-owned Web Search tool.
@@ -53,17 +93,22 @@ func WebSearchToolArn(region string) string {
 	return fmt.Sprintf("arn:aws:bedrock-agentcore:%s:aws:tool/web-search.v1", region)
 }
 
-func DenyPolicyArn(account string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:policy/bedrock/%s", account, DenyPolicyName)
+func DenyPolicyArn(account, id string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:policy/bedrock/%s", account, DenyPolicyName(id))
 }
-func BudgetActionsRoleArn(account string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock/%s", account, BudgetActionsRole)
+func BudgetActionsRoleArn(account, id string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock/%s", account, BudgetActionsRole(id))
 }
-func UserRoleArn(account, role string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock-users/%s", account, role)
+
+// UserRoleArn is the ARN of a personal role, under /bedrock-users/<id>/.
+func UserRoleArn(account, id, role string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:role%s%s", account, UserPath(id), role)
 }
-func LambdaArn(region, account string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, account, LambdaName)
+
+// UserRolesArn matches every personal role of an id.
+func UserRolesArn(account, id string) string { return UserRoleArn(account, id, "*") }
+func LambdaArn(region, account, id string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, account, LambdaName(id))
 }
 
 // DenyActions are the model-call actions blocked by a pause.
@@ -106,10 +151,12 @@ func BudgetActionsTrust(account string) string {
 			"ArnLike":      doc{"aws:SourceArn": fmt.Sprintf("arn:aws:budgets::%s:budget/*", account)}}})
 }
 
-func BudgetActionsPermissions(account string) string {
+// BudgetActionsPermissions lets AWS Budgets attach and detach the id's deny policy, on the id's
+// personal roles only.
+func BudgetActionsPermissions(account, id string) string {
 	return document(stmt{"Effect": "Allow", "Action": []string{"iam:AttachRolePolicy", "iam:DetachRolePolicy"},
-		"Resource":  fmt.Sprintf("arn:aws:iam::%s:role/bedrock-users/*", account),
-		"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account)}}})
+		"Resource":  UserRolesArn(account, id),
+		"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}})
 }
 
 func ServiceTrust(service, account string) string {
@@ -117,45 +164,45 @@ func ServiceTrust(service, account string) string {
 		"Condition": doc{"StringEquals": doc{"aws:SourceAccount": account}}})
 }
 
-// WebSearchGatewayTrust lets only AgentCore gateways of this account assume the gateway role.
-func WebSearchGatewayTrust(region, account string) string {
+// WebSearchGatewayTrust lets only the id's AgentCore gateway assume the gateway role.
+func WebSearchGatewayTrust(region, account, id string) string {
 	return document(stmt{"Effect": "Allow", "Principal": doc{"Service": "bedrock-agentcore.amazonaws.com"},
 		"Action": "sts:AssumeRole", "Condition": doc{
 			"StringEquals": doc{"aws:SourceAccount": account},
-			"ArnLike":      doc{"aws:SourceArn": GatewaysArn(region, account)}}})
+			"ArnLike":      doc{"aws:SourceArn": GatewaysArn(region, account, id)}}})
 }
 
 // WebSearchGatewayPermissions lets the gateway call Web Search, and nothing else.
-func WebSearchGatewayPermissions(region, account string) string {
+func WebSearchGatewayPermissions(region, account, id string) string {
 	return document(
 		stmt{"Sid": "InvokeGateway", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway",
-			"Resource": GatewaysArn(region, account)},
+			"Resource": GatewaysArn(region, account, id)},
 		stmt{"Sid": "WebSearch", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeWebSearch",
 			"Resource": WebSearchToolArn(region)},
 	)
 }
 
 // LambdaPermissions lets the monthly Lambda re-arm budget actions, keep manual pauses in place and
-// write snapshots.
-func LambdaPermissions(region, account, bucket, snapshotPrefix string) string {
+// write snapshots, for the id's users only.
+func LambdaPermissions(region, account, id, bucket, snapshotPrefix string) string {
 	return document(
 		stmt{"Sid": "Budgets", "Effect": "Allow", "Action": []string{"budgets:DescribeBudgetActionsForAccount",
 			"budgets:DescribeBudgetAction", "budgets:ExecuteBudgetAction", "budgets:DescribeBudgetActionHistories",
 			"budgets:ViewBudget"}, "Resource": "*"},
 		stmt{"Sid": "ReadUserRoles", "Effect": "Allow", "Action": []string{"iam:ListRoleTags", "iam:ListAttachedRolePolicies"},
-			"Resource": fmt.Sprintf("arn:aws:iam::%s:role/bedrock-users/*", account)},
+			"Resource": UserRolesArn(account, id)},
 		stmt{"Sid": "KeepManualPauses", "Effect": "Allow", "Action": "iam:AttachRolePolicy",
-			"Resource":  fmt.Sprintf("arn:aws:iam::%s:role/bedrock-users/*", account),
-			"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account)}}},
+			"Resource":  UserRolesArn(account, id),
+			"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}},
 		stmt{"Sid": "Snapshots", "Effect": "Allow", "Action": "s3:PutObject",
 			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", bucket, snapshotPrefix)},
 		stmt{"Sid": "Logs", "Effect": "Allow", "Action": []string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"},
-			"Resource": fmt.Sprintf("arn:aws:logs:%s:%s:log-group:/aws/lambda/%s*", region, account, LambdaName)},
+			"Resource": fmt.Sprintf("arn:aws:logs:%s:%s:log-group:/aws/lambda/%s:*", region, account, LambdaName(id))},
 	)
 }
 
-func SchedulerPermissions(region, account string) string {
-	return document(stmt{"Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": LambdaArn(region, account)})
+func SchedulerPermissions(region, account, id string) string {
+	return document(stmt{"Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": LambdaArn(region, account, id)})
 }
 
 // CurBucket lets only AWS Data Exports write to the cost export bucket.
@@ -271,8 +318,8 @@ func ListedModels(policyDoc string) ([]string, error) {
 
 // UserInvoke allows the listed models, or any Claude model when none are listed, and always denies
 // the Claude Fable family. It lets the user read their own budget and their own role's tags, for
-// bedrock usage. With a webSearchRegion, it also allows calling the account's AgentCore gateways there.
-func UserInvoke(account, role, budget, webSearchRegion string, models []string) string {
+// bedrock usage. With a webSearchRegion, it also allows calling the id's AgentCore gateway there.
+func UserInvoke(account, id, role, budget, webSearchRegion string, models []string) string {
 	budgetArn := fmt.Sprintf("arn:aws:budgets::%s:budget/%s", account, budget)
 	s := []stmt{
 		invokeStmt(account, models),
@@ -286,15 +333,15 @@ func UserInvoke(account, role, budget, webSearchRegion string, models []string) 
 			"budgets:DescribeBudgetActionsForBudget", "budgets:DescribeBudgetActionHistories"},
 			"Resource": []string{budgetArn, budgetArn + "/action/*"}},
 		{"Sid": "ReadOwnRole", "Effect": "Allow", "Action": []string{"iam:GetRole", "iam:ListRoleTags"},
-			"Resource": UserRoleArn(account, role)},
+			"Resource": UserRoleArn(account, id, role)},
 	}
 	if webSearchRegion != "" {
 		s = append(s,
 			stmt{"Sid": "WebSearch", "Effect": "Allow", "Action": "bedrock-agentcore:InvokeGateway",
-				"Resource": GatewaysArn(webSearchRegion, account)},
+				"Resource": GatewaysArn(webSearchRegion, account, id)},
 			stmt{"Sid": "FindWebSearchGateway", "Effect": "Allow", "Action": "bedrock-agentcore:ListGateways", "Resource": "*"},
 			stmt{"Sid": "ReadWebSearchGateway", "Effect": "Allow", "Action": "bedrock-agentcore:GetGateway",
-				"Resource": GatewaysArn(webSearchRegion, account)})
+				"Resource": GatewaysArn(webSearchRegion, account, id)})
 	}
 	return document(s...)
 }

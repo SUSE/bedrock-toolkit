@@ -232,7 +232,11 @@ func (sdkAWS) WebSearchURL(ctx context.Context, profile, region string) (string,
 	if err != nil {
 		return "", err
 	}
-	g, err := websearch.FindGateway(ctx, bedrockagentcorecontrol.NewFromConfig(cfg), policy.WebSearchGateway)
+	_, id, _, err := profileRole(profile)
+	if err != nil {
+		return "", err
+	}
+	g, err := websearch.FindGateway(ctx, bedrockagentcorecontrol.NewFromConfig(cfg), policy.WebSearchGateway(id))
 	switch {
 	case err != nil && (awsx.IsAccessDenied(err) || awsx.ErrorCode(err) == "UnknownOperationException"):
 		return "", nil // the role has no web search statement: the admin hasn't enabled it

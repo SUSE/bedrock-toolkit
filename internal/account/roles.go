@@ -38,8 +38,8 @@ func PolicyID(ctx context.Context, c *iam.Client, arn string) (string, bool, err
 }
 
 func (e *Env) denyPolicy(ctx context.Context) ([]*plan.Item, error) {
-	arn := policy.DenyPolicyArn(e.C.Account)
-	it := e.item("1.2", "pause policy "+policy.DenyPolicyName)
+	arn := policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)
+	it := e.item("1.2", "pause policy "+policy.DenyPolicyName(e.Cfg.ID))
 	id, exists, err := PolicyID(ctx, e.C.IAM, arn)
 	if err != nil {
 		return nil, err
@@ -48,12 +48,12 @@ func (e *Env) denyPolicy(ctx context.Context) ([]*plan.Item, error) {
 	if !exists {
 		it.Op, it.Details = plan.Create, []string{"create"}
 		it.Apply = func(ctx context.Context) error {
-			_, err := e.C.IAM.CreatePolicy(ctx, &iam.CreatePolicyInput{PolicyName: aws.String(policy.DenyPolicyName),
+			_, err := e.C.IAM.CreatePolicy(ctx, &iam.CreatePolicyInput{PolicyName: aws.String(policy.DenyPolicyName(e.Cfg.ID)),
 				Path: aws.String(policy.Path), PolicyDocument: aws.String(want),
 				Description: aws.String("Pauses Bedrock model calls; attached by AWS Budgets or bedrock-admin pause"),
 				Tags:        []itypes.Tag{{Key: aws.String(policy.IDTag), Value: aws.String(e.Cfg.ID)}}})
 			if err != nil {
-				return fmt.Errorf("creating %s: %w", policy.DenyPolicyName, err)
+				return fmt.Errorf("creating %s: %w", policy.DenyPolicyName(e.Cfg.ID), err)
 			}
 			return nil
 		}
@@ -124,15 +124,15 @@ func (e *Env) roleItem(ctx context.Context, step, label string, s iamrole.Spec) 
 }
 
 // BudgetActionsSpec is the Step 1.3 role.
-func BudgetActionsSpec(account string) iamrole.Spec {
-	return iamrole.Spec{Name: policy.BudgetActionsRole, Path: policy.Path,
-		Description: "Lets AWS Budgets attach and detach bedrock-deny on personal Bedrock roles",
+func BudgetActionsSpec(account, id string) iamrole.Spec {
+	return iamrole.Spec{Name: policy.BudgetActionsRole(id), Path: policy.Path,
+		Description: "Lets AWS Budgets attach and detach " + policy.DenyPolicyName(id) + " on the " + id + " personal Bedrock roles",
 		Trust:       policy.BudgetActionsTrust(account), InlineName: policy.BudgetActionsPolicy,
-		Inline: policy.BudgetActionsPermissions(account)}
+		Inline: policy.BudgetActionsPermissions(account, id)}
 }
 
 func (e *Env) budgetActionsRole(ctx context.Context) ([]*plan.Item, error) {
-	it, err := e.roleItem(ctx, "1.3", "budget actions role "+policy.BudgetActionsRole, BudgetActionsSpec(e.C.Account))
+	it, err := e.roleItem(ctx, "1.3", "budget actions role "+policy.BudgetActionsRole(e.Cfg.ID), BudgetActionsSpec(e.C.Account, e.Cfg.ID))
 	if err != nil {
 		return nil, err
 	}

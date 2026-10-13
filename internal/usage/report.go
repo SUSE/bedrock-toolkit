@@ -12,11 +12,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
+	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 )
 
-// User is someone with a budget in a month: tracked spend is spend whose owner tag is one of these.
+// User is someone with a budget in a month: tracked spend is spend through their personal role
+// (Role; any role when empty) whose owner tag is their email.
 type User struct {
 	Email      string
+	Role       string
 	LimitUSD   float64
 	TriggerUSD float64
 	Pause      pause.Status
@@ -54,6 +57,8 @@ type MonthReport struct {
 	TrackedUSD   float64   `json:"tracked_usd"`
 	Untracked    []Caller  `json:"untracked"`
 	UntrackedUSD float64   `json:"untracked_usd"`
+	// OtherIDsUSD is spend through personal roles of other ids (other setups in the account).
+	OtherIDsUSD float64 `json:"other_ids_usd"`
 }
 
 // MinUSD is the smallest caller total shown; smaller callers are left out of the list (not the total).
@@ -104,7 +109,19 @@ func (s userSet) owner(l Line) (User, bool) {
 		return User{}, false
 	}
 	u, ok := s[strings.ToLower(l.Owner)]
+	if ok && u.Role != "" && principalRole(l.Principal) != u.Role {
+		return User{}, false
+	}
 	return u, ok
+}
+
+// principalRole is the role name of an assumed-role ARN, else "".
+func principalRole(arn string) string {
+	parts := strings.Split(arn, "/")
+	if strings.Contains(arn, ":assumed-role/") && len(parts) >= 3 {
+		return parts[1]
+	}
+	return ""
 }
 
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -118,9 +135,10 @@ func MonthStart(month string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// Summarize builds a month's report. For the current month (now inside the month) it adds a
-// forecast; otherwise pause state is as of the end of the month.
-func Summarize(month string, lines []Line, users []User, now time.Time) MonthReport {
+// Summarize builds a month's report for the setup id. For the current month (now inside the month)
+// it adds a forecast; otherwise pause state is as of the end of the month. Spend through personal
+// roles of other ids is summed apart: it belongs to another setup's report.
+func Summarize(month, id string, lines []Line, users []User, now time.Time) MonthReport {
 	start, _ := MonthStart(month)
 	end := pause.NextMonth(start)
 	current := !now.Before(start) && now.Before(end)
@@ -137,6 +155,10 @@ func Summarize(month string, lines []Line, users []User, now time.Time) MonthRep
 		if u, ok := set.owner(l); ok {
 			spent[strings.ToLower(u.Email)] += l.Cost
 			r.TrackedUSD += l.Cost
+			continue
+		}
+		if other, _, ok := policy.SplitUserRole(principalRole(l.Principal)); ok && other != id {
+			r.OtherIDsUSD += l.Cost
 			continue
 		}
 		who, via := Classify(l.Principal, l.Owner)
@@ -186,7 +208,7 @@ func Summarize(month string, lines []Line, users []User, now time.Time) MonthRep
 		r.Untracked = append(r.Untracked, *c)
 	}
 	sortCallers(r.Untracked)
-	r.TrackedUSD, r.UntrackedUSD = round2(r.TrackedUSD), round2(r.UntrackedUSD)
+	r.TrackedUSD, r.UntrackedUSD, r.OtherIDsUSD = round2(r.TrackedUSD), round2(r.UntrackedUSD), round2(r.OtherIDsUSD)
 	return r
 }
 
@@ -250,6 +272,9 @@ func (r MonthReport) Write(w io.Writer, s Sections) {
 		}
 		fmt.Fprintf(tw, "Tracked total\t\t%s\n", cents(r.TrackedUSD))
 		_ = tw.Flush()
+		if r.OtherIDsUSD >= MinUSD {
+			fmt.Fprintf(w, "Other setups in this account (personal roles of other ids): %s\n", cents(r.OtherIDsUSD))
+		}
 	}
 	if s.Untracked {
 		fmt.Fprintln(w)
@@ -519,7 +544,7 @@ func UsersFromSnapshot(s *pause.Snapshot) []User {
 	out := make([]User, 0, len(s.Users))
 	for _, u := range s.Users {
 		out = append(out, User{
-			Email: u.Email, LimitUSD: u.LimitUSD, TriggerUSD: u.TriggerUSD, PauseKnown: true,
+			Email: u.Email, Role: u.Role, LimitUSD: u.LimitUSD, TriggerUSD: u.TriggerUSD, PauseKnown: true,
 			Pause: pause.Status{State: u.State, PausedAt: u.PausedAt, By: u.By, Reason: u.Reason},
 		})
 	}

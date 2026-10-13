@@ -18,21 +18,21 @@ import (
 )
 
 // WebSearchRoleSpec is the Step 1.8 gateway service role.
-func WebSearchRoleSpec(region, account string) iamrole.Spec {
-	return iamrole.Spec{Name: policy.WebSearchRole, Path: policy.Path,
-		Description: "Lets the bedrock-web-search AgentCore gateway call Web Search",
-		Trust:       policy.WebSearchGatewayTrust(region, account), InlineName: policy.WebSearchPolicy,
-		Inline: policy.WebSearchGatewayPermissions(region, account)}
+func WebSearchRoleSpec(region, account, id string) iamrole.Spec {
+	return iamrole.Spec{Name: policy.WebSearchRole(id), Path: policy.Path,
+		Description: "Lets the " + policy.WebSearchGateway(id) + " AgentCore gateway call Web Search",
+		Trust:       policy.WebSearchGatewayTrust(region, account, id), InlineName: policy.WebSearchPolicy,
+		Inline: policy.WebSearchGatewayPermissions(region, account, id)}
 }
 
-func webSearchRoleArn(account string) string {
-	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock/%s", account, policy.WebSearchRole)
+func webSearchRoleArn(account, id string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock/%s", account, policy.WebSearchRole(id))
 }
 
 // webSearch is Step 1.8. It shows only when web search is on, or when there is something to remove.
 func (e *Env) webSearch(ctx context.Context) ([]*plan.Item, error) {
 	region, account := e.Cfg.Region, e.C.Account
-	g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway)
+	g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway(e.Cfg.ID))
 	if err != nil {
 		if !e.Cfg.WebSearch.Enabled && (awsx.IsAccessDenied(err) || isUnsupportedRegion(err)) {
 			return nil, nil
@@ -43,18 +43,18 @@ func (e *Env) webSearch(ctx context.Context) ([]*plan.Item, error) {
 		return e.webSearchRemove(ctx, g)
 	}
 
-	role, err := e.roleItem(ctx, "1.8", "web search role "+policy.WebSearchRole, WebSearchRoleSpec(region, account))
+	role, err := e.roleItem(ctx, "1.8", "web search role "+policy.WebSearchRole(e.Cfg.ID), WebSearchRoleSpec(region, account, e.Cfg.ID))
 	if err != nil {
 		return nil, err
 	}
 	out := []*plan.Item{role}
-	gw := e.item("1.8", "web search gateway "+policy.WebSearchGateway)
+	gw := e.item("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID))
 	out = append(out, gw)
 	target := e.item("1.8", "web search target "+policy.WebSearchTarget)
 	exclude := e.Cfg.WebSearch.ExcludeDomains
 
 	if g == nil {
-		gatewayState(gw, nil, account)
+		gatewayState(gw, nil, account, e.Cfg.ID)
 		gw.Apply = func(ctx context.Context) error { _, err := e.createGateway(ctx); return err }
 		targetState(target, nil, exclude)
 		target.Apply = func(ctx context.Context) error { return e.createTarget(ctx, exclude) }
@@ -63,14 +63,14 @@ func (e *Env) webSearch(ctx context.Context) ([]*plan.Item, error) {
 	if !e.owned(gw, g.OwnerID) {
 		return out, nil
 	}
-	if !gatewayState(gw, g, account) {
+	if !gatewayState(gw, g, account, e.Cfg.ID) {
 		return out, nil
 	}
 	if gw.Op == plan.Update {
 		id := g.ID
 		gw.Apply = func(ctx context.Context) error {
 			_, err := e.C.AgentCore.UpdateGateway(ctx, &ac.UpdateGatewayInput{GatewayIdentifier: aws.String(id),
-				Name: aws.String(policy.WebSearchGateway), RoleArn: aws.String(webSearchRoleArn(account)),
+				Name: aws.String(policy.WebSearchGateway(e.Cfg.ID)), RoleArn: aws.String(webSearchRoleArn(account, e.Cfg.ID)),
 				ProtocolType: actypes.GatewayProtocolTypeMcp, AuthorizerType: actypes.AuthorizerTypeAwsIam})
 			if err != nil {
 				return fmt.Errorf("updating gateway %s: %w", id, err)
@@ -104,7 +104,7 @@ func (e *Env) webSearch(ctx context.Context) ([]*plan.Item, error) {
 
 // gatewayState sets the gateway row from our gateway (nil: missing). It returns false when the
 // target can't be planned, because the gateway failed.
-func gatewayState(it *plan.Item, g *websearch.Gateway, account string) bool {
+func gatewayState(it *plan.Item, g *websearch.Gateway, account, id string) bool {
 	switch {
 	case g == nil:
 		it.Op, it.Details = plan.Create, []string{"create (MCP, IAM auth)"}
@@ -114,7 +114,7 @@ func gatewayState(it *plan.Item, g *websearch.Gateway, account string) bool {
 		return false
 	default:
 		it.Status = strings.ToLower(string(g.Status)) + ", " + g.URL
-		if g.RoleArn != webSearchRoleArn(account) || g.Authorizer != actypes.AuthorizerTypeAwsIam {
+		if g.RoleArn != webSearchRoleArn(account, id) || g.Authorizer != actypes.AuthorizerTypeAwsIam {
 			it.Op, it.Details = plan.Update, []string{"role or authorizer changed outside the file"}
 		}
 	}
@@ -140,20 +140,20 @@ func targetState(it *plan.Item, t *websearch.Target, exclude []string) {
 func (e *Env) webSearchRemove(ctx context.Context, g *websearch.Gateway) ([]*plan.Item, error) {
 	var out []*plan.Item
 	if g != nil && g.OwnerID == e.Cfg.ID {
-		it := e.item("1.8", "web search gateway "+policy.WebSearchGateway)
+		it := e.item("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID))
 		it.Op, it.Details = plan.Delete, []string{"remove (web_search is off)"}
 		id := g.ID
 		it.Apply = func(ctx context.Context) error { return websearch.Delete(ctx, e.C.AgentCore, id) }
 		out = append(out, it)
 	}
-	st, err := iamrole.Observe(ctx, e.C.IAM, iamrole.Spec{Name: policy.WebSearchRole, Path: policy.Path})
+	st, err := iamrole.Observe(ctx, e.C.IAM, iamrole.Spec{Name: policy.WebSearchRole(e.Cfg.ID), Path: policy.Path})
 	if err != nil {
 		return nil, err
 	}
 	if st.Exists && st.ID() == e.Cfg.ID {
-		it := e.item("1.8", "web search role "+policy.WebSearchRole)
+		it := e.item("1.8", "web search role "+policy.WebSearchRole(e.Cfg.ID))
 		it.Op, it.Details = plan.Delete, []string{"remove (web_search is off)"}
-		it.Apply = func(ctx context.Context) error { return iamrole.Delete(ctx, e.C.IAM, policy.WebSearchRole) }
+		it.Apply = func(ctx context.Context) error { return iamrole.Delete(ctx, e.C.IAM, policy.WebSearchRole(e.Cfg.ID)) }
 		out = append(out, it)
 	}
 	return out, nil
@@ -163,9 +163,9 @@ func (e *Env) webSearchRemove(ctx context.Context, g *websearch.Gateway) ([]*pla
 func (e *Env) createGateway(ctx context.Context) (string, error) {
 	var id string
 	err := iamrole.Retry(ctx, time.Minute, roleNotReady, func() error {
-		r, err := e.C.AgentCore.CreateGateway(ctx, &ac.CreateGatewayInput{Name: aws.String(policy.WebSearchGateway),
+		r, err := e.C.AgentCore.CreateGateway(ctx, &ac.CreateGatewayInput{Name: aws.String(policy.WebSearchGateway(e.Cfg.ID)),
 			Description: aws.String("Web search for Claude Code (bedrock-admin)"),
-			RoleArn:     aws.String(webSearchRoleArn(e.C.Account)), ProtocolType: actypes.GatewayProtocolTypeMcp,
+			RoleArn:     aws.String(webSearchRoleArn(e.C.Account, e.Cfg.ID)), ProtocolType: actypes.GatewayProtocolTypeMcp,
 			AuthorizerType: actypes.AuthorizerTypeAwsIam, Tags: e.tags()})
 		if err != nil {
 			return err
@@ -174,7 +174,7 @@ func (e *Env) createGateway(ctx context.Context) (string, error) {
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("creating gateway %s: %w", policy.WebSearchGateway, err)
+		return "", fmt.Errorf("creating gateway %s: %w", policy.WebSearchGateway(e.Cfg.ID), err)
 	}
 	e.logf("    waiting for gateway %s", id)
 	_, err = websearch.WaitGatewayReady(ctx, e.C.AgentCore, id)
@@ -183,12 +183,12 @@ func (e *Env) createGateway(ctx context.Context) (string, error) {
 
 // createTarget adds the Web Search target to the gateway (found by name: it may have just been created).
 func (e *Env) createTarget(ctx context.Context, exclude []string) error {
-	g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway)
+	g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway(e.Cfg.ID))
 	if err != nil {
 		return err
 	}
 	if g == nil {
-		return fmt.Errorf("gateway %s not found", policy.WebSearchGateway)
+		return fmt.Errorf("gateway %s not found", policy.WebSearchGateway(e.Cfg.ID))
 	}
 	if g.Status != actypes.GatewayStatusReady {
 		if g, err = websearch.WaitGatewayReady(ctx, e.C.AgentCore, g.ID); err != nil {

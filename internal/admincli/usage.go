@@ -134,7 +134,7 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 		if err != nil {
 			return err
 		}
-		r := usage.Summarize(month, lines, us, now)
+		r := usage.Summarize(month, cfg.ID, lines, us, now)
 		r.Files, r.Note = files, note
 		reports = append(reports, r)
 		lastLines = lines
@@ -205,7 +205,7 @@ func (a *App) liveUsers(ctx context.Context, cfg *config.Config, c *awsx.Clients
 			if pct == 0 {
 				pct = r.PauseAtPercent
 			}
-			out[i] = &usage.User{Email: r.Email, LimitUSD: o.Limit, TriggerUSD: o.Limit * float64(pct) / 100, Pause: o.Pause, PauseKnown: true}
+			out[i] = &usage.User{Email: r.Email, Role: r.RoleName, LimitUSD: o.Limit, TriggerUSD: o.Limit * float64(pct) / 100, Pause: o.Pause, PauseKnown: true}
 		}()
 	}
 	wg.Wait()
@@ -231,7 +231,7 @@ func pastUsers(ctx context.Context, cfg *config.Config, s3c usage.S3API, month s
 		}
 		var us []usage.User
 		for _, r := range cfg.Resolve() {
-			us = append(us, usage.User{Email: r.Email, LimitUSD: r.LimitUSD, TriggerUSD: r.LimitUSD * float64(r.PauseAtPercent) / 100})
+			us = append(us, usage.User{Email: r.Email, Role: r.RoleName, LimitUSD: r.LimitUSD, TriggerUSD: r.LimitUSD * float64(r.PauseAtPercent) / 100})
 		}
 		return us, "no snapshot; users and limits from " + cfgName(cfg) + ", pause state unknown", nil
 	}

@@ -13,7 +13,7 @@ import (
 
 func TestGatewayState(t *testing.T) {
 	const account = "123456789012"
-	ok := &websearch.Gateway{Status: actypes.GatewayStatusReady, URL: "https://g/mcp", RoleArn: webSearchRoleArn(account),
+	ok := &websearch.Gateway{Status: actypes.GatewayStatusReady, URL: "https://g/mcp", RoleArn: webSearchRoleArn(account, "t"),
 		Authorizer: actypes.AuthorizerTypeAwsIam}
 	otherRole := *ok
 	otherRole.RoleArn = "arn:aws:iam::123456789012:role/x"
@@ -33,7 +33,7 @@ func TestGatewayState(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			it := &plan.Item{Op: plan.OK, Status: "ok"}
-			got := gatewayState(it, tc.g, account)
+			got := gatewayState(it, tc.g, account, "t")
 			all := it.Status + strings.Join(it.Details, ",") + strings.Join(it.Notes, ",")
 			if it.Op != tc.op || got != tc.target || !strings.Contains(all, tc.want) {
 				t.Errorf("op %s, target %v, %q", it.Op, got, all)

@@ -16,6 +16,7 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
 	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
 	"github.com/SUSE/high-impact-ai-initiative/internal/config"
+	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 )
 
 type configureFlags struct {
@@ -117,7 +118,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		return errors.New("no region: the profile has none; pass --region")
 	}
 	if cur.ID == "" {
-		cur.ID = "bedrock"
+		cur.ID = policy.DefaultID
 	}
 	if cur.Product == "" {
 		cur.Product = "bedrock"
@@ -198,7 +199,7 @@ func (a *App) ask(c *config.Config, changed func(string) bool, suggested []strin
 		}
 		return err
 	}
-	if err := q("id", "id (tags everything bedrock-admin creates)", &c.ID, "bedrock"); err != nil {
+	if err := q("id", "id (names and tags everything bedrock-admin creates; 1-20 lowercase letters and digits)", &c.ID, policy.DefaultID); err != nil {
 		return err
 	}
 	if err := q("account", "AWS account ID", &c.Account, ""); err != nil {
@@ -244,7 +245,7 @@ func (a *App) ask(c *config.Config, changed func(string) bool, suggested []strin
 	}
 	bucketDef := ""
 	if c.Account != "" {
-		bucketDef = "bedrock-cur-" + c.Account
+		bucketDef = policy.BucketName(c.Account, c.ID)
 	}
 	if err := q("bucket", "cost export bucket", &c.CostExport.Bucket, bucketDef); err != nil {
 		return err

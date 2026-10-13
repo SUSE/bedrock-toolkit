@@ -1,6 +1,7 @@
 // Command monthly-unpause is the Lambda that runs at 06:00 UTC on the 1st of each month. It saves
-// a snapshot of every user's limit and pause state for the month that ended, then re-arms every
-// pause action that is paused or off, keeping pauses by hand in place. bedrock-admin apply deploys it.
+// a snapshot of the limit and pause state of its id's users for the month that ended, then re-arms
+// every pause action of the id that is paused or off, keeping pauses by hand in place.
+// bedrock-admin apply deploys one per id.
 package main
 
 import (
@@ -23,9 +24,9 @@ import (
 )
 
 func handler(ctx context.Context) (pause.MonthlyResult, error) {
-	bucket, prefix := os.Getenv("SNAPSHOT_BUCKET"), os.Getenv("SNAPSHOT_PREFIX")
-	if bucket == "" || prefix == "" {
-		return pause.MonthlyResult{}, fmt.Errorf("SNAPSHOT_BUCKET and SNAPSHOT_PREFIX must be set")
+	bucket, prefix, setupID := os.Getenv("SNAPSHOT_BUCKET"), os.Getenv("SNAPSHOT_PREFIX"), os.Getenv("BEDROCK_ID")
+	if bucket == "" || prefix == "" || setupID == "" {
+		return pause.MonthlyResult{}, fmt.Errorf("SNAPSHOT_BUCKET, SNAPSHOT_PREFIX and BEDROCK_ID must be set")
 	}
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -37,7 +38,7 @@ func handler(ctx context.Context) (pause.MonthlyResult, error) {
 	}
 	budgetsCfg := cfg.Copy()
 	budgetsCfg.Region = "us-east-1"
-	m := &pause.Manager{Budgets: budgets.NewFromConfig(budgetsCfg), IAM: iam.NewFromConfig(cfg), Account: aws.ToString(id.Account)}
+	m := &pause.Manager{Budgets: budgets.NewFromConfig(budgetsCfg), IAM: iam.NewFromConfig(cfg), Account: aws.ToString(id.Account), ID: setupID}
 	s3c := s3.NewFromConfig(cfg, func(o *s3.Options) { o.DisableLogOutputChecksumValidationSkipped = true })
 	save := func(ctx context.Context, s pause.Snapshot) error {
 		b, err := json.MarshalIndent(s, "", "  ")

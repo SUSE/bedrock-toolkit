@@ -17,7 +17,6 @@ import (
 	"github.com/SUSE/high-impact-ai-initiative/internal/awsconf"
 	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
 	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
 	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
 	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
 )
@@ -72,6 +71,16 @@ func (a *App) now() time.Time {
 
 // ownBudget reads the profile's role ARN and returns the account, role and budget names.
 func ownBudget(profile string) (account, role, budget string, err error) {
+	account, _, role, err = profileRole(profile)
+	if err != nil {
+		return "", "", "", err
+	}
+	return account, role, policy.BudgetForRole(role), nil
+}
+
+// profileRole reads the profile's role ARN (arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>)
+// and returns the account, the setup's id and the role name.
+func profileRole(profile string) (account, id, role string, err error) {
 	path, err := awsconf.Path()
 	if err != nil {
 		return "", "", "", err
@@ -85,13 +94,15 @@ func ownBudget(profile string) (account, role, budget string, err error) {
 		return "", "", "", fmt.Errorf("no profile %s with a role_arn in %s: run bedrock setup", profile, path)
 	}
 	arn := s.Keys["role_arn"]
-	prefix := "role" + policy.UsersPath + config.RoleName("")
 	parts := strings.SplitN(arn, ":", 6)
-	if len(parts) != 6 || parts[2] != "iam" || !strings.HasPrefix(parts[5], prefix) || len(parts[5]) == len(prefix) {
-		return "", "", "", fmt.Errorf("profile %s: role_arn %s is not a personal Bedrock role", profile, arn)
+	if len(parts) == 6 && parts[2] == "iam" {
+		res := strings.TrimPrefix(parts[5], "role")
+		role = res[strings.LastIndex(res, "/")+1:]
+		if id, _, ok := policy.SplitUserRole(role); ok && res == policy.UserPath(id)+role {
+			return parts[4], id, role, nil
+		}
 	}
-	role = strings.TrimPrefix(parts[5], "role"+policy.UsersPath)
-	return parts[4], role, config.BudgetName(strings.TrimPrefix(role, config.RoleName(""))), nil
+	return "", "", "", fmt.Errorf("profile %s: role_arn %s is not a personal Bedrock role", profile, arn)
 }
 
 func (a *App) usage(ctx context.Context, profile string) error {

@@ -24,7 +24,6 @@ const (
 	DefaultPauseAtPercent     = 100
 	DefaultNotify             = "owner"
 	DefaultPrefix             = "cur"
-	DefaultExportName         = "bedrock-cur"
 	DefaultSnapshotPrefix     = "bedrock-admin/snapshots"
 	DefaultMethod             = "permission-set"
 	DefaultAdminPermissionSet = "BedrockAdmin"
@@ -61,7 +60,7 @@ type Defaults struct {
 type CostExport struct {
 	Bucket string `yaml:"bucket" json:"bucket"`
 	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
-	// Name of the Data Exports export; default bedrock-cur.
+	// Name of the Data Exports export; default bedrock-cur-<id>.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// SnapshotPrefix is where the monthly Lambda writes snapshots; default bedrock-admin/snapshots.
 	SnapshotPrefix string `yaml:"snapshot_prefix,omitempty" json:"snapshot_prefix,omitempty"`
@@ -111,11 +110,12 @@ func (r Resolved) TriggerUSD() float64 {
 }
 
 var (
-	idRe      = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
+	idRe      = regexp.MustCompile(`^[a-z0-9]{1,20}$`)
+	exportRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,99}$`)
 	accountRe = regexp.MustCompile(`^[0-9]{12}$`)
 	regionRe  = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
 	emailRe   = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
-	nameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,40}$`)
+	nameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,29}$`)
 	bucketRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	productRe = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,128}$`)
 	psRe      = regexp.MustCompile(`^[A-Za-z0-9+=,.@-]{1,32}$`)
@@ -130,14 +130,17 @@ func IsEmail(s string) bool { return emailRe.MatchString(s) }
 func NameFromEmail(email string) string {
 	local := strings.ToLower(strings.SplitN(email, "@", 2)[0])
 	n := strings.Trim(invalidCh.ReplaceAllString(local, "-"), "-.")
-	if len(n) > 41 {
-		n = strings.Trim(n[:41], "-.")
+	if len(n) > MaxNameLen {
+		n = strings.Trim(n[:MaxNameLen], "-.")
 	}
 	return n
 }
 
-func RoleName(name string) string   { return "bedrock-user-" + name }
-func BudgetName(name string) string { return "bedrock-" + name }
+// ValidID reports whether id is a valid setup id: 1-20 lowercase letters and digits.
+func ValidID(id string) bool { return idRe.MatchString(id) }
+
+// MaxNameLen is the longest user name: bedrock-user-<id>-<name> must fit IAM's 64 characters.
+const MaxNameLen = 30
 
 // ValidationError lists every problem found in a file.
 type ValidationError struct{ Problems []string }
@@ -254,15 +257,17 @@ func (c *Config) ApplyDefaults() {
 		c.CostExport.Prefix = DefaultPrefix
 	}
 	if c.CostExport.Name == "" {
-		c.CostExport.Name = DefaultExportName
+		if c.ID != "" {
+			c.CostExport.Name = policy.ExportName(c.ID)
+		}
 	}
 	if c.CostExport.SnapshotPrefix == "" {
 		c.CostExport.SnapshotPrefix = DefaultSnapshotPrefix
 	}
 	c.CostExport.Prefix = strings.Trim(c.CostExport.Prefix, "/")
 	c.CostExport.SnapshotPrefix = strings.Trim(c.CostExport.SnapshotPrefix, "/")
-	if c.CostExport.Bucket == "" && c.Account != "" {
-		c.CostExport.Bucket = "bedrock-cur-" + c.Account
+	if c.CostExport.Bucket == "" && c.Account != "" && c.ID != "" {
+		c.CostExport.Bucket = policy.BucketName(c.Account, c.ID)
 	}
 	if c.BlockDirectCalls.Method == "" {
 		c.BlockDirectCalls.Method = DefaultMethod
@@ -281,7 +286,7 @@ func (c *Config) Validate() error {
 	add := func(format string, a ...any) { p = append(p, fmt.Sprintf(format, a...)) }
 
 	if !idRe.MatchString(c.ID) {
-		add("id: must be 1-40 lowercase letters, digits or '-', starting with a letter or digit (got %q)", c.ID)
+		add("id: must be 1-20 lowercase letters and digits, no '-' (got %q)", c.ID)
 	}
 	if !accountRe.MatchString(c.Account) {
 		add("account: must be a 12-digit AWS account ID, in quotes (got %q)", c.Account)
@@ -327,7 +332,7 @@ func (c *Config) Validate() error {
 	if strings.Contains(c.CostExport.Prefix, "//") {
 		add("cost_export.prefix: must not contain '//'")
 	}
-	if !idRe.MatchString(c.CostExport.Name) {
+	if !exportRe.MatchString(c.CostExport.Name) {
 		add("cost_export.name: lowercase letters, digits and '-' only (got %q)", c.CostExport.Name)
 	}
 	switch c.BlockDirectCalls.Method {
@@ -376,7 +381,7 @@ func (c *Config) Validate() error {
 			name = NameFromEmail(u.Email)
 		}
 		if !nameRe.MatchString(name) {
-			add("%s: name: must be 1-41 lowercase letters, digits, '.' or '-' (got %q); set name:", where, name)
+			add("%s: name: must be 1-30 lowercase letters, digits, '.' or '-' (got %q); set name:", where, name)
 		} else {
 			if j, ok := names[name]; ok {
 				add("%s: name: %q is also used by users[%d]; set a different name:", where, name, j)
@@ -461,7 +466,7 @@ func (c *Config) ResolveUser(u User) Resolved {
 	if r.Name == "" {
 		r.Name = NameFromEmail(u.Email)
 	}
-	r.RoleName, r.BudgetName = RoleName(r.Name), BudgetName(r.Name)
+	r.RoleName, r.BudgetName = policy.UserRoleName(c.ID, r.Name), policy.BudgetName(c.ID, r.Name)
 	switch {
 	case u.LimitUSD != nil:
 		r.LimitUSD = *u.LimitUSD

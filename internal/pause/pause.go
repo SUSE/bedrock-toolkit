@@ -151,6 +151,8 @@ type Manager struct {
 	Budgets BudgetsAPI
 	IAM     IAMAPI
 	Account string
+	// ID is the account setup's id: the Manager only acts on its deny policy and personal roles.
+	ID string
 	// Poll and Wait control how long a reverse or reset is waited for.
 	Poll  time.Duration
 	Wait  time.Duration
@@ -204,17 +206,17 @@ func (m *Manager) Action(ctx context.Context, budget string) (*btypes.Action, er
 		return nil, err
 	}
 	for i := range r.Actions {
-		if IsPauseAction(r.Actions[i], m.Account) {
+		if IsPauseAction(r.Actions[i], m.Account, m.ID) {
 			return &r.Actions[i], nil
 		}
 	}
 	return nil, nil
 }
 
-// IsPauseAction reports whether an action attaches bedrock-deny.
-func IsPauseAction(a btypes.Action, account string) bool {
+// IsPauseAction reports whether an action attaches the id's deny policy.
+func IsPauseAction(a btypes.Action, account, id string) bool {
 	return a.ActionType == btypes.ActionTypeIam && a.Definition != nil && a.Definition.IamActionDefinition != nil &&
-		aws.ToString(a.Definition.IamActionDefinition.PolicyArn) == policy.DenyPolicyArn(account)
+		aws.ToString(a.Definition.IamActionDefinition.PolicyArn) == policy.DenyPolicyArn(account, id)
 }
 
 // Status reads a user's current pause state.
@@ -270,8 +272,8 @@ func TagValue(s string) string {
 // Pause pauses a user by hand: attaches bedrock-deny and records who, when and why.
 func (m *Manager) Pause(ctx context.Context, role, by, reason string) error {
 	if _, err := m.IAM.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{RoleName: aws.String(role),
-		PolicyArn: aws.String(policy.DenyPolicyArn(m.Account))}); err != nil {
-		return fmt.Errorf("attaching %s to %s: %w", policy.DenyPolicyName, role, err)
+		PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil {
+		return fmt.Errorf("attaching %s to %s: %w", policy.DenyPolicyName(m.ID), role, err)
 	}
 	_, err := m.IAM.TagRole(ctx, &iam.TagRoleInput{RoleName: aws.String(role), Tags: []itypes.Tag{
 		{Key: aws.String(TagPausedBy), Value: aws.String(TagValue(by))},
@@ -303,8 +305,8 @@ func (m *Manager) Unpause(ctx context.Context, role, budget, by, reason string) 
 	case PausedByHand:
 		if s.Underlying != Paused {
 			if _, err := m.IAM.DetachRolePolicy(ctx, &iam.DetachRolePolicyInput{RoleName: aws.String(role),
-				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account))}); err != nil && !isNoSuchEntity(err) {
-				return "", fmt.Errorf("detaching %s from %s: %w", policy.DenyPolicyName, role, err)
+				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil && !isNoSuchEntity(err) {
+				return "", fmt.Errorf("detaching %s from %s: %w", policy.DenyPolicyName(m.ID), role, err)
 			}
 		}
 		if _, err := m.IAM.UntagRole(ctx, &iam.UntagRoleInput{RoleName: aws.String(role),

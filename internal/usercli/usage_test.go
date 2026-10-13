@@ -37,7 +37,7 @@ func TestUsage(t *testing.T) {
 		want  []string
 	}{
 		{"active", pause.Status{State: pause.Armed}, []string{
-			"Budget     bedrock-achen, May 2026 (resets Jun 1)", "Spent      $42.50 of $100.00 (42%)",
+			"Budget     bedrock-bedrock-achen, May 2026 (resets Jun 1)", "Spent      $42.50 of $100.00 (42%)",
 			"Forecast   $90.00 by the end of the month", "Pauses at  $90.00 (90%)", "Access     active\n",
 			"As of      May 14 06:30 UTC", "Web search is not counted"}},
 		{"paused by budget", pause.Status{State: pause.Paused, PausedAt: time.Date(2026, 5, 12, 3, 0, 0, 0, time.UTC)},
@@ -54,7 +54,7 @@ func TestUsage(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("code %d: %s", code, out)
 			}
-			if f.budgetArgs != "bedrock 111122223333 bedrock-user-achen bedrock-achen" {
+			if f.budgetArgs != "bedrock 111122223333 bedrock-user-bedrock-achen bedrock-bedrock-achen" {
 				t.Fatalf("args: %s", f.budgetArgs)
 			}
 			for _, w := range c.want {
@@ -73,7 +73,7 @@ func TestUsageJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
-	for _, w := range []string{`"month": "2026-05"`, `"budget": "bedrock-achen"`, `"spent_usd": 10`, `"pause_at_usd": 150`, `"state": "active"`} {
+	for _, w := range []string{`"month": "2026-05"`, `"budget": "bedrock-bedrock-achen"`, `"spent_usd": 10`, `"pause_at_usd": 150`, `"state": "active"`} {
 		if !strings.Contains(out, w) {
 			t.Fatalf("want %s in %s", w, out)
 		}
@@ -90,7 +90,7 @@ func TestUsageErrors(t *testing.T) {
 		{"no profile", ssoConfig, nil, "run bedrock setup"},
 		{"not a personal role", ssoConfig + "\n[profile bedrock]\nrole_arn = arn:aws:iam::1:role/Admin\n", nil, "is not a personal Bedrock role"},
 		{"old role", cfg, &smithy.GenericAPIError{Code: "AccessDeniedException", Message: "no"}, "ask your admin to run bedrock-admin apply"},
-		{"no budget", cfg, &smithy.GenericAPIError{Code: "NotFoundException", Message: "no"}, "no budget bedrock-achen"},
+		{"no budget", cfg, &smithy.GenericAPIError{Code: "NotFoundException", Message: "no"}, "no budget bedrock-bedrock-achen"},
 		{"signed out", cfg, &smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}, "aws sso login"},
 	}
 	for _, c := range cases {

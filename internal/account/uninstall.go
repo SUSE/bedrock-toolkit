@@ -3,11 +3,13 @@ package account
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bcmdataexports"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	stypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -26,10 +28,10 @@ const BucketDeleteNote = "deletes the billing history; S3 may hold the name for 
 // IsBucket reports whether it is the cost export bucket.
 func IsBucket(it *plan.Item) bool { return strings.HasPrefix(it.Target, "cost export bucket ") }
 
-// UserRoles lists the roles under /bedrock-users/ (any id).
-func UserRoles(ctx context.Context, c *iam.Client) ([]string, error) {
+// UserRoles lists the id's personal roles, under /bedrock-users/<id>/.
+func UserRoles(ctx context.Context, c *iam.Client, id string) ([]string, error) {
 	var out []string
-	p := iam.NewListRolesPaginator(c, &iam.ListRolesInput{PathPrefix: aws.String(policy.UsersPath)})
+	p := iam.NewListRolesPaginator(c, &iam.ListRolesInput{PathPrefix: aws.String(policy.UserPath(id))})
 	for p.HasMorePages() {
 		r, err := p.NextPage(ctx)
 		if err != nil {
@@ -42,6 +44,25 @@ func UserRoles(ctx context.Context, c *iam.Client) ([]string, error) {
 	return out, nil
 }
 
+// SetupIDs lists the ids that have a pause policy (bedrock-deny-<id>) in the account.
+func SetupIDs(ctx context.Context, c *iam.Client) ([]string, error) {
+	var out []string
+	p := iam.NewListPoliciesPaginator(c, &iam.ListPoliciesInput{Scope: iamtypes.PolicyScopeTypeLocal, PathPrefix: aws.String(policy.Path)})
+	for p.HasMorePages() {
+		r, err := p.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, pol := range r.Policies {
+			if id, ok := strings.CutPrefix(aws.ToString(pol.PolicyName), policy.DenyPolicyName("")); ok && id != "" {
+				out = append(out, id)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 // Uninstall plans removing the account setup. Only resources with this config's id are removed;
 // the cost export bucket only with deleteData.
 func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, error) {
@@ -49,10 +70,9 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 	del := func(step, target, id string, f func(context.Context) error) {
 		it := e.item(step, target)
 		if !e.owned(it, id) {
-			if it.Op == plan.Conflict {
-				it.Op, it.Status = plan.Info, "left alone (not created by bedrock-admin)"
-			} else {
-				it.Status = "left alone (managed by " + id + ")"
+			it.Op, it.Status = plan.Info, "left alone (not created by bedrock-admin)"
+			if id != "" {
+				it.Status = "left alone (tagged " + policy.IDTag + "=" + id + ")"
 			}
 			out = append(out, it)
 			return
@@ -66,50 +86,50 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 		out = append(out, it)
 	}
 
-	if g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway); err != nil {
+	if g, err := websearch.FindGateway(ctx, e.C.AgentCore, policy.WebSearchGateway(e.Cfg.ID)); err != nil {
 		if !awsx.IsAccessDenied(err) && !isUnsupportedRegion(err) {
 			return nil, err
 		}
 	} else if g != nil {
 		id := g.ID
-		del("1.8", "web search gateway "+policy.WebSearchGateway, g.OwnerID, func(ctx context.Context) error {
+		del("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID), g.OwnerID, func(ctx context.Context) error {
 			return websearch.Delete(ctx, e.C.AgentCore, id)
 		})
 	} else if e.Cfg.WebSearch.Enabled {
-		missing("1.8", "web search gateway "+policy.WebSearchGateway)
+		missing("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID))
 	}
-	if s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(policy.ScheduleName)}); err == nil {
-		del("1.4", "schedule "+policy.ScheduleName, ScheduleID(aws.ToString(s.Description)), func(ctx context.Context) error {
-			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(policy.ScheduleName)})
+	if s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID))}); err == nil {
+		del("1.4", "schedule "+policy.ScheduleName(e.Cfg.ID), ScheduleID(aws.ToString(s.Description)), func(ctx context.Context) error {
+			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID))})
 			return err
 		})
 	} else if awsx.IsNotFound(err) {
-		missing("1.4", "schedule "+policy.ScheduleName)
+		missing("1.4", "schedule "+policy.ScheduleName(e.Cfg.ID))
 	} else {
 		return nil, err
 	}
-	if f, err := e.C.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(policy.LambdaName)}); err == nil {
-		del("1.4", "Lambda "+policy.LambdaName, f.Tags[policy.IDTag], func(ctx context.Context) error {
-			_, err := e.C.Lambda.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(policy.LambdaName)})
+	if f, err := e.C.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(policy.LambdaName(e.Cfg.ID))}); err == nil {
+		del("1.4", "Lambda "+policy.LambdaName(e.Cfg.ID), f.Tags[policy.IDTag], func(ctx context.Context) error {
+			_, err := e.C.Lambda.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(policy.LambdaName(e.Cfg.ID))})
 			return err
 		})
 	} else if awsx.IsNotFound(err) {
-		missing("1.4", "Lambda "+policy.LambdaName)
+		missing("1.4", "Lambda "+policy.LambdaName(e.Cfg.ID))
 	} else {
 		return nil, err
 	}
 	for _, r := range []struct{ step, label, name string }{
-		{"1.8", "web search role ", policy.WebSearchRole},
-		{"1.4", "scheduler role ", policy.SchedulerRole},
-		{"1.4", "Lambda role ", policy.LambdaRole},
-		{"1.3", "budget actions role ", policy.BudgetActionsRole},
+		{"1.8", "web search role ", policy.WebSearchRole(e.Cfg.ID)},
+		{"1.4", "scheduler role ", policy.SchedulerRole(e.Cfg.ID)},
+		{"1.4", "Lambda role ", policy.LambdaRole(e.Cfg.ID)},
+		{"1.3", "budget actions role ", policy.BudgetActionsRole(e.Cfg.ID)},
 	} {
 		st, err := iamrole.Observe(ctx, e.C.IAM, iamrole.Spec{Name: r.name, Path: policy.Path})
 		if err != nil {
 			return nil, err
 		}
 		if !st.Exists {
-			if r.name != policy.WebSearchRole || e.Cfg.WebSearch.Enabled {
+			if r.name != policy.WebSearchRole(e.Cfg.ID) || e.Cfg.WebSearch.Enabled {
 				missing(r.step, r.label+r.name)
 			}
 			continue
@@ -117,13 +137,13 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 		name := r.name
 		del(r.step, r.label+name, st.ID(), func(ctx context.Context) error { return iamrole.Delete(ctx, e.C.IAM, name) })
 	}
-	arn := policy.DenyPolicyArn(e.C.Account)
+	arn := policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)
 	if id, ok, err := PolicyID(ctx, e.C.IAM, arn); err != nil {
 		return nil, err
 	} else if ok {
-		del("1.2", "pause policy "+policy.DenyPolicyName, id, func(ctx context.Context) error { return deletePolicy(ctx, e.C.IAM, arn) })
+		del("1.2", "pause policy "+policy.DenyPolicyName(e.Cfg.ID), id, func(ctx context.Context) error { return deletePolicy(ctx, e.C.IAM, arn) })
 	} else {
-		missing("1.2", "pause policy "+policy.DenyPolicyName)
+		missing("1.2", "pause policy "+policy.DenyPolicyName(e.Cfg.ID))
 	}
 	if x, err := FindExport(ctx, e.C.Exports, e.Cfg.CostExport.Name); err != nil {
 		return nil, err

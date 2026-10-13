@@ -215,7 +215,7 @@ func fixtureUsers() []User {
 func TestThisMonth(t *testing.T) {
 	src := exportDir(t, map[string]string{"2026-10": "cur-this-month.parquet"})
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
-	r := Summarize("2026-10", readAll(t, src, "2026-10"), fixtureUsers(), now)
+	r := Summarize("2026-10", "usage", readAll(t, src, "2026-10"), fixtureUsers(), now)
 	if r.TrackedUSD != 18.45 || r.UntrackedUSD != 7.60 {
 		t.Fatalf("totals: tracked %v untracked %v", r.TrackedUSD, r.UntrackedUSD)
 	}
@@ -270,11 +270,33 @@ func TestThisMonth(t *testing.T) {
 }
 
 func TestNoUntracked(t *testing.T) {
-	r := Summarize("2026-10", []Line{{Principal: sts("bedrock-user-a", "a@x.test"), Owner: "a@x.test", Cost: 1}},
+	r := Summarize("2026-10", "usage", []Line{{Principal: sts("bedrock-user-usage-a", "a@x.test"), Owner: "a@x.test", Cost: 1}},
 		[]User{{Email: "a@x.test", LimitUSD: 10, PauseKnown: true, Pause: pause.Status{State: pause.Armed}}}, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
 	var out bytes.Buffer
 	r.Write(&out, Sections{true, true})
 	if r.HasUntracked() || !strings.Contains(out.String(), "Everyone used their personal role. Nothing to follow up.") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestOtherIDs(t *testing.T) {
+	us := []User{{Email: "a@x.test", Role: "bedrock-user-acme-a", LimitUSD: 10, PauseKnown: true, Pause: pause.Status{State: pause.Armed}}}
+	lines := []Line{
+		{Principal: sts("bedrock-user-acme-a", "a@x.test"), Owner: "a@x.test", Cost: 1},
+		// a@x.test is also a user of the setup "beta": that spend is beta's, not acme's or untracked.
+		{Principal: sts("bedrock-user-beta-a", "a@x.test"), Owner: "a@x.test", Cost: 2},
+		{Principal: sts("bedrock-user-beta-b", "b@x.test"), Owner: "b@x.test", Cost: 3},
+		// A personal role of acme that isn't configured stays untracked.
+		{Principal: sts("bedrock-user-acme-c", "c@x.test"), Owner: "c@x.test", Cost: 4},
+	}
+	r := Summarize("2026-10", "acme", lines, us, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
+	if r.TrackedUSD != 1 || r.OtherIDsUSD != 5 || r.UntrackedUSD != 4 || len(r.Untracked) != 1 ||
+		r.Untracked[0].UsedVia != "personal role without budget: bedrock-user-acme-c" {
+		t.Fatalf("%+v", r)
+	}
+	var out bytes.Buffer
+	r.Write(&out, Sections{true, true})
+	if !strings.Contains(out.String(), "Other setups in this account (personal roles of other ids): $5.00") {
 		t.Fatal(out.String())
 	}
 }
@@ -289,7 +311,7 @@ func TestPastMonthFromSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := Summarize("2026-09", readAll(t, src, "2026-09"), UsersFromSnapshot(snap), time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC))
+	r := Summarize("2026-09", "usage", readAll(t, src, "2026-09"), UsersFromSnapshot(snap), time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC))
 	if r.Current || r.TrackedUSD != 75 || r.UntrackedUSD != 1 {
 		t.Fatalf("%+v", r)
 	}
@@ -311,8 +333,8 @@ func TestMonths(t *testing.T) {
 	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	us := fixtureUsers()
 	m := Combine([]MonthReport{
-		Summarize("2026-09", readAll(t, src, "2026-09"), us, now),
-		Summarize("2026-10", readAll(t, src, "2026-10"), us, now),
+		Summarize("2026-09", "usage", readAll(t, src, "2026-09"), us, now),
+		Summarize("2026-10", "usage", readAll(t, src, "2026-10"), us, now),
 	})
 	if len(m.Months) != 2 || m.Users[0].Who != "usage-a@example.test" || m.Users[0].TotalUSD != 68.25 {
 		t.Fatalf("%+v", m.Users)
@@ -347,7 +369,7 @@ func TestPerson(t *testing.T) {
 	src := exportDir(t, map[string]string{"2026-10": "cur-this-month.parquet"})
 	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	lines := readAll(t, src, "2026-10")
-	r := Summarize("2026-10", lines, fixtureUsers(), now)
+	r := Summarize("2026-10", "usage", lines, fixtureUsers(), now)
 
 	d := Person(r, lines, "usage-a@example.test")
 	if d.User == nil || d.TotalUSD != 13.85 {
