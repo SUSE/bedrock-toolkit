@@ -1,27 +1,39 @@
-# Amazon Bedrock: per-person budgets and automatic pausing
+# bedrock-toolkit
 
-Let people use Claude through Amazon Bedrock with their SSO login, with a monthly budget per
-person. When someone reaches their limit, only that person is paused, and everyone is re-armed on
-the 1st of the month.
+Tools to give a team Claude on Amazon Bedrock: each person signs in with SSO to their own role,
+has a monthly budget, and is paused alone when they reach it. Admins manage everyone from one
+file; users set up their machine with one command.
 
-Two command-line tools do the work:
+## What's in the toolkit
 
-- `bedrock-admin`, for the account admin: sets up the AWS account and manages users from one file,
-  `bedrock.yaml`.
-- `bedrock`, for users: sets up the AWS profile of their personal role and checks it.
+| Part | For | What it does |
+| --- | --- | --- |
+| `bedrock-admin` | Account admins | Sets up the AWS account and manages users, budgets and pauses from `bedrock.yaml` |
+| `bedrock` | Users | Writes the AWS profile of their personal role, checks it, tests Claude Code, shows their spend |
+| Monthly Lambda | The account | Saves a snapshot and re-arms every pause on the 1st of the month. Built into `bedrock-admin`, deployed by `apply` |
+| Web search gateway | Claude Code and the desktop app | Optional. Web search on Bedrock through an AgentCore gateway |
+| `install.sh` | Everyone | Installs either CLI from the latest release |
+| `tests/e2e` | Contributors | End-to-end tests against a real AWS account, run in a container |
+
+## Features
+
+- **Personal access**: each user gets an IAM role that can call only Claude models (only the ones
+  in `models:`, when listed), tagged with their SSO email.
+- **A budget per person**: AWS bills each Bedrock call with that tag, and a budget per user tracks it,
+  with email alerts.
+- **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role.
+  A monthly renewal process re-arms it. Admins can also pause and unpause by hand.
+- **One file, plan and apply**: `bedrock.yaml` lists the settings and the users. `plan` shows what
+  differs from the account, `apply` makes them match, and `export` writes the file back from the account.
+- **Usage reports**: spend per user, and spend that bypasses personal roles.
+- **Several setups**: each `bedrock.yaml` has an `id` (default `bedrock`) that every AWS name carries,
+  so several setups, each with its own users, budgets and models, can share one AWS account, and
+  one admin can run setups in several accounts.
+- **Web search** (optional): Claude Code's and the desktop app's own search doesn't work on Bedrock,
+  so the toolkit adds a gateway that personal roles may call and the pause also blocks. Search cost
+  ($7 per 1,000) is not budgeted per user; budgets cover only Bedrock model spend.
 
 ## How it works
-
-- Each user gets a personal IAM role that can only call Claude models (only the ones in `models:`, when
-  listed), tagged with their SSO email.
-- AWS bills each Bedrock call with that tag, and an AWS Budget per user tracks it.
-- At the limit, the budget attaches a deny policy to that user's role. A monthly Lambda re-arms it.
-- `bedrock-admin apply` creates all of this from `bedrock.yaml`.
-- Each `bedrock.yaml` is one setup with an `id` (default `bedrock`) that every AWS name carries, so
-  several setups, each with its own users, budgets and models, can share one AWS account.
-- Optional: web search for Claude Code and the desktop app (their own search doesn't work on
-  Bedrock), through an AgentCore gateway that personal roles may call and the pause also blocks.
-  Search cost ($7 per 1,000) is not budgeted per user; the setup manages only Bedrock model spend.
 
 ```
  User (SSO login)
@@ -48,9 +60,9 @@ macOS and Linux, amd64 and arm64. The installer needs only `sh` and `curl`:
 
 ```bash
 # Users
-curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock
+curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
 # Admins
-curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock-admin
+curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock-admin
 ```
 
 It installs the latest release to `/usr/local/bin`, or `~/.local/bin` when that isn't writable, after
@@ -58,7 +70,7 @@ checking the download against `checksums.txt`. Name both CLIs to install both. `
 another release and `INSTALL_DIR` another directory; set them on `sh`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
+curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
 ```
 
 <details>
@@ -77,8 +89,8 @@ binary on your `PATH`.
 With Go installed, you can also build from source:
 
 ```bash
-go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock@latest
-go install github.com/SUSE/high-impact-ai-initiative/cmd/bedrock-admin@latest
+go install github.com/innobead/bedrock-toolkit/cmd/bedrock@latest
+go install github.com/innobead/bedrock-toolkit/cmd/bedrock-admin@latest
 ```
 
 A `bedrock-admin` built by `go install` has no monthly Lambda inside, because the Lambda package is
@@ -147,3 +159,15 @@ problem. Run `<command> --help` for the flags.
 | Reviewing how and why this solution works | [Design](design.md) |
 | Building, testing, or releasing the CLIs | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Running the end-to-end tests | [tests/e2e/README.md](tests/e2e/README.md) |
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `cmd/bedrock-admin`, `cmd/bedrock` | The two CLIs |
+| `cmd/monthly-unpause` | The monthly Lambda, embedded in `bedrock-admin` at build time |
+| `internal/` | Shared packages: config, account setup, users, pausing, usage, web search |
+| `tests/e2e` | Robot Framework end-to-end suites and their container runner |
+| `models.toml` | The models `bedrock-admin configure` suggests for a new `bedrock.yaml` |
+| `install.sh` | The release installer |
+| `poc/` | Files from the original proof of concept, kept for reference |
