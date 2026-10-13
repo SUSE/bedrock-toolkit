@@ -254,7 +254,7 @@ id: acmeprod                    # names and tags what apply creates; default bed
 account: "111122223333"         # in quotes
 region: us-west-2
 profile: bedrock-admin          # AWS profile; --profile and $AWS_PROFILE win over it
-product: genai-tools            # product tag on the personal roles
+product: genai-tools            # product tag on the personal roles; a user's product: overrides it
 
 models:                         # optional: users may call only these; apply enables each, doctor tests each
   - us.anthropic.claude-opus-5-5
@@ -288,6 +288,7 @@ users:                          # or: users: !include users.yaml
   - email: cdiaz@example.com
     limit_usd: 30
     notify: cdiaz-lead@example.com
+    product: data-platform      # her role is tagged with this product instead
 ```
 
 </details>
@@ -299,6 +300,7 @@ users:                          # or: users: !include users.yaml
 | --- | --- |
 | `id` | 1–20 lowercase letters and digits. Default `bedrock`. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
 | `account` | 12 digits, in quotes |
+| `product` | Required. The `product` tag on every personal role, to charge spend to a team or product, like `owner` charges it to a person. Billing only shows it once your org admin activates it as a cost allocation tag, as in Step 1.6. Letters, digits, spaces and `_.:/=+@-`, up to 128. A user's own `product:` overrides it for that user. |
 | `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those; `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` and `doctor` use Claude Haiku 5.5 (`us.`/`eu.` by region, `global.` elsewhere). Only Claude models other than Fable may be listed. |
 | `limit_usd` | More than 0, at most 1,000,000, at most 2 decimals. Each user needs one, or `defaults.limit_usd`. |
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
@@ -380,7 +382,8 @@ bedrock-admin export > bedrock.yaml
 The file starts with `# Exported from account 111122223333 by bedrock-admin export on <date>.` It
 exports only users with this config's `id`. Without a file or `--id` it reads the id from the
 `bedrock-deny-<id>` policy; with several setups in the account it asks for `--id`. It reads `models:` from a personal role's policy (empty when it allows any
-Claude model); `--model` overrides it.
+Claude model); `--model` overrides it. `product:` is the product tag most roles have (`--product`
+overrides it); a user whose role has another one gets their own `product:`.
 
 </details>
 
@@ -496,6 +499,7 @@ bedrock-admin apply          # add --yes when it removes users
 | Raise bkim's limit | `limit_usd: 100` → `150` |
 | Let bkim go 10% over before the pause | `pause_at_percent: 110` on bkim |
 | Send cdiaz's alerts to her lead | `notify: cdiaz-lead@example.com` on cdiaz |
+| Charge cdiaz's spend to another product | `product: data-platform` on cdiaz |
 | No alerts for anyone | `defaults.alert_at_percent: []` |
 | Remove achen | Delete the entry, then `apply --yes` |
 

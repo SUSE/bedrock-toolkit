@@ -147,8 +147,9 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		r      config.Resolved
 		limit  float64
 		pause  int
-		alerts []int
-		notify string
+		alerts  []int
+		notify  string
+		product string
 	}
 	var found []got
 	for _, role := range roles {
@@ -163,16 +164,14 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if email == "" {
 			continue
 		}
-		if product == "" && cfg.Product == "" {
-			cfg.Product = tags[policy.ProductTag]
-		}
 		name := strings.TrimPrefix(role, policy.UserRoleName(cfg.ID, ""))
-		r := config.Resolved{Email: email, Name: name, RoleName: role, BudgetName: policy.BudgetName(cfg.ID, name)}
+		r := config.Resolved{Email: email, Name: name, RoleName: role, BudgetName: policy.BudgetName(cfg.ID, name),
+			Product: tags[policy.ProductTag]}
 		o, err := env.Observe(ctx, r)
 		if err != nil {
 			return nil, err
 		}
-		g := got{r: r, limit: o.Limit, pause: o.ActionThreshold, notify: email, alerts: []int{}}
+		g := got{r: r, limit: o.Limit, pause: o.ActionThreshold, notify: email, alerts: []int{}, product: r.Product}
 		for p := range o.Alerts {
 			g.alerts = append(g.alerts, p)
 		}
@@ -184,6 +183,12 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	}
 	if product != "" {
 		cfg.Product = product
+	}
+	if cfg.Product == "" {
+		tagged := slices.DeleteFunc(slices.Clone(found), func(g got) bool { return g.product == "" })
+		if g, ok := mostCommon(tagged, func(g got) string { return g.product }); ok {
+			cfg.Product = g.product
+		}
 	}
 	if cfg.Product == "" {
 		return nil, errors.New("no product tag found; pass --product")
@@ -233,6 +238,9 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		}
 		if g.notify != def.Notify {
 			u.Notify = g.notify
+		}
+		if g.product != "" && g.product != def.Product {
+			u.Product = g.product
 		}
 		cfg.Users = append(cfg.Users, u)
 	}

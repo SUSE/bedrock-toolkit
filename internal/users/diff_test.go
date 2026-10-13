@@ -145,3 +145,15 @@ func TestSetupCommand(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestRoleSpecProduct(t *testing.T) {
+	cfg := &config.Config{ID: "acme", Region: "us-west-2", Product: "team"}
+	cfg.Users = []config.User{{Email: "dave@acme.com"}, {Email: "erin@acme.com", Product: "other"}}
+	us := cfg.Resolve()
+	if got := RoleSpec(cfg, "123456789012", us[0]).Tags["product"]; got != "team" {
+		t.Errorf("dave product tag %q", got)
+	}
+	if got := RoleSpec(cfg, "123456789012", us[1]).Tags["product"]; got != "other" {
+		t.Errorf("erin product tag %q", got)
+	}
+}

@@ -39,6 +39,7 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
   - email: carol@acme.com
     name: carol-x
     notify: lead@acme.com
+    product: other-team
 `)
 	c, err := Load(p)
 	if err != nil {
@@ -58,7 +59,10 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	if b.LimitUSD != 100 || b.PauseAtPercent != 110 || len(b.AlertAtPercent) != 0 || b.TriggerUSD() != 110 {
 		t.Errorf("bob overrides: %+v trigger %v", b, b.TriggerUSD())
 	}
-	if cc.Name != "carol-x" || !cc.CustomName || cc.Notify != "lead@acme.com" {
+	if a.Product != "genai-tools" {
+		t.Errorf("alice product: %q", a.Product)
+	}
+	if cc.Name != "carol-x" || !cc.CustomName || cc.Notify != "lead@acme.com" || cc.Product != "other-team" {
 		t.Errorf("carol: %+v", cc)
 	}
 	if c.ExportPrefix() != "cur/bedrock-cur-acmeprod" {
@@ -108,6 +112,7 @@ func TestValidation(t *testing.T) {
 		"pause 201":         {base + "users: [{email: a@x.io, pause_at_percent: 201}]\n", "1-200"},
 		"alert 300":         {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
 		"bad notify":        {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
+		"bad user product":  {base + "users: [{email: a@x.io, product: \"a,b\"}]\n", "users[0] (a@x.io): product:"},
 		"bad account":       {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
 		"bad id":            {strings.Replace(base, "acmeprod", "Acme Prod", 1), "id:"},
 		"bad method":        {base + "block_direct_calls: {method: magic}\n", "method"},

@@ -92,6 +92,8 @@ type User struct {
 	PauseAtPercent *int     `yaml:"pause_at_percent,omitempty" json:"pause_at_percent,omitempty"`
 	AlertAtPercent *[]int   `yaml:"alert_at_percent,omitempty,flow" json:"alert_at_percent,omitempty"`
 	Notify         string   `yaml:"notify,omitempty" json:"notify,omitempty"`
+	// Product overrides the file's product tag on this user's role.
+	Product string `yaml:"product,omitempty" json:"product,omitempty"`
 }
 
 // Resolved is a user with every default applied and every derived name filled in.
@@ -105,6 +107,7 @@ type Resolved struct {
 	PauseAtPercent int     `json:"pause_at_percent"`
 	AlertAtPercent []int   `json:"alert_at_percent"`
 	Notify         string  `json:"notify"`
+	Product        string  `json:"product"`
 }
 
 // TriggerUSD is the spend at which the user is paused.
@@ -411,6 +414,9 @@ func (c *Config) Validate() error {
 				add("%s: notify: %s", where, msg)
 			}
 		}
+		if u.Product != "" && !productRe.MatchString(u.Product) {
+			add("%s: product: letters, digits, spaces and _.:/=+@- only (got %q)", where, u.Product)
+		}
 	}
 	if len(p) > 0 {
 		return &ValidationError{Problems: p}
@@ -498,6 +504,10 @@ func (c *Config) ResolveUser(u User) Resolved {
 		notify = u.Email
 	}
 	r.Notify = notify
+	r.Product = u.Product
+	if r.Product == "" {
+		r.Product = c.Product
+	}
 	return r
 }
 

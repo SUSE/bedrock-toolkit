@@ -109,7 +109,7 @@ id: acmeprod                    # names and tags what apply creates; default bed
 account: "111122223333"
 region: us-west-2
 profile: bedrock-admin          # AWS CLI profile
-product: genai-tools            # product tag on every personal role
+product: genai-tools            # product tag on every personal role; a user's product: overrides it
 
 models:                         # optional: the only models users may call; checked by apply and doctor
   - us.anthropic.claude-opus-5-5
@@ -139,6 +139,7 @@ users:
   - email: bkim@example.com
     limit_usd: 100
     pause_at_percent: 110
+    product: research             # this user's role gets another product tag
 ```
 
 - Which file: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, then
@@ -291,7 +292,7 @@ Each user gets one role per setup, `bedrock-user-<id>-<name>`, under the path `/
 | Property | Value | Why |
 | --- | --- | --- |
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
-| Tag `product` | `product` from the file | Charge spend to a team or product |
+| Tag `product` | The user's `product`, else `product` from the file | Charge spend to a team or product |
 | Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-several-setups-in-one-account)) |
 | Inline policy `bedrock-invoke` | Call and stream the models in `models:`, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
 | Max session | 1 hour | The limit for role chaining |
