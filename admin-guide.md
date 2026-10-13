@@ -21,6 +21,7 @@ and manage users with `bedrock-admin`, from one file, `bedrock.yaml`. Users foll
 - [10. Turn on web search (optional)](#10-turn-on-web-search-optional)
 - [11. Remove everything](#11-remove-everything)
 - [The `id`: several setups in one account](#the-id-several-setups-in-one-account)
+- [Several accounts](#several-accounts)
 - [Emails](#emails)
 - [Things to know](#things-to-know)
 - [Run the tests](#run-the-tests)
@@ -913,6 +914,38 @@ from another setup's file.
   `--profile-name <name>` to the second so it doesn't replace the first `bedrock` profile, for
   example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
   and `usage` take the same `--profile-name`.
+
+## Several accounts
+
+Each AWS account has its own `bedrock.yaml`, for example `bedrock-longhorn.yaml` and
+`bedrock-harvester.yaml`. Each file has its own `account` and `profile`, so pass the file to every
+command:
+
+```sh
+bedrock-admin plan  -f bedrock-harvester.yaml
+bedrock-admin apply -f bedrock-harvester.yaml
+bedrock-admin usage -f bedrock-harvester.yaml
+```
+
+(or `export BEDROCK_ADMIN_CONFIG=bedrock-harvester.yaml`). Nothing is shared between accounts: each
+has its own users, budgets, monthly Lambda, web search gateway and cost export, and each needs its
+own Step 1.6 and Step 1.7 from your org admin.
+
+The same person can be a user in several accounts; they get a role in each. `bedrock setup` takes
+the account from the SSO profile it signs in with, so they need an SSO profile for each account
+(`aws configure sso` once per account, with any role they have there). The messages you send differ
+per account:
+
+- First account: `bedrock setup --sso-profile <SSO profile for account A>`. It writes the `bedrock`
+  profile.
+- Second account: `bedrock setup --sso-profile <SSO profile for account B> --profile-name
+  bedrock-<product>`, for example `--profile-name bedrock-harvester`, so it doesn't replace the
+  first one.
+
+`apply` prints only `bedrock setup` (with `--id`, `--region` or `--role-arn` when needed); add
+`--sso-profile` and `--profile-name` yourself for someone already in another account. They then use
+`bedrock doctor --profile-name bedrock-harvester`, and the same flag for `claude` and `usage`, or
+`AWS_PROFILE=bedrock-harvester` for Claude Code and other tools.
 
 ## Emails
 
