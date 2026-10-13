@@ -1,6 +1,6 @@
 # bedrock-toolkit
 
-Tools to give a team Claude on Amazon Bedrock: each person signs in with SSO to their own role,
+Tools to give a team model access on Amazon Bedrock: each person signs in with SSO to their own role,
 has a monthly budget, and is paused alone when they reach it. Admins manage everyone from one
 file; users set up their machine with one command.
 
@@ -14,8 +14,7 @@ file; users set up their machine with one command.
 
 ## Features
 
-- **Personal access**: each user gets an IAM role that can call only Claude models (only the ones
-  in `models:`, when listed), tagged with their SSO email.
+- **Personal access**: each user gets an IAM role that, by default, can call only Claude models, or, when overridden in `models:`, is tagged with their SSO email.
 - **A budget per person**: AWS bills each Bedrock call with that tag, and a budget per user tracks it,
   with email alerts.
 - **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role.
@@ -36,7 +35,7 @@ file; users set up their machine with one command.
  User (SSO login)
     │  aws sso login, then profile "bedrock" (written by bedrock setup)
     ▼
- Personal role  bedrock-user-<id>-<name> Claude models only, tagged owner=<sso-email>
+ Personal role  bedrock-user-<id>-<name> Claude/allowed models only, tagged owner=<sso-email>
     │  bedrock:InvokeModel
     ▼
  Amazon Bedrock ──► billing records the caller and the role's tags

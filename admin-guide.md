@@ -1,8 +1,7 @@
 # Amazon Bedrock: admin guide
 
-For the admin of an AWS account where people use Claude through Bedrock. You set up the account
-and manage users with `bedrock-admin`, from one file, `bedrock.yaml`. Users follow the
-[user guide](user-guide.md). How and why it works is in [design.md](design.md).
+For the admin of an AWS account where people use models through Bedrock. You set up the account
+and manage users with `bedrock-admin`, from one file, `bedrock.yaml`.
 
 ## Contents
 
@@ -64,7 +63,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 - Each user has a monthly budget on that tag. At `alert_at_percent` they get an email. At
   `pause_at_percent` AWS Budgets pauses only them, by attaching the `bedrock-deny-<id>` policy to
   their role.
-- On the 1st of each month a Lambda saves a snapshot of everyone's limit and pause state, then
+- On the 1st of each month, a Lambda saves a snapshot of everyone's limit and pause state, then
   re-arms every pause.
 - `bedrock.yaml` says who has access and how much they may spend. `bedrock-admin plan` shows what
   differs between the file and the account. `bedrock-admin apply` makes the account match.
