@@ -1,4 +1,4 @@
-module github.com/SUSE/high-impact-ai-initiative
+module github.com/innobead/bedrock-toolkit
 
 go 1.27.1
 

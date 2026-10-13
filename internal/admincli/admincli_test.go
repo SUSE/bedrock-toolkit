@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	btypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/config"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {

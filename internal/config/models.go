@@ -10,11 +10,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // SuggestedModelsURL is models.toml in the repository: the models configure puts in a new file.
-const SuggestedModelsURL = "https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/models.toml"
+const SuggestedModelsURL = "https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/models.toml"
 
 // Geo returns the region's inference profile prefix: us. or eu., else global. (apac. doesn't offer
 // the current Claude models).

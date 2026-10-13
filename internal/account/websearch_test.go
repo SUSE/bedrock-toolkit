@@ -6,9 +6,9 @@ import (
 
 	actypes "github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol/types"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/plan"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
-	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
+	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/websearch"
 )
 
 func TestGatewayState(t *testing.T) {

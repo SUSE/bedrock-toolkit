@@ -11,11 +11,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/spf13/cobra"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
-	"github.com/SUSE/high-impact-ai-initiative/internal/usage"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/cli"
+	"github.com/innobead/bedrock-toolkit/internal/config"
+	"github.com/innobead/bedrock-toolkit/internal/pause"
+	"github.com/innobead/bedrock-toolkit/internal/usage"
 )
 
 type usageFlags struct {

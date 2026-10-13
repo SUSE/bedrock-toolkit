@@ -16,8 +16,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol/document"
 	actypes "github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol/types"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // ToolName is the MCP tool the target exposes (<target>___<tool>).

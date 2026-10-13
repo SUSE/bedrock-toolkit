@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/cli"
+	"github.com/innobead/bedrock-toolkit/internal/config"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 type configureFlags struct {

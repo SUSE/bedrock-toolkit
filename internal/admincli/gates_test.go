@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/plan"
-	"github.com/SUSE/high-impact-ai-initiative/internal/usage"
+	"github.com/innobead/bedrock-toolkit/internal/cli"
+	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/innobead/bedrock-toolkit/internal/usage"
 )
 
 func TestNeedsYes(t *testing.T) {

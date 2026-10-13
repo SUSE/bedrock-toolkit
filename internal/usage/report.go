@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/pause"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // User is someone with a budget in a month: tracked spend is spend through their personal role

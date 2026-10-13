@@ -13,9 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/plan"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // ModelAvailable reports whether the account can call a model, with the reason when it can't.

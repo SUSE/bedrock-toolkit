@@ -13,7 +13,7 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
+	"github.com/innobead/bedrock-toolkit/internal/pause"
 )
 
 // The fixtures in tests/fixtures are shared with tests/e2e/suites/usage.robot. Regenerate them with

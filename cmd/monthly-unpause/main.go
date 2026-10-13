@@ -20,7 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/pause"
+	"github.com/innobead/bedrock-toolkit/internal/pause"
 )
 
 func handler(ctx context.Context) (pause.MonthlyResult, error) {

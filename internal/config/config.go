@@ -16,7 +16,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // Defaults applied when the file leaves a value out.

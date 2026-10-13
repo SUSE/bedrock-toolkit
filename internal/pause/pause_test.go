@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	itypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 const acct = "123456789012"

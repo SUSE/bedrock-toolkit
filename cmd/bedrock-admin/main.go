@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/admincli"
+	"github.com/innobead/bedrock-toolkit/internal/admincli"
 )
 
 var version = "dev"

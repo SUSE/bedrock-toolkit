@@ -94,7 +94,7 @@ details.
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock-admin
+curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock-admin
 bedrock-admin --version
 ```
 

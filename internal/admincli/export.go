@@ -13,11 +13,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/spf13/cobra"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/account"
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/account"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/cli"
+	"github.com/innobead/bedrock-toolkit/internal/config"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 func (a *App) exportCmd() *cobra.Command {
@@ -144,9 +144,9 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	}
 	env := a.usersEnv(ctx, &cfg, c)
 	type got struct {
-		r      config.Resolved
-		limit  float64
-		pause  int
+		r       config.Resolved
+		limit   float64
+		pause   int
 		alerts  []int
 		notify  string
 		product string

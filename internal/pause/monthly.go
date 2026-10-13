@@ -15,7 +15,7 @@ import (
 	btypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
 
 // Snapshot records every user's limit and pause state at the end of a month. The monthly Lambda

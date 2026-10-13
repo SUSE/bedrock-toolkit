@@ -13,12 +13,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/spf13/cobra"
 
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsconf"
-	"github.com/SUSE/high-impact-ai-initiative/internal/awsx"
-	"github.com/SUSE/high-impact-ai-initiative/internal/cli"
-	"github.com/SUSE/high-impact-ai-initiative/internal/config"
-	"github.com/SUSE/high-impact-ai-initiative/internal/policy"
-	"github.com/SUSE/high-impact-ai-initiative/internal/websearch"
+	"github.com/innobead/bedrock-toolkit/internal/awsconf"
+	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/cli"
+	"github.com/innobead/bedrock-toolkit/internal/config"
+	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/innobead/bedrock-toolkit/internal/websearch"
 )
 
 func (a *App) doctorCmd() *cobra.Command {

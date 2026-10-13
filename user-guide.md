@@ -90,7 +90,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 - The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/SUSE/high-impact-ai-initiative/main/install.sh | sh -s -- bedrock
+  curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
   ```
 - Your admin has onboarded you. If your SSO email doesn't receive mail, give your admin your real
   mailbox address for the budget emails.
