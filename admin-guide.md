@@ -467,7 +467,13 @@ the reason under each item. If a step fails, fix the cause and run `apply` again
 the account setup succeeds.
 
 The `bedrock setup` command it prints has `--region` when your profile's region differs from the file's region, and
-`--id <id>` when the id isn't `bedrock`, or `--role-arn` when the user has a custom `name:`. Users then follow the [user guide](user-guide.md).
+`--id <id>` when the id isn't `bedrock`, or `--role-arn` when the user has a custom `name:`. Send it
+as printed: users can't look up their role, so they need these flags from you. A message to a new
+user:
+
+1. Install the `bedrock` CLI and set up AWS SSO, as in the [user guide](user-guide.md).
+2. Run `aws sso login`, then the `bedrock setup ...` line `apply` printed for them.
+3. Run `bedrock claude` for the Claude Code and Claude desktop app settings.
 
 `apply` exits 2 when something is still pending, such as Step 1.7. `apply --dry-run` shows the plan
 and changes nothing. Once Step 1.7 is done, `plan` prints `No changes.` and exits 0.
@@ -903,7 +909,10 @@ from another setup's file.
 - Shared by every setup in the account: the cost allocation tag (Step 1.6) and the Step 1.7 deny
   your org admin adds to the permission sets.
 - Users of a setup whose id isn't `bedrock` run `bedrock setup --id <id>`; `apply` prints that
-  command.
+  command. Someone in two setups runs `bedrock setup` once per setup, and adds
+  `--profile-name <name>` to the second so it doesn't replace the first `bedrock` profile, for
+  example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
+  and `usage` take the same `--profile-name`.
 
 ## Emails
 
