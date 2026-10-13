@@ -16,7 +16,6 @@ is in the [README](README.md).
 | `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |
-| `poc/` | Proof-of-concept files from the original tests. Kept for reference only. |
 | `.github/workflows/` | `ci.yml` (vet, lint, unit tests) and `release.yml` (GoReleaser on a `v*` tag) |
 
 ## Development

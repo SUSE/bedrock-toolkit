@@ -1,6 +1,0 @@
-{
-  "BudgetName": "poc-bedrock-achen",
-  "BudgetType": "COST",
-  "TimeUnit": "MONTHLY",
-  "BudgetLimit": { "Amount": "1", "Unit": "USD" }
-}

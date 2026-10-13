@@ -167,7 +167,6 @@ problem. Run `<command> --help` for the flags.
 | `tests/e2e` | Robot Framework end-to-end suites and their container runner |
 | `models.toml` | The models `bedrock-admin configure` suggests for a new `bedrock.yaml` |
 | `install.sh` | The release installer |
-| `poc/` | Files from the original proof of concept, kept for reference |
 
 ## License
 
