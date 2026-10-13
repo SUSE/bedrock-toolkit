@@ -39,3 +39,35 @@ checksum:
 
 changelog:
   use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+  # Grouped by the Conventional Commit type; the first group a commit matches wins.
+  groups:
+    - title: Breaking changes
+      regexp: '^.*?\w+(\(.+\))??!:.+$'
+      order: 0
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??:.+$'
+      order: 1
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??:.+$'
+      order: 2
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??:.+$'
+      order: 3
+    - title: Refactoring
+      regexp: '^.*?refactor(\(.+\))??:.+$'
+      order: 4
+    - title: Documentation
+      regexp: '^.*?docs(\(.+\))??:.+$'
+      order: 5
+    - title: Tests
+      regexp: '^.*?test(\(.+\))??:.+$'
+      order: 6
+    - title: Build and CI
+      regexp: '^.*?(build|ci)(\(.+\))??:.+$'
+      order: 7
+    - title: Other
+      order: 999
