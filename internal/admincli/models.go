@@ -26,21 +26,24 @@ type modelRow struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	// Users is "allowed" when personal roles may call it under the file's models:, "not listed" when
-	// models: lists others, and "never" for models personal roles can't call (Fable).
+	// models: lists others, and "never" for models personal roles can't call (non-Claude, and Fable).
 	Users string `json:"users"`
 }
 
 func (a *App) modelsCmd() *cobra.Command {
-	var region string
+	var region, filter string
 	cmd := &cobra.Command{
 		Use:   "models",
-		Short: "List the Claude inference profiles in the region, for models: in the file",
-		Long: `models lists the Claude inference profiles the region offers. Their IDs are what models: in
-bedrock.yaml takes. The USERS column says whether personal roles may call each one under the file:
-"allowed" (models: is empty, or lists it), "not listed" (models: lists others) or "never" (Fable).
+		Short: "List the inference profiles in the region, for models: in the file",
+		Long: `models lists the inference profiles the region offers, from every provider. Their IDs are what
+models: in bedrock.yaml takes. --filter keeps those whose ID or name contains the text (any case).
+The USERS column says whether personal roles may call each one under the file: "allowed" (models:
+is empty, or lists it), "not listed" (models: lists others) or "never" (personal roles may call
+only Claude models, and never Fable).
 
   bedrock-admin models
-  bedrock-admin models --region eu-west-1`,
+  bedrock-admin models --filter claude
+  bedrock-admin models --filter nova --region eu-west-1`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -65,23 +68,24 @@ bedrock.yaml takes. The USERS column says whether personal roles may call each o
 			if err != nil {
 				return err
 			}
-			profiles, err := claudeProfiles(ctx, c.Bedrock)
+			profiles, err := inferenceProfiles(ctx, c.Bedrock)
 			if err != nil {
 				return err
 			}
-			rows := modelRows(profiles, cfg.Models)
+			rows := modelRows(profiles, cfg.Models, filter)
 			if a.JSON {
 				return cli.WriteJSON(a.Out, rows)
 			}
-			return a.printModels(cfg, rows)
+			return a.printModels(cfg, rows, filter)
 		},
 	}
 	cmd.Flags().StringVar(&region, "region", "", "region (default: the file's, else the profile's)")
+	cmd.Flags().StringVar(&filter, "filter", "", "only models whose ID or name contains this text (any case)")
 	return cmd
 }
 
-// claudeProfiles lists the region's system-defined Claude inference profiles.
-func claudeProfiles(ctx context.Context, c *bedrock.Client) ([]btypes.InferenceProfileSummary, error) {
+// inferenceProfiles lists the region's system-defined inference profiles.
+func inferenceProfiles(ctx context.Context, c *bedrock.Client) ([]btypes.InferenceProfileSummary, error) {
 	var out []btypes.InferenceProfileSummary
 	p := bedrock.NewListInferenceProfilesPaginator(c, &bedrock.ListInferenceProfilesInput{TypeEquals: btypes.InferenceProfileTypeSystemDefined})
 	for p.HasMorePages() {
@@ -89,21 +93,22 @@ func claudeProfiles(ctx context.Context, c *bedrock.Client) ([]btypes.InferenceP
 		if err != nil {
 			return nil, fmt.Errorf("list inference profiles: %w", err)
 		}
-		for _, s := range r.InferenceProfileSummaries {
-			if strings.Contains(aws.ToString(s.InferenceProfileId), "anthropic.claude-") {
-				out = append(out, s)
-			}
-		}
+		out = append(out, r.InferenceProfileSummaries...)
 	}
 	return out, nil
 }
 
-// modelRows sorts the profiles by ID and says whether personal roles may call each under models.
-func modelRows(profiles []btypes.InferenceProfileSummary, models []string) []modelRow {
+// modelRows keeps the profiles whose ID or name contains filter (any case), sorts them by ID and says
+// whether personal roles may call each under models.
+func modelRows(profiles []btypes.InferenceProfileSummary, models []string, filter string) []modelRow {
 	rows := []modelRow{}
+	filter = strings.ToLower(filter)
 	for _, s := range profiles {
-		id := aws.ToString(s.InferenceProfileId)
-		r := modelRow{ID: id, Name: aws.ToString(s.InferenceProfileName), Status: string(s.Status), Users: "allowed"}
+		id, name := aws.ToString(s.InferenceProfileId), aws.ToString(s.InferenceProfileName)
+		if filter != "" && !strings.Contains(strings.ToLower(id), filter) && !strings.Contains(strings.ToLower(name), filter) {
+			continue
+		}
+		r := modelRow{ID: id, Name: name, Status: string(s.Status), Users: "allowed"}
 		switch {
 		case !policy.AllowedModel(id):
 			r.Users = "never"
@@ -116,9 +121,13 @@ func modelRows(profiles []btypes.InferenceProfileSummary, models []string) []mod
 	return rows
 }
 
-func (a *App) printModels(cfg *config.Config, rows []modelRow) error {
+func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string) error {
 	if len(rows) == 0 {
-		_, err := fmt.Fprintf(a.Out, "No Claude inference profiles in %s.\n", cfg.Region)
+		if filter != "" {
+			_, err := fmt.Fprintf(a.Out, "No inference profiles in %s match %q.\n", cfg.Region, filter)
+			return err
+		}
+		_, err := fmt.Fprintf(a.Out, "No inference profiles in %s.\n", cfg.Region)
 		return err
 	}
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
@@ -131,6 +140,9 @@ func (a *App) printModels(cfg *config.Config, rows []modelRow) error {
 	}
 	var missing []string
 	for _, m := range cfg.Models {
+		if filter != "" {
+			break // a filtered list can't tell a typo from a model filtered out
+		}
 		if !slices.ContainsFunc(rows, func(r modelRow) bool { return r.ID == m }) {
 			missing = append(missing, m)
 		}

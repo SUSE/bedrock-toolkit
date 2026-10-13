@@ -153,7 +153,7 @@ users:
   trigger follows the limit. `pause_at_percent` is 1 to 200. Forecast-based pauses and fixed-dollar
   thresholds are not offered: forecasts are noisy early in the month, and fixed amounts would not
   follow the limit.
-- `models:` is optional. When listed, personal roles may call only those models: each inference profile and its foundation model in every region (cross-region profiles route to several). When empty, they may call any Claude model except Fable, and `apply` and `doctor` use Claude Haiku 5.5 for their checks. Listing a non-Claude or Fable model is a config error. `bedrock-admin models` lists the region's Claude inference profiles. `configure` fills `models:` in a new file from `models.toml` in the repository (downloaded from GitHub, with the region's prefix added), and leaves it empty when it can't download the file or the list is empty.
+- `models:` is optional. When listed, personal roles may call only those models: each inference profile and its foundation model in every region (cross-region profiles route to several). When empty, they may call any Claude model except Fable, and `apply` and `doctor` use Claude Haiku 5.5 for their checks. Listing a non-Claude or Fable model is a config error. `bedrock-admin models` lists the region's inference profiles from every provider, `--filter` keeps those whose ID or name contains a text, and its USERS column marks what personal roles may call. `configure` fills `models:` in a new file from `models.toml` in the repository (downloaded from GitHub, with the region's prefix added), and leaves it empty when it can't download the file or the list is empty.
 - The full list of fields and defaults is in the
   [admin guide](admin-guide.md#2-create-bedrockyaml).
 

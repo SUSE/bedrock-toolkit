@@ -170,7 +170,7 @@ func TestModelRows(t *testing.T) {
 	p := func(id string) btypes.InferenceProfileSummary {
 		return btypes.InferenceProfileSummary{InferenceProfileId: aws.String(id), InferenceProfileName: aws.String(id), Status: "ACTIVE"}
 	}
-	profiles := []btypes.InferenceProfileSummary{p("us.anthropic.claude-sonnet-5-5"), p("us.anthropic.claude-fable-1"), p("us.anthropic.claude-haiku-5-5")}
+	profiles := []btypes.InferenceProfileSummary{p("us.anthropic.claude-sonnet-5-5"), p("us.anthropic.claude-fable-1"), p("us.anthropic.claude-haiku-5-5"), p("us.amazon.nova-pro-v1:0")}
 	users := func(rows []modelRow) string {
 		var s []string
 		for _, r := range rows {
@@ -178,11 +178,17 @@ func TestModelRows(t *testing.T) {
 		}
 		return strings.Join(s, ",")
 	}
-	if got := users(modelRows(profiles, nil)); got != "us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=allowed" {
+	if got := users(modelRows(profiles, nil, "")); got != "us.amazon.nova-pro-v1:0=never,us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=allowed" {
 		t.Fatalf("no models: %s", got)
 	}
-	if got := users(modelRows(profiles, []string{"us.anthropic.claude-haiku-5-5"})); got != "us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=not listed" {
+	if got := users(modelRows(profiles, []string{"us.anthropic.claude-haiku-5-5"}, "")); got != "us.amazon.nova-pro-v1:0=never,us.anthropic.claude-fable-1=never,us.anthropic.claude-haiku-5-5=allowed,us.anthropic.claude-sonnet-5-5=not listed" {
 		t.Fatalf("listed: %s", got)
+	}
+	if got := users(modelRows(profiles, nil, "HAIKU")); got != "us.anthropic.claude-haiku-5-5=allowed" {
+		t.Fatalf("filter: %s", got)
+	}
+	if got := users(modelRows(profiles, nil, "nova")); got != "us.amazon.nova-pro-v1:0=never" {
+		t.Fatalf("filter non-Claude: %s", got)
 	}
 }
 

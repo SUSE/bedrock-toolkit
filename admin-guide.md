@@ -76,7 +76,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | --- | --- | --- |
 | `bedrock-admin configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags | [2](#2-create-bedrockyaml) |
 | `bedrock-admin doctor` | Checks your credentials, permissions, account setup, cost export data and models | [1](#1-install-and-check-your-environment), [8](#8-check-production) |
-| `bedrock-admin models` | Lists the region's Claude inference profiles, the IDs `models:` takes | [2](#choosing-models) |
+| `bedrock-admin models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list | [2](#choosing-models) |
 | `bedrock-admin plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes | [3](#3-set-up-the-account-plan-then-apply) |
 | `bedrock-admin apply` | Makes the account and the users match the file. Removals need `--yes` | [3](#3-set-up-the-account-plan-then-apply), [4](#4-day-to-day-changes-are-file-edits) |
 | `bedrock-admin export` | Prints the current account, including its users, as a `bedrock.yaml` | [2](#2-create-bedrockyaml) |
@@ -322,11 +322,15 @@ Which file is used: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, t
 ### Choosing models
 
 Leave `models:` empty to let users call any Claude model except Fable, or list the ones they may
-call. A new file from `configure` starts with the models in [`models.toml`](models.toml). To see which Claude models your region offers, and which your file allows:
+call. A new file from `configure` starts with the models in [`models.toml`](models.toml). To see which models your region offers, and which your file allows:
 
 ```bash
-bedrock-admin models
+bedrock-admin models                    # every provider's inference profiles
+bedrock-admin models --filter claude    # only those whose ID or name contains "claude" (any case)
 ```
+
+Personal roles may call only Claude models other than Fable, so every other model shows `never`
+under USERS.
 
 `bedrock claude` gives users Claude Opus, Sonnet and Haiku 5.5. If you list models, include those
 three or tell your users which to use.
