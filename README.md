@@ -6,14 +6,11 @@ file; users set up their machine with one command.
 
 ## What's in the toolkit
 
-| Part | For | What it does |
+| Program | For | What it does |
 | --- | --- | --- |
 | `bedrock-admin` | Account admins | Sets up the AWS account and manages users, budgets and pauses from `bedrock.yaml` |
 | `bedrock` | Users | Writes the AWS profile of their personal role, checks it, tests Claude Code, shows their spend |
-| Monthly Lambda | The account | Saves a snapshot and re-arms every pause on the 1st of the month. Built into `bedrock-admin`, deployed by `apply` |
-| Web search gateway | Claude Code and the desktop app | Optional. Web search on Bedrock through an AgentCore gateway |
-| `install.sh` | Everyone | Installs either CLI from the latest release |
-| `tests/e2e` | Contributors | End-to-end tests against a real AWS account, run in a container |
+| `monthly-unpause` | The account | A Lambda that saves a snapshot and re-arms every pause on the 1st of the month. Built into `bedrock-admin`, deployed by `apply` |
 
 ## Features
 
@@ -171,3 +168,7 @@ problem. Run `<command> --help` for the flags.
 | `models.toml` | The models `bedrock-admin configure` suggests for a new `bedrock.yaml` |
 | `install.sh` | The release installer |
 | `poc/` | Files from the original proof of concept, kept for reference |
+
+## License
+
+[Apache License 2.0](LICENSE)
