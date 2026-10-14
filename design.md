@@ -598,6 +598,8 @@ Differences from the original design spec:
   and `text/tabwriter` for tables.
 - CI (`.github/workflows/ci.yml`): `go generate`, `go vet`, `golangci-lint`, `go test -race` on amd64
   and arm64 Linux runners, and a build of both CLIs for every release target.
+- Dependabot (`.github/dependabot.yml`): security updates only (Go modules, Actions, the e2e image);
+  `.github/workflows/dependabot-merge.yml` squash-merges each one after CI passes.
 - Release (`.github/workflows/release.yml`): on a `v*` tag, GoReleaser builds both CLIs for macOS
   and Linux (amd64 and arm64; no Windows), with the Lambda embedded in `bedrock-admin`, and attaches
   them and checksums to the GitHub release. `install.sh` (sh and curl only) installs either CLI from a

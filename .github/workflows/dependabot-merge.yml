@@ -1,0 +1,39 @@
+name: Dependabot merge
+
+# Squash-merges a Dependabot PR after CI passes on its latest commit. Runs on workflow_run, so it
+# never checks out or runs the PR's code; it only calls the GitHub API.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,author \
+            --jq '.[] | select(.author.login == "app/dependabot") | .number')
+          if [ -z "$pr" ]; then
+            echo "No open Dependabot PR for $BRANCH"
+            exit 0
+          fi
+          # --match-head-commit: merge only the commit CI tested, not a newer push.
+          gh pr merge -R "$REPO" "$pr" --squash --delete-branch --match-head-commit "$SHA"
