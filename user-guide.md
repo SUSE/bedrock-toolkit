@@ -92,8 +92,19 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
   ```bash
   curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
   ```
-- Your admin has onboarded you. If your SSO email doesn't receive mail, give your admin your real
-  mailbox address for the budget emails.
+- Your admin has onboarded you with your SSO username, the email you sign in with (not an alias).
+  If you're not sure which one that is, run this with your SSO profile and send your admin the
+  address at the end of `Arn` (here `achen@example.com`):
+
+  ```bash
+  aws sts get-caller-identity --profile <your-sso-profile>
+  ```
+
+  ```json
+  "Arn": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com"
+  ```
+- If your SSO email doesn't receive mail, give your admin your real mailbox address for the budget
+  emails.
 
 ## Setup
 
@@ -359,7 +370,7 @@ the fix under it:
 | `SSO sign-in` | Your SSO session expired or you are not signed in | `aws sso login --profile <profile>` (or `aws login`) |
 | `SSO sign-in` | `signed in as ..., not with SSO` | Set `source_profile` to your SSO profile, or run `bedrock setup --sso-profile <profile>` |
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
-| `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you (and check `role_arn`, if they gave you one), or to let your SSO permission set use the `bedrock-users` roles |
+| `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
 | `model <id>` | `AccessDeniedException`, on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
 | `model <id>` | `AccessDeniedException`, on another model | Your role may only call Anthropic Claude models (not Fable), and only the ones your admin allows. Ask your admin if you need this one. |

@@ -214,6 +214,24 @@ users:
     limit_usd: 100              # overrides defaults.limit_usd
 ```
 
+Use each user's SSO username, the email they sign in with, not an alias or another address. Their
+personal role trusts only that exact name, so with any other address `bedrock setup` can't use it.
+When you're not sure, ask the user to run this with their SSO profile (not the `bedrock` profile,
+which works only once the email is right):
+
+```bash
+aws sts get-caller-identity --profile <their-sso-profile>
+```
+
+The address to use is the end of `Arn`, here `achen@example.com`:
+
+```json
+"Arn": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com"
+```
+
+`bedrock doctor` shows the same address as `SSO sign-in: achen@example.com`. If you can see IAM
+Identity Center, it is the user's **Username** there.
+
 The file holds no secrets. Keep it in Git and review changes in pull requests.
 
 <details>
@@ -519,6 +537,7 @@ bedrock-admin apply          # add --yes when it removes users
 | Charge cdiaz's spend to another product | `product: data-platform` on cdiaz |
 | No alerts for anyone | `defaults.alert_at_percent: []` |
 | Remove achen | Delete the entry, then `apply --yes` |
+| Fix a wrong email (not the SSO username) | Change `email` to the SSO username ([how to find it](#2-create-bedrockyaml)), `apply --yes`, then the user runs `bedrock setup --yes` |
 
 <details>
 <summary>Sample plan output, removals and drift</summary>
