@@ -1,6 +1,6 @@
 # Security updates only: open-pull-requests-limit 0 turns off version updates, but Dependabot still
-# opens security update PRs (repo setting "Dependabot security updates"). CI-passing ones merge
-# automatically through .github/workflows/dependabot-merge.yml.
+# opens security update PRs (repo setting "Dependabot security updates"). Patch updates that pass CI
+# merge automatically through .github/workflows/dependabot-merge.yml; others wait for review.
 version: 2
 updates:
   # Go modules ship in both CLIs and the Lambda, so they count as fixes in the release notes.

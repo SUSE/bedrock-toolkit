@@ -1,6 +1,6 @@
 name: Dependabot merge
 
-# Squash-merges a Dependabot PR after CI passes on its latest commit. Runs on workflow_run, so it
+# Squash-merges a Dependabot patch update PR after CI passes on its latest commit. Runs on workflow_run, so it
 # never checks out or runs the PR's code; it only calls the GitHub API.
 on:
   workflow_run:
@@ -33,6 +33,14 @@ jobs:
             --jq '.[] | select(.author.login == "app/dependabot") | .number')
           if [ -z "$pr" ]; then
             echo "No open Dependabot PR for $BRANCH"
+            exit 0
+          fi
+          # Dependabot lists each updated dependency's update-type in the commit message. Merge only
+          # when all of them are patch updates; minor and major ones stay open for review.
+          types=$(gh api "repos/$REPO/commits/$SHA" --jq .commit.message |
+            sed -n 's/^[[:space:]]*update-type:[[:space:]]*//p' | sort -u)
+          if [ "$types" != "version-update:semver-patch" ]; then
+            echo "PR #$pr is not a patch-only update (${types:-no update-type}); leaving it for review"
             exit 0
           fi
           # --match-head-commit: merge only the commit CI tested, not a newer push.

@@ -16,7 +16,7 @@ is in the [README](README.md).
 | `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |
-| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot PRs after CI passes) |
+| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
 | `.github/dependabot.yml` | Security updates only, for Go modules, Actions and the e2e image |
 
 ## Development
@@ -43,9 +43,10 @@ them by hand with `tests/e2e/run.sh`, as described in [tests/e2e/README.md](test
 Every suite except `cli` uses a real AWS account.
 
 Dependabot (`.github/dependabot.yml`) opens PRs only for security updates, not routine version bumps.
-When CI passes on a Dependabot PR's latest commit, `.github/workflows/dependabot-merge.yml`
-squash-merges it. Go module fixes use the `fix(deps)` prefix, so they appear under Bug fixes in the
-next release's notes. Major version bumps merge too, so CI is the only gate.
+When CI passes on a Dependabot PR's latest commit and every update in it is a patch version,
+`.github/workflows/dependabot-merge.yml` squash-merges it. Minor and major updates stay open for
+review. Go module fixes use the `fix(deps)` prefix, so they appear under Bug fixes in the next
+release's notes.
 
 ## Releasing
 
