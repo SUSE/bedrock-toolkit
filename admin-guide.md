@@ -75,7 +75,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | --- | --- | --- |
 | `bedrock-admin configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags | [2](#2-create-bedrockyaml) |
 | `bedrock-admin doctor` | Checks your credentials, permissions, account setup, cost export data and models | [1](#1-install-and-check-your-environment), [8](#8-check-production) |
-| `bedrock-admin models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list | [2](#choosing-models) |
+| `bedrock-admin models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list; `--regions` shows where each allowed model sends requests | [2](#choosing-models) |
 | `bedrock-admin plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes | [3](#3-set-up-the-account-plan-then-apply) |
 | `bedrock-admin apply` | Makes the account and the users match the file. Removals need `--yes` | [3](#3-set-up-the-account-plan-then-apply), [4](#4-day-to-day-changes-are-file-edits) |
 | `bedrock-admin export` | Prints the current account, including its users, as a `bedrock.yaml` | [2](#2-create-bedrockyaml) |
@@ -326,10 +326,15 @@ call. A new file from `configure` starts with the models in [`models.toml`](mode
 ```bash
 bedrock-admin models                    # every provider's inference profiles
 bedrock-admin models --filter claude    # only those whose ID or name contains "claude" (any case)
+bedrock-admin models --filter claude --regions   # and where each allowed model sends requests
 ```
 
 Personal roles may call only Claude models other than Fable, so every other model shows `never`
 under USERS.
+
+`--regions` adds a REGIONS column: the regions each allowed model sends requests to, which is what
+matters for data residency. A `global.` profile shows `any region (global)`. Users still call only
+the IDs in `models:`, in the file's region; the column shows where AWS processes those calls.
 
 `bedrock claude` gives users Claude Opus, Sonnet and Haiku 5.5. If you list models, include those
 three or tell your users which to use.
@@ -347,9 +352,18 @@ us.anthropic.claude-opus-5-5             US Anthropic Claude Opus 5.5        ACT
 us.anthropic.claude-sonnet-5-5           US Anthropic Claude Sonnet 5.5      ACTIVE  allowed
 ```
 
+With `--regions` (other rows show `-`):
+
+```text
+MODEL ID                        NAME                            STATUS  USERS    REGIONS
+us.anthropic.claude-haiku-5-5   US Anthropic Claude Haiku 5.5   ACTIVE  allowed  us-east-1 us-east-2 us-west-2
+```
+
 - `USERS` is `allowed` when `models:` is empty or lists the model, `not listed` when `models:`
   lists others, and `never` for the Claude Fable family. `--region` picks another region; `--json`
-  prints JSON.
+  prints JSON (with `--regions`, a `regions` list; `["any"]` for a `global.` profile).
+- REGIONS is what AWS reports today: one read-only `GetInferenceProfile` call per allowed model. AWS
+  can add regions to a profile later.
 - A listed inference profile allows the profile and its foundation model in every region, since
   cross-region profiles route requests to several regions. Changing `models:` updates every personal
   role's policy on the next `apply`.

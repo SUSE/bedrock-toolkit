@@ -192,6 +192,30 @@ func TestModelRows(t *testing.T) {
 	}
 }
 
+func TestProfileRegions(t *testing.T) {
+	m := func(arn string) btypes.InferenceProfileModel {
+		return btypes.InferenceProfileModel{ModelArn: aws.String(arn)}
+	}
+	got := profileRegions([]btypes.InferenceProfileModel{
+		m("arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-5-5"),
+		m("arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-haiku-5-5"),
+		m("arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-haiku-5-5"),
+		m("not-an-arn"),
+	})
+	if !slices.Equal(got, []string{"us-east-1", "us-west-2"}) {
+		t.Fatalf("regions: %v", got)
+	}
+	for r, want := range map[*modelRow]string{
+		{}:                             "-",
+		{Regions: []string{anyRegion}}: "any region (global)",
+		{Regions: []string{"eu-central-1", "eu-west-1"}}: "eu-central-1 eu-west-1",
+	} {
+		if got := regionsCell(*r); got != want {
+			t.Fatalf("cell %v: %q", r.Regions, got)
+		}
+	}
+}
+
 func TestRepoModelsToml(t *testing.T) {
 	b, err := os.ReadFile("../../models.toml")
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,10 +29,17 @@ type modelRow struct {
 	// Users is "allowed" when personal roles may call it under the file's models:, "not listed" when
 	// models: lists others, and "never" for models personal roles can't call (non-Claude, and Fable).
 	Users string `json:"users"`
+	// Regions, with --regions, are where an allowed profile routes requests. It is ["any"] for global.
+	// profiles, which AWS may route to any commercial region.
+	Regions []string `json:"regions,omitempty"`
 }
+
+// anyRegion stands for every commercial region, where global. inference profiles route requests.
+const anyRegion = "any"
 
 func (a *App) modelsCmd() *cobra.Command {
 	var region, filter string
+	var regions bool
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "List the inference profiles in the region, for models: in the file",
@@ -41,8 +49,13 @@ The USERS column says whether personal roles may call each one under the file: "
 is empty, or lists it), "not listed" (models: lists others) or "never" (personal roles may call
 only Claude models, and never Fable).
 
+--regions adds a REGIONS column: the regions each allowed profile sends requests to, as AWS reports
+them now (they can change). A global. profile may go to any commercial region. Users still use only
+the file's region and the IDs in models:; this shows where their requests are processed.
+
   bedrock-admin models
   bedrock-admin models --filter claude
+  bedrock-admin models --filter claude --regions
   bedrock-admin models --filter nova --region eu-west-1`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,14 +86,20 @@ only Claude models, and never Fable).
 				return err
 			}
 			rows := modelRows(profiles, cfg.Models, filter)
+			if regions {
+				if err := routeRegions(ctx, c.Bedrock, rows); err != nil {
+					return err
+				}
+			}
 			if a.JSON {
 				return cli.WriteJSON(a.Out, rows)
 			}
-			return a.printModels(cfg, rows, filter)
+			return a.printModels(cfg, rows, filter, regions)
 		},
 	}
 	cmd.Flags().StringVar(&region, "region", "", "region (default: the file's, else the profile's)")
 	cmd.Flags().StringVar(&filter, "filter", "", "only models whose ID or name contains this text (any case)")
+	cmd.Flags().BoolVar(&regions, "regions", false, "show the regions each allowed model sends requests to")
 	return cmd
 }
 
@@ -121,7 +140,62 @@ func modelRows(profiles []btypes.InferenceProfileSummary, models []string, filte
 	return rows
 }
 
-func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string) error {
+// routeRegions fills in Regions for the rows personal roles may call: the regions of the profile's
+// foundation models, or anyRegion for a global. profile (AWS lists only the calling region for those).
+func routeRegions(ctx context.Context, c *bedrock.Client, rows []modelRow) error {
+	var wg sync.WaitGroup
+	errs := make([]error, len(rows))
+	sem := make(chan struct{}, 8)
+	for i := range rows {
+		if rows[i].Users != "allowed" {
+			continue
+		}
+		if strings.HasPrefix(rows[i].ID, "global.") {
+			rows[i].Regions = []string{anyRegion}
+			continue
+		}
+		wg.Add(1)
+		go func(r *modelRow, err *error) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out, e := c.GetInferenceProfile(ctx, &bedrock.GetInferenceProfileInput{InferenceProfileIdentifier: aws.String(r.ID)})
+			if e != nil {
+				*err = fmt.Errorf("get inference profile %s: %w", r.ID, e)
+				return
+			}
+			r.Regions = profileRegions(out.Models)
+		}(&rows[i], &errs[i])
+	}
+	wg.Wait()
+	return errors.Join(errs...)
+}
+
+// profileRegions returns the sorted, distinct regions of the profile's foundation model ARNs
+// (arn:aws:bedrock:<region>::foundation-model/<id>).
+func profileRegions(models []btypes.InferenceProfileModel) []string {
+	var out []string
+	for _, m := range models {
+		if parts := strings.Split(aws.ToString(m.ModelArn), ":"); len(parts) > 3 && parts[3] != "" && !slices.Contains(out, parts[3]) {
+			out = append(out, parts[3])
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// regionsCell is the REGIONS column for a row.
+func regionsCell(r modelRow) string {
+	switch {
+	case len(r.Regions) == 0:
+		return "-"
+	case r.Regions[0] == anyRegion:
+		return "any region (global)"
+	}
+	return strings.Join(r.Regions, " ")
+}
+
+func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string, regions bool) error {
 	if len(rows) == 0 {
 		if filter != "" {
 			_, err := fmt.Fprintf(a.Out, "No inference profiles in %s match %q.\n", cfg.Region, filter)
@@ -131,9 +205,17 @@ func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string) er
 		return err
 	}
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "MODEL ID\tNAME\tSTATUS\tUSERS")
+	head := "MODEL ID\tNAME\tSTATUS\tUSERS"
+	if regions {
+		head += "\tREGIONS"
+	}
+	fmt.Fprintln(w, head)
 	for _, r := range rows {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Status, r.Users)
+		line := fmt.Sprintf("%s\t%s\t%s\t%s", r.ID, r.Name, r.Status, r.Users)
+		if regions {
+			line += "\t" + regionsCell(r)
+		}
+		fmt.Fprintln(w, line)
 	}
 	if err := w.Flush(); err != nil {
 		return err

@@ -1,6 +1,6 @@
 *** Settings ***
 Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
-...                 doctor, export, a second setup in the same account, and uninstall. The run's setup has
+...                 doctor, models --regions, export, a second setup in the same account, and uninstall. The run's setup has
 ...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
 Resource            ../resources/common.resource
 Suite Setup         Start Account Run
@@ -65,6 +65,22 @@ Doctor Passes
     ${names}=    Evaluate    [c["name"] for c in $d["checks"]]
     Should Contain    ${names}    credentials
     Should Contain    ${names}    permissions
+
+Models Shows Where Allowed Models Send Requests
+    [Documentation]    models --regions reads each allowed profile's regions from AWS; only allowed rows get them.
+    ${rows}=    Admin    models    --filter    claude    --regions    --json
+    ${listed}=    Evaluate    [r for r in $rows if r["id"] in $MODELS]
+    Should Not Be Empty    ${listed}    no inference profile of ${MODELS} in the list
+    FOR    ${row}    IN    @{listed}
+        Should Be Equal    ${row}[users]    allowed
+        IF    $row["id"].startswith("global.")
+            Should Be Equal    ${row}[regions]    ${{["any"]}}
+        ELSE
+            Should Contain    ${row}[regions]    ${REGION}
+        END
+    END
+    ${other}=    Evaluate    [r["id"] for r in $rows if r["users"] != "allowed" and r.get("regions")]
+    Should Be Empty    ${other}
 
 Drift Is Shown By Plan And Fixed By Apply
     Change Lambda Setting Directly

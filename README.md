@@ -126,7 +126,7 @@ bedrock usage                        # this month's spend against your budget
 | --- | --- |
 | `configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags |
 | `doctor` | Checks the admin's credentials, permissions, account setup, cost export data and models |
-| `models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list |
+| `models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list; `--regions` shows where each allowed model sends requests |
 | `plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes |
 | `apply` | Makes the account and the users match `bedrock.yaml`. Removals need `--yes` |
 | `export` | Prints the current account, including its users, as a `bedrock.yaml` |
