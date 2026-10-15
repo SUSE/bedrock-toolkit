@@ -1,6 +1,7 @@
 # Models bedrock-admin configure puts in models: when it writes a new bedrock.yaml. configure
-# downloads this file from the repository's main branch and adds the region's prefix (us., eu., or
-# global. elsewhere) to IDs without one. When it can't download the file, or the list is empty, a
+# downloads this file from the repository's main branch (it isn't built into bedrock-admin) and
+# adds the region's prefix to IDs without one: us. or eu., plus global. for users whose own region
+# is elsewhere; only global. in other regions. When it can't download the file, or the list is empty, a
 # new bedrock.yaml leaves models: empty: personal roles may then call any Claude model except Fable.
 models = [
   "anthropic.claude-opus-5-5",

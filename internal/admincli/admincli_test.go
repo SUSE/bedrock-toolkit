@@ -253,7 +253,7 @@ func TestConfigureSuggestedModels(t *testing.T) {
 		return out.String(), errb.String()
 	}
 	out, _ := configure(srv.URL + "/models.toml")
-	if !strings.Contains(out, "models:\n  - eu.anthropic.claude-haiku-5-5\n  - us.anthropic.claude-opus-5-5\n") || strings.Contains(out, "fable") || strings.Contains(out, "llama") {
+	if !strings.Contains(out, "models:\n  - eu.anthropic.claude-haiku-5-5\n  - us.anthropic.claude-opus-5-5\n  - global.anthropic.claude-haiku-5-5\n") || strings.Contains(out, "fable") || strings.Contains(out, "llama") {
 		t.Fatalf("suggested models:\n%s", out)
 	}
 	out, errs := configure(srv.URL + "/missing.toml")

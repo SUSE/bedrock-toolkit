@@ -387,16 +387,19 @@ us.anthropic.claude-haiku-5-5   US Anthropic Claude Haiku 5.5   ACTIVE  allowed 
   role's policy on the next `apply`.
 
 - The prefix picks where requests run. `us.`/`eu.`/`apac.` keep them in that geography. `global.`
-  may use any commercial region, for better availability and a slightly lower price. Pick one prefix
-  per model; listing both only doubles the checks and the allowed models.
+  may use any commercial region, for better availability and a slightly lower price. The `bedrock`
+  user CLI picks the prefix from each user's own region (`us.`/`eu.`, `global.` elsewhere), so list
+  both a `us.` or `eu.` and a `global.` ID when users work outside your geography. Leave out
+  `global.` if requests must stay in your geography.
 - Then run `bedrock-admin plan`: Step 1.5 shows `unknown model in <region>` for a wrong ID, and
   `first call` for a model the account hasn't enabled yet (`apply` enables it).
 - To see one model's state: `aws bedrock get-foundation-model-availability --model-id
   anthropic.claude-sonnet-5-5` (the ID without the prefix). Ready means `AUTHORIZED`, and `AVAILABLE`
   for region, agreement and entitlement.
 - For a new file, `bedrock-admin configure` suggests the models in the repository's
-  [`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), downloaded from GitHub, with
-  the region's prefix. When it can't download the file, or the list is empty, `models:` stays empty.
+  [`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), downloaded from GitHub (not
+  built into `bedrock-admin`), each with the region's prefix (`us.` or `eu.`) and `global.`; in other
+  regions only `global.`. When it can't download the file, or the list is empty, `models:` stays empty.
   `--model` or your answer wins; an existing file keeps its `models:`.
   The `bedrock` user CLI uses Opus, Sonnet and Haiku 5.5 (`us.`/`eu.` by region, `global.`
   elsewhere): `bedrock doctor` tests them and `bedrock claude` prints them. The user CLI doesn't read `bedrock.yaml`: if you list other models,

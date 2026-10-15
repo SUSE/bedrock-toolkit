@@ -38,6 +38,21 @@ func WithGeo(region string, models []string) []string {
 	return out
 }
 
+// SuggestedWithGeo is WithGeo for the models configure suggests: an ID without a prefix gets the
+// region's prefix and, in a US or EU region, global. too, for users whose region is elsewhere.
+func SuggestedWithGeo(region string, models []string) []string {
+	out := WithGeo(region, models)
+	if Geo(region) == "global." {
+		return out
+	}
+	for _, m := range models {
+		if policy.FoundationModelID(m) == m {
+			out = append(out, "global."+m)
+		}
+	}
+	return out
+}
+
 // DefaultModels returns the models bedrock doctor checks and bedrock claude uses for a region:
 // Claude Opus, Sonnet and Haiku 5.5, through the region's inference profile.
 func DefaultModels(region string) []string {

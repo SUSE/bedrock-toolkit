@@ -112,7 +112,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 			return err
 		}
 	} else if len(cur.Models) == 0 && cur.Region != "" {
-		cur.Models = config.WithGeo(cur.Region, suggested)
+		cur.Models = config.SuggestedWithGeo(cur.Region, suggested)
 	}
 	if cur.Region == "" {
 		return errors.New("no region: the profile has none; pass --region")
@@ -214,7 +214,7 @@ func (a *App) ask(c *config.Config, changed func(string) bool, suggested []strin
 	if !changed("model") {
 		def := c.Models
 		if len(def) == 0 {
-			def = config.WithGeo(c.Region, suggested)
+			def = config.SuggestedWithGeo(c.Region, suggested)
 		}
 		v, err := p.Ask("models users may call (comma-separated inference profile IDs; empty: any Claude model except Fable)",
 			strings.Join(def, ","))
