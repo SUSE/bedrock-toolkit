@@ -61,12 +61,12 @@ the file's region and the IDs in models:; this shows where their requests are pr
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg := &config.Config{}
-			if path, err := config.Find(a.File); err == nil {
+			path, findErr := config.Find(a.File)
+			if findErr == nil {
+				var err error
 				if cfg, err = config.Parse(path); err != nil {
 					return err
 				}
-			} else if a.File != "" {
-				return err
 			}
 			if region != "" {
 				cfg.Region = region
@@ -75,7 +75,10 @@ the file's region and the IDs in models:; this shows where their requests are pr
 				cfg.Region = a.profileRegion(ctx, cfg)
 			}
 			if cfg.Region == "" {
-				return errors.New("no region: pass --region")
+				if findErr != nil {
+					return fmt.Errorf("%w; or pass --region (the AWS profile has no region either)", findErr)
+				}
+				return fmt.Errorf("%s has no region: pass --region", path)
 			}
 			c, err := awsx.New(ctx, a.profile(cfg), cfg.Region, cfg.Account)
 			if err != nil {

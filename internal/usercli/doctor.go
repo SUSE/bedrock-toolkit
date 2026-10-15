@@ -154,21 +154,43 @@ func webSearchFix(err error) string {
 	return "ask your admin to run bedrock-admin doctor"
 }
 
-// modelFix explains a failed test call. Bedrock's AccessDenied message is often empty, so the model
-// decides: the role allows every Claude model except Fable, so a denied one means the user is paused.
+// modelFix explains a failed test call. A denied call's message tells why: an explicit deny in an
+// identity-based policy is the pause, no allowing policy means the admin doesn't allow the model, and
+// an organization policy blocks it for everyone. Without a message, the model decides.
 func modelFix(err error, region, model string) string {
-	switch {
-	case awsx.IsAccessDenied(err) && policy.AllowedModel(model):
-		return "your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st"
-	case awsx.IsAccessDenied(err):
-		return "your role may only call Anthropic Claude models (not Fable): ask your admin if you need this one"
-	case awsx.ErrorCode(err) == "ValidationException" || awsx.IsNotFound(err):
-		return "this model is not offered in " + region + ": use another model, or ask your admin for the right region"
+	if !awsx.IsAccessDenied(err) {
+		if awsx.ErrorCode(err) == "ValidationException" || awsx.IsNotFound(err) {
+			return "this model is not offered in " + region + ": use another model, or ask your admin for the right region"
+		}
+		return ""
 	}
-	return ""
+	msg := awsx.ErrorMessage(err)
+	switch {
+	case strings.Contains(msg, "explicit deny in an identity-based policy"):
+		return paused
+	case strings.Contains(msg, "service control policy") || strings.Contains(msg, "resource control policy"):
+		return "your organization blocks this call: ask your admin"
+	case !policy.AllowedModel(model):
+		return "your role may only call Anthropic Claude models (not Fable): ask your admin if you need this one"
+	case strings.Contains(msg, "no identity-based policy allows"):
+		return "your admin doesn't allow this model: ask them which models you may use" + regionHint(region)
+	}
+	return "your Bedrock access is paused (monthly budget used up, or paused by your admin), or your admin " +
+		"doesn't allow this model: ask your admin" + regionHint(region)
 }
 
-// short drops the SDK's operation and request ID wrapping from an error.
+const paused = "your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st"
+
+// regionHint points out the region when it makes the default models global. ones, which an
+// allow-list of us. or eu. models doesn't cover.
+func regionHint(region string) string {
+	if config.Geo(region) != "global." {
+		return ""
+	}
+	return ". Your profile's region " + region + " uses global. models; if your admin allows us. or eu. ones, " +
+		"use a US or EU region: bedrock setup --region us-east-1 --yes"
+}
+
 func short(err error) error {
 	msg := err.Error()
 	if i := strings.LastIndex(msg, "api error "); i >= 0 {

@@ -146,6 +146,8 @@ region = us-west-2
   runs in another region, `--id <id>` when your admin's setup has another id than `bedrock`
   (one AWS account can hold several setups; you may be in more than one, with a role in each: use
   `--profile-name` to keep their profiles apart), and `--role-arn` when your role has a custom name.
+  Outside a US or EU region the default models are `global.` ones, and `setup` prints a note: if your
+  admin allows only `us.` or `eu.` models, pass a matching `--region`.
 - It keeps the previous file as `config.bak`. If a `bedrock` profile already exists, it shows the
   old and new block and asks before replacing it. `--yes` replaces it without asking.
 - If you have several SSO profiles, it asks which one you sign in with, or pass
@@ -372,8 +374,10 @@ the fix under it:
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
-| `model <id>` | `AccessDeniedException`, on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
-| `model <id>` | `AccessDeniedException`, on another model | Your role may only call Anthropic Claude models (not Fable), and only the ones your admin allows. Ask your admin if you need this one. |
+| `model <id>` | `AccessDeniedException ... explicit deny in an identity-based policy` (or no message), on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
+| `model <id>` | `AccessDeniedException ... no identity-based policy allows` | Your admin doesn't allow this model. If the model starts with `global.`, your profile's region isn't a US or EU one: when your admin allows `us.` or `eu.` models, run `bedrock setup --region us-east-1 --yes` (or an EU region). |
+| `model <id>` | `AccessDeniedException ... service control policy` | Your organization blocks the call: ask your admin |
+| `model <id>` | `AccessDeniedException`, on a non-Claude model | Your role may only call Anthropic Claude models (not Fable), and only the ones your admin allows. Ask your admin if you need this one. |
 | `model <id>` | `ValidationException` or not found | The model is not offered in your region. Use another model, or ask your admin for the right region. |
 | `uvx` | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) |
 | `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |

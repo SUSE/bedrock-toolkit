@@ -154,6 +154,15 @@ func ErrorCode(err error) string {
 	return ""
 }
 
+// ErrorMessage returns the AWS error message of err, or "".
+func ErrorMessage(err error) string {
+	var ae smithy.APIError
+	if errors.As(err, &ae) {
+		return ae.ErrorMessage()
+	}
+	return ""
+}
+
 // IsNotFound reports whether err means the resource does not exist.
 func IsNotFound(err error) bool {
 	switch ErrorCode(err) {

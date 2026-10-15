@@ -159,6 +159,11 @@ func (a *App) setup(ctx context.Context, f setupFlags) error {
 		}
 	}
 
+	if config.Geo(region) == "global." {
+		a.printf("Note: region %s uses the global. Claude models. If your admin allows only us. or eu. models,\n"+
+			"run again with a US or EU region, e.g. --region us-east-1.\n\n", region)
+	}
+
 	arn, err := a.AWS.Identity(ctx, src)
 	if err != nil {
 		return fmt.Errorf("reading your SSO identity with profile %s: %w\nSign in first: %s", src, err, loginCommand(file, src))

@@ -9,15 +9,26 @@ import (
 )
 
 func TestModelFix(t *testing.T) {
-	denied := &smithy.GenericAPIError{Code: "AccessDeniedException"}
-	cases := []struct{ model, want string }{
-		{"us.anthropic.claude-sonnet-4-5-20250929-v1:0", "paused"},
-		{"us.anthropic.claude-fable-1-v1:0", "not Fable"},
-		{"amazon.nova-pro-v1:0", "only call Anthropic Claude"},
+	deny := func(msg string) error { return &smithy.GenericAPIError{Code: "AccessDeniedException", Message: msg} }
+	const sonnet = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+	cases := []struct {
+		err           error
+		region, model string
+		want, not     string
+	}{
+		{deny("... with an explicit deny in an identity-based policy"), "us-east-1", sonnet, "paused", ""},
+		{deny("... because no identity-based policy allows the bedrock:InvokeModel action"), "us-east-1", sonnet, "doesn't allow this model", "paused"},
+		{deny("... because no identity-based policy allows the bedrock:InvokeModel action"), "ap-south-1", "global.anthropic.claude-haiku-4-5", "--region us-east-1", "paused"},
+		{deny("... with an explicit deny in a service control policy"), "us-east-1", sonnet, "organization", ""},
+		{deny(""), "us-east-1", sonnet, "paused", "--region"},
+		{deny(""), "us-east-1", "us.anthropic.claude-fable-1-v1:0", "not Fable", ""},
+		{deny(""), "us-east-1", "amazon.nova-pro-v1:0", "only call Anthropic Claude", ""},
+		{&smithy.GenericAPIError{Code: "ValidationException"}, "us-east-1", sonnet, "not offered in us-east-1", ""},
 	}
 	for _, c := range cases {
-		if got := modelFix(denied, "us-west-2", c.model); !strings.Contains(got, c.want) {
-			t.Errorf("%s: %q, want it to contain %q", c.model, got, c.want)
+		got := modelFix(c.err, c.region, c.model)
+		if !strings.Contains(got, c.want) || (c.not != "" && strings.Contains(got, c.not)) {
+			t.Errorf("%v %s %s: %q, want %q without %q", c.err, c.region, c.model, got, c.want, c.not)
 		}
 	}
 }
