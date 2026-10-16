@@ -1,6 +1,6 @@
 *** Settings ***
 Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
-...                 doctor, models --regions, export, a second setup in the same account, and uninstall. The run's setup has
+...                 doctor, models, export, a second setup in the same account, and uninstall. The run's setup has
 ...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
 Resource            ../resources/common.resource
 Suite Setup         Start Account Run
@@ -68,8 +68,8 @@ Doctor Passes
     Should Contain    ${names}    permissions
 
 Models Shows Where Allowed Models Send Requests
-    [Documentation]    models --regions reads each allowed profile's regions from AWS; only allowed rows get them.
-    ${rows}=    Admin    models    --filter    claude    --regions    --json
+    [Documentation]    models reads each allowed profile's regions from AWS; only allowed rows get them.
+    ${rows}=    Admin    models    --filter    claude    --json
     ${listed}=    Evaluate    [r for r in $rows if r["id"] in $MODELS]
     Should Not Be Empty    ${listed}    no inference profile of ${MODELS} in the list
     FOR    ${row}    IN    @{listed}

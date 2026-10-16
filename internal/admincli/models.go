@@ -29,7 +29,7 @@ type modelRow struct {
 	// Users is "allowed" when personal roles may call it under the file's models: (plus the baseline
 	// models), "not listed" when they may call others, and "never" for models policy.AllowedModel rejects.
 	Users string `json:"users"`
-	// Regions, with --regions, are where an allowed profile routes requests. It is ["any"] for global.
+	// Regions are where an allowed profile routes requests. It is ["any"] for global.
 	// profiles, which AWS may route to any commercial region.
 	Regions []string `json:"regions,omitempty"`
 }
@@ -39,7 +39,6 @@ const anyRegion = "any"
 
 func (a *App) modelsCmd() *cobra.Command {
 	var region, filter string
-	var regions bool
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "List the inference profiles in the region, for models: in the file",
@@ -49,8 +48,8 @@ The USERS column says whether personal roles may call each one under the file: "
 is empty, or it or the built-in baseline models list it), "not listed" (they list others) or
 "never" (personal roles may call only Claude models, and never Fable).
 
---regions adds a REGIONS column: the regions each allowed profile sends requests to, as AWS reports
-them now (they can change). A global. profile may go to any commercial region. This shows where
+The REGIONS column shows the regions each allowed profile sends requests to, as AWS reports them
+now (they can change). A global. profile may go to any commercial region. This shows where
 users' requests are processed.
 
 It lists only the region's profiles: eu. profiles exist only in EU regions, for example. Users can
@@ -58,7 +57,6 @@ pick another region in bedrock setup; use --region to see what they get there.
 
   bedrock-admin models
   bedrock-admin models --filter claude
-  bedrock-admin models --filter claude --regions
   bedrock-admin models --filter nova --region eu-west-1`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -92,20 +90,17 @@ pick another region in bedrock setup; use --region to see what they get there.
 				return err
 			}
 			rows := modelRows(profiles, cfg.AllowedModels(), filter)
-			if regions {
-				if err := routeRegions(ctx, c.Bedrock, rows); err != nil {
-					return err
-				}
+			if err := routeRegions(ctx, c.Bedrock, rows); err != nil {
+				return err
 			}
 			if a.JSON {
 				return cli.WriteJSON(a.Out, rows)
 			}
-			return a.printModels(cfg, rows, filter, regions)
+			return a.printModels(cfg, rows, filter)
 		},
 	}
 	cmd.Flags().StringVar(&region, "region", "", "region (default: the file's, else the profile's)")
 	cmd.Flags().StringVar(&filter, "filter", "", "only models whose ID or name contains this text (any case)")
-	cmd.Flags().BoolVar(&regions, "regions", false, "show the regions each allowed model sends requests to")
 	return cmd
 }
 
@@ -201,7 +196,7 @@ func regionsCell(r modelRow) string {
 	return strings.Join(r.Regions, " ")
 }
 
-func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string, regions bool) error {
+func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string) error {
 	if len(rows) == 0 {
 		if filter != "" {
 			_, err := fmt.Fprintf(a.Out, "No inference profiles in %s match %q.\n", cfg.Region, filter)
@@ -211,17 +206,9 @@ func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string, re
 		return err
 	}
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-	head := "MODEL ID\tNAME\tSTATUS\tUSERS"
-	if regions {
-		head += "\tREGIONS"
-	}
-	fmt.Fprintln(w, head)
+	fmt.Fprintln(w, "MODEL ID\tNAME\tSTATUS\tUSERS\tREGIONS")
 	for _, r := range rows {
-		line := fmt.Sprintf("%s\t%s\t%s\t%s", r.ID, r.Name, r.Status, r.Users)
-		if regions {
-			line += "\t" + regionsCell(r)
-		}
-		fmt.Fprintln(w, line)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Name, r.Status, r.Users, regionsCell(r))
 	}
 	if err := w.Flush(); err != nil {
 		return err
