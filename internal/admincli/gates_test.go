@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
-	"github.com/innobead/bedrock-toolkit/internal/usage"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 func TestNeedsYes(t *testing.T) {

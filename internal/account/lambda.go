@@ -14,11 +14,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 
-	"github.com/innobead/bedrock-toolkit/internal/awsx"
-	"github.com/innobead/bedrock-toolkit/internal/iamrole"
-	"github.com/innobead/bedrock-toolkit/internal/lambdacode"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/iamrole"
+	"github.com/SUSE/bedrock-toolkit/internal/lambdacode"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // Environment variables of the monthly Lambda.

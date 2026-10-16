@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/innobead/bedrock-toolkit/internal/awsconf"
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/websearch"
+	"github.com/SUSE/bedrock-toolkit/internal/awsconf"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/websearch"
 )
 
 // ClaudeRunner runs the claude CLI in dir with env and returns its combined output.

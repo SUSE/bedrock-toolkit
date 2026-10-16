@@ -16,13 +16,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 	btypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
 
-	"github.com/innobead/bedrock-toolkit/internal/account"
-	"github.com/innobead/bedrock-toolkit/internal/awsx"
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/iamrole"
-	"github.com/innobead/bedrock-toolkit/internal/pause"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/account"
+	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/iamrole"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // MaxSession is the personal role session length.

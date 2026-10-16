@@ -9,8 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	budgettypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
 
-	"github.com/innobead/bedrock-toolkit/internal/policy"
-	"github.com/innobead/bedrock-toolkit/internal/usage"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 func TestTagBudgetWithSpend(t *testing.T) {

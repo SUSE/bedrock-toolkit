@@ -14,11 +14,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/spf13/cobra"
 
-	"github.com/innobead/bedrock-toolkit/internal/awsconf"
-	"github.com/innobead/bedrock-toolkit/internal/awsx"
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/pause"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/awsconf"
+	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // Budget is a user's own budget and pause state, as their personal role reads them.

@@ -12,10 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	btypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 
-	bedrocktoolkit "github.com/innobead/bedrock-toolkit"
+	bedrocktoolkit "github.com/SUSE/bedrock-toolkit"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {

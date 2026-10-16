@@ -7,8 +7,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	bedrocktoolkit "github.com/innobead/bedrock-toolkit"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	bedrocktoolkit "github.com/SUSE/bedrock-toolkit"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // Geo returns the region's inference profile prefix: us. or eu., else global. (apac. doesn't offer

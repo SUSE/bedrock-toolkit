@@ -15,10 +15,10 @@ import (
 	btypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	"github.com/spf13/cobra"
 
-	"github.com/innobead/bedrock-toolkit/internal/awsx"
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // modelRow is one inference profile users could be allowed to call.

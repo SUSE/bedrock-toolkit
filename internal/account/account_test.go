@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
 )
 
 func TestOwned(t *testing.T) {

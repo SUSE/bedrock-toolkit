@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/pause"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
 )
 
 // Observed is a user's current state in AWS, in plain values so Diff can be tested.

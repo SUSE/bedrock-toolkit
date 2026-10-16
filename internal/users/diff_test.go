@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/innobead/bedrock-toolkit/internal/config"
-	"github.com/innobead/bedrock-toolkit/internal/pause"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
 )
 
 var now = time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)

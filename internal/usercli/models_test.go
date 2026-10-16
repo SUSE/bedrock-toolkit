@@ -7,8 +7,8 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 func TestModels(t *testing.T) {

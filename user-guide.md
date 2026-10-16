@@ -93,7 +93,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 - The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
+  curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | sh -s -- bedrock
   ```
 - Your admin has onboarded you with your SSO username, the email you sign in with (not an alias).
   If you're not sure which one that is, run this with your SSO profile and send your admin the

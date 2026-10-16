@@ -13,8 +13,8 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/innobead/bedrock-toolkit/internal/cli"
-	"github.com/innobead/bedrock-toolkit/internal/websearch"
+	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/websearch"
 )
 
 const email = "achen@example.com"

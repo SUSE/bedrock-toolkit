@@ -58,9 +58,9 @@ macOS and Linux, amd64 and arm64. The installer needs only `sh` and `curl`:
 
 ```bash
 # Users
-curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
+curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | sh -s -- bedrock
 # Admins
-curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock-admin
+curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | sh -s -- bedrock-admin
 ```
 
 It installs the latest release to `/usr/local/bin`, or `~/.local/bin` when that isn't writable, after
@@ -68,7 +68,7 @@ checking the download against `checksums.txt`. Name both CLIs to install both. `
 another release and `INSTALL_DIR` another directory; set them on `sh`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
+curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
 ```
 
 <details>
@@ -87,8 +87,8 @@ binary on your `PATH`.
 With Go installed, you can also build from source:
 
 ```bash
-go install github.com/innobead/bedrock-toolkit/cmd/bedrock@latest
-go install github.com/innobead/bedrock-toolkit/cmd/bedrock-admin@latest
+go install github.com/SUSE/bedrock-toolkit/cmd/bedrock@latest
+go install github.com/SUSE/bedrock-toolkit/cmd/bedrock-admin@latest
 ```
 
 A `bedrock-admin` built by `go install` has no monthly Lambda inside, because the Lambda package is

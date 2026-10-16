@@ -11,7 +11,7 @@ import (
 
 	"github.com/aws/smithy-go"
 
-	"github.com/innobead/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
 )
 
 func runUsage(t *testing.T, f *fakeAWS, cfg string, args ...string) (int, string) {

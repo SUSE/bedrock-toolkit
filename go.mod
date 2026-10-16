@@ -1,8 +1,9 @@
-module github.com/innobead/bedrock-toolkit
+module github.com/SUSE/bedrock-toolkit
 
 go 1.27.1
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/aws/aws-lambda-go v1.55.1
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.7
@@ -26,7 +27,6 @@ require (
 )
 
 require (
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1 // indirect

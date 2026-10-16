@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs bedrock and/or bedrock-admin from the GitHub release.
 #
-#   curl -fsSL https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/install.sh | sh -s -- bedrock
+#   curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | sh -s -- bedrock
 #
 # Arguments: bedrock, bedrock-admin, or both (default: bedrock).
 # Environment: VERSION (a tag such as v1.2.0; default: the latest release),
@@ -9,7 +9,7 @@
 # Needs only sh, curl, tar and sha256sum (or shasum).
 set -eu
 
-REPO=innobead/bedrock-toolkit
+REPO=SUSE/bedrock-toolkit
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 

@@ -10,9 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	itypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 
-	"github.com/innobead/bedrock-toolkit/internal/iamrole"
-	"github.com/innobead/bedrock-toolkit/internal/plan"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/iamrole"
+	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 func isNoSuchEntity(err error) bool {

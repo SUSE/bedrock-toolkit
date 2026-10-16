@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/innobead/bedrock-toolkit/internal/usercli"
+	"github.com/SUSE/bedrock-toolkit/internal/usercli"
 )
 
 var version = "dev"
