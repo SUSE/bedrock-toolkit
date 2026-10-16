@@ -22,7 +22,8 @@ Apply Creates The Account Setup
     Should Be Equal    ${env_id}    ${ID}
     Schedule Should Exist
     ${p}=    Plan
-    FOR    ${m}    IN    @{MODELS}
+    ${allowed}=    Allowed Models
+    FOR    ${m}    IN    @{allowed}
         Plan Op Should Be    ${p}    model ${m}    ok
     END
     ${tag}=    Plan Item    ${p}    cost allocation tag iamPrincipal/owner

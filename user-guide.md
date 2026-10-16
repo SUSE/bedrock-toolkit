@@ -39,7 +39,7 @@ below; click the folded sections for sample output and details.
 
 - You use Bedrock through a personal AWS role that only you can use, from your SSO login.
 - You can use Anthropic Claude models, except the Claude Fable family, which is not approved. Your
-  admin may allow only some of them.
+  admin may allow only some of them, but Claude Opus, Sonnet and Haiku 5.5 are always allowed.
 - You have a monthly budget. You get an email from AWS Budgets when you pass the alert threshold
   (usually 80%). When you reach your limit, your Bedrock access is paused until your admin unpauses
   you, or until the 1st of next month.

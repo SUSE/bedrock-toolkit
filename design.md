@@ -93,7 +93,7 @@ Marketplace charges too.
 | Identity | SSO | IAM users: long-lived keys, separate lifecycle, not covered by SSO offboarding |
 | Per-person cost attribution | IAM principal tag on a personal role | Application inference profiles per user: one per user per model, too many. SSO session tags: need IT changes, and billing support is unconfirmed. |
 | Per-person enforcement | A budget action attaches a shared deny policy to the personal role | A deny on the shared SSO role: pauses everyone, or needs one conditional policy per user, and Identity Center may overwrite it |
-| Model access | Anthropic Claude models, or only those in `models:` when listed; the Claude Fable family is always denied (not approved) | All models: less predictable spend, and most use is Claude. Per-model budgets: Budgets can't pause per model. |
+| Model access | Anthropic Claude models, or only those in `models:` plus the built-in baseline models when listed; the Claude Fable family is always denied (not approved) | All models: less predictable spend, and most use is Claude. Per-model budgets: Budgets can't pause per model. |
 | Getting into the personal role | SSO, then `sts:AssumeRole` (role chaining) | IAM account access manager: no chaining, but IT must enable it in the management account. See [Later](#15-later-and-open-items). |
 | Configuration | A desired-state file and `plan`/`apply` | Copy-paste commands and per-user scripts: easy to drift, no review |
 | Reading spend | The cost export's Parquet files, read directly | Cost Explorer: can't group by caller. A query engine (DuckDB): an extra install for four columns. |
@@ -111,7 +111,7 @@ region: us-west-2
 profile: bedrock-admin          # AWS CLI profile
 product: genai-tools            # product tag on every personal role; a user's product: overrides it
 
-models:                         # optional: the only models users may call; checked by apply and doctor
+models:                         # optional: the only models users may call, with the baseline; checked by apply and doctor
   - us.anthropic.claude-opus-5-5
   - us.anthropic.claude-sonnet-5-5
   - us.anthropic.claude-haiku-5-5
@@ -153,7 +153,7 @@ users:
   trigger follows the limit. `pause_at_percent` is 1 to 200. Forecast-based pauses and fixed-dollar
   thresholds are not offered: forecasts are noisy early in the month, and fixed amounts would not
   follow the limit.
-- `models:` is optional. When listed, personal roles may call only those models: each inference profile and its foundation model in every region (cross-region profiles route to several). When empty, they may call any Claude model except Fable, and `apply` and `doctor` use Claude Haiku 5.5 for their checks. Listing a non-Claude or Fable model is a config error. `bedrock-admin models` lists the region's inference profiles from every provider, `--filter` keeps those whose ID or name contains a text, and its USERS column marks what personal roles may call. `--regions` adds the regions each allowed profile routes requests to, from `GetInferenceProfile` (`any` for `global.` profiles, which AWS reports only as the calling region). `configure` fills `models:` in a new file from `models.toml` in the repository (downloaded from GitHub, not built in; each ID gets the region's `us.`/`eu.` prefix and also `global.`, since the user CLI picks the prefix from each user's region; only `global.` in other regions), and leaves it empty when it can't download the file or the list is empty.
+- `models:` is optional. When listed, personal roles may call only those models and the baseline models (`Config.AllowedModels`): each inference profile and its foundation model in every region (cross-region profiles route to several). The baseline is `models.toml` in the repository, built into `bedrock-admin` with `go:embed` (each release pins its copy), so the Claude models the user CLI and Claude Code use always stay allowed; it lists each model with every prefix (`us.`, `eu.`, `global.`; an ID without a prefix gets all three) and the policy allows them all, since the user CLI picks the prefix from each user's region, which can differ from the setup's; Step 1.5 enables them all, calling another geography's `us.`/`eu.` profiles from us-east-1 or eu-central-1 (`Config.ModelRegion`), so users in any region find them enabled; `doctor` and `configure` use only the region's (its `us.`/`eu.` prefix and `global.`, or only `global.` in other regions), and `export` drops the other geographies' entries. When empty, they may call any Claude model except Fable, and `apply` still enables every baseline model (personal roles can't enable a model themselves) and `doctor` tests the region's. Listing a non-Claude or Fable model is a config error; `policy.AllowedModel` is the only rule on what may be listed (its wording is `policy.AllowedModelsText`), and the policy statements, budgets, usage and `Converse` test calls don't depend on the provider, so allowing other providers later means changing that rule. `bedrock-admin models` lists the region's inference profiles from every provider, `--filter` keeps those whose ID or name contains a text, and its USERS column marks what personal roles may call. `--regions` adds the regions each allowed profile routes requests to, from `GetInferenceProfile` (`any` for `global.` profiles, which AWS reports only as the calling region). `configure` fills `models:` in a new file with the baseline models.
 - The full list of fields and defaults is in the
   [admin guide](admin-guide.md#2-create-bedrockyaml).
 
@@ -181,7 +181,7 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
 | 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/`. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st) | Re-arms every pause of the id's users each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
-| 1.5 | Model access: a first call to each model in `models:` (Claude Haiku 5.5 when empty) | Some models need a first call, from the account, before anyone can use them |
+| 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can activate it; from a member account `plan` shows "needs org admin". |
 | 1.7 | Model calls outside personal roles are blocked | See below |
 | 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
@@ -294,7 +294,7 @@ Each user gets one role per setup, `bedrock-user-<id>-<name>`, under the path `/
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
 | Tag `product` | The user's `product`, else `product` from the file | Charge spend to a team or product |
 | Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-several-setups-in-one-account)) |
-| Inline policy `bedrock-invoke` | Call and stream the models in `models:`, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
+| Inline policy `bedrock-invoke` | Call and stream the models in `models:` and the baseline, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
 | Max session | 1 hour | The limit for role chaining |
 
 ### Trust policy

@@ -309,7 +309,7 @@ func (c *Config) Validate() error {
 			add("models[%d]: not a model ID (%q)", i, m)
 		}
 		if !policy.AllowedModel(m) {
-			add("models[%d]: %s can't be called from personal roles (they may call Anthropic Claude models except Fable)", i, m)
+			add("models[%d]: %s can't be called from personal roles (they may call %s)", i, m, policy.AllowedModelsText)
 		}
 		if seenModel[m] {
 			add("models[%d]: %s is listed twice", i, m)

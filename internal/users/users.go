@@ -55,7 +55,7 @@ func RoleSpec(cfg *config.Config, account string, u config.Resolved) iamrole.Spe
 	return iamrole.Spec{Name: u.RoleName, Path: policy.UserPath(cfg.ID),
 		Description: "Personal Bedrock role of " + u.Email,
 		Trust:       policy.UserTrust(account, u.Email), InlineName: policy.InvokePolicyName,
-		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.Models), MaxSession: MaxSession,
+		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.AllowedModels()), MaxSession: MaxSession,
 		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: u.Product, policy.IDTag: cfg.ID}}
 }
 

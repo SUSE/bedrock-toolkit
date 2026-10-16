@@ -3,8 +3,6 @@ package admincli
 import (
 	"bytes"
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +14,8 @@ import (
 
 	"github.com/innobead/bedrock-toolkit/internal/config"
 	"github.com/innobead/bedrock-toolkit/internal/policy"
+
+	bedrocktoolkit "github.com/innobead/bedrock-toolkit"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {
@@ -23,7 +23,6 @@ func run(t *testing.T, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
 	a := New("test")
 	a.In, a.Out, a.Err = strings.NewReader(""), &out, &errb
-	a.ModelsURL = ""
 	code := a.Main(context.Background(), args)
 	return code, out.String(), errb.String()
 }
@@ -100,8 +99,8 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "models:") {
-		t.Errorf("a new file must not limit models:\n%s", out)
+	if !strings.Contains(out, "models:\n  - global.anthropic.claude-opus-5-5\n") {
+		t.Errorf("a new file starts with the baseline models:\n%s", out)
 	}
 	if _, err := os.Stat(f); err == nil {
 		t.Error("--dry-run wrote the file")
@@ -157,12 +156,38 @@ func TestShortAWSError(t *testing.T) {
 
 func TestTestModels(t *testing.T) {
 	c := &config.Config{Region: "eu-west-1"}
-	if got := c.TestModels(); !slices.Equal(got, []string{"eu.anthropic.claude-haiku-5-5"}) {
+	if got := c.TestModels(); !slices.Equal(got, config.BaselineModels("eu-west-1")) {
 		t.Fatalf("no models: %v", got)
 	}
-	c.Models = []string{"eu.anthropic.claude-opus-5-5"}
-	if got := c.TestModels(); !slices.Equal(got, c.Models) {
-		t.Fatalf("listed: %v", got)
+	c.Models = []string{"eu.anthropic.claude-3-7-sonnet-20250219-v1:0", "global.anthropic.claude-opus-5-5"}
+	if got := c.EnableModels(); len(got) != 2+len(config.BaselineAllGeos())-1 || !slices.Contains(got, "us.anthropic.claude-haiku-5-5") {
+		t.Fatalf("enable: %v", got)
+	}
+	for m, want := range map[string]string{"us.anthropic.claude-haiku-5-5": "us-east-1", "eu.x": "eu-west-1", "global.x": "eu-west-1", "anthropic.x": "eu-west-1"} {
+		if got := config.ModelRegion("eu-west-1", m); got != want {
+			t.Fatalf("region of %s: %s", m, got)
+		}
+	}
+	if got := config.ModelRegion("ap-northeast-1", "eu.x"); got != "eu-central-1" {
+		t.Fatalf("eu. from apac: %s", got)
+	}
+	if got := (&config.Config{Region: "us-east-1", Models: c.Models}).TestModels(); slices.Contains(got, c.Models[0]) {
+		t.Fatalf("doctor tests another geography's profile: %v", got)
+	}
+	want := append(slices.Clone(c.Models), "eu.anthropic.claude-opus-5-5", "eu.anthropic.claude-sonnet-5-5",
+		"eu.anthropic.claude-haiku-5-5", "global.anthropic.claude-sonnet-5-5", "global.anthropic.claude-haiku-5-5")
+	if got := c.TestModels(); !slices.Equal(got, want) {
+		t.Fatalf("listed plus baseline: %v", got)
+	}
+	// The policy allows the baseline with every prefix, as users may pick another region.
+	allowed := c.AllowedModels()
+	for _, m := range []string{"us.anthropic.claude-haiku-5-5", "eu.anthropic.claude-haiku-5-5", "global.anthropic.claude-haiku-5-5", c.Models[0]} {
+		if !slices.Contains(allowed, m) {
+			t.Fatalf("allowed lacks %s: %v", m, allowed)
+		}
+	}
+	if got := withoutOtherGeoBaseline("eu-west-1", allowed); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
+		t.Fatalf("export: %v", got)
 	}
 }
 
@@ -216,48 +241,53 @@ func TestProfileRegions(t *testing.T) {
 	}
 }
 
-func TestRepoModelsToml(t *testing.T) {
-	b, err := os.ReadFile("../../models.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := config.ParseSuggestedModels(b)
+func TestBaselineModels(t *testing.T) {
+	m, err := config.ParseModelsTOML(bedrocktoolkit.ModelsTOML)
 	if err != nil || len(m) == 0 {
 		t.Fatalf("models.toml: %v, %v", m, err)
 	}
-	if got := config.WithGeo("us-west-2", m); !slices.Equal(got, config.DefaultModels("us-west-2")) {
-		t.Fatalf("models.toml with us.: %v", got)
+	if got := config.BaselineModels("us-west-2"); !slices.Equal(got[:3], config.DefaultModels("us-west-2")) {
+		t.Fatalf("us-west-2 starts with the user CLI's models: %v", got)
+	}
+	if got := config.BaselineAllGeos(); !slices.Equal(got, m) {
+		t.Fatalf("all geos: %v", got)
+	}
+	for region, want := range map[string]int{"us-east-1": 2 * len(m) / 3, "eu-west-1": 2 * len(m) / 3, "ap-northeast-1": len(m) / 3} {
+		got := config.BaselineModels(region)
+		if len(got) != want {
+			t.Fatalf("%s: %v", region, got)
+		}
+		for _, id := range got {
+			if !strings.HasPrefix(id, config.Geo(region)) && !strings.HasPrefix(id, "global.") {
+				t.Fatalf("%s: %v", region, got)
+			}
+		}
+	}
+	got, err := config.ParseModelsTOML([]byte(`models = ["anthropic.claude-haiku-5-5", "us.anthropic.claude-opus-5-5", "anthropic.claude-fable-5", "meta.llama3"]`))
+	if err != nil || !slices.Equal(got, []string{"anthropic.claude-haiku-5-5", "us.anthropic.claude-opus-5-5"}) {
+		t.Fatalf("parse: %v, %v", got, err)
 	}
 }
 
-func TestConfigureSuggestedModels(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models.toml" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(`models = ["anthropic.claude-haiku-5-5", "us.anthropic.claude-opus-5-5", "anthropic.claude-fable-5", "meta.llama3"]`))
-	}))
-	defer srv.Close()
+func TestConfigureBaselineModels(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
-	configure := func(url string) (string, string) {
-		var out, errb bytes.Buffer
-		a := New("test")
-		a.In, a.Out, a.Err, a.ModelsURL = strings.NewReader(""), &out, &errb, url
-		if code := a.Main(context.Background(), []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
-			"--account", "123456789012", "--region", "eu-west-1"}); code != 0 {
-			t.Fatalf("code %d\n%s", code, errb.String())
-		}
-		return out.String(), errb.String()
+	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
+		"--account", "123456789012", "--region", "eu-west-1")
+	if code != 0 {
+		t.Fatalf("code %d\n%s", code, errs)
 	}
-	out, _ := configure(srv.URL + "/models.toml")
-	if !strings.Contains(out, "models:\n  - eu.anthropic.claude-haiku-5-5\n  - us.anthropic.claude-opus-5-5\n  - global.anthropic.claude-haiku-5-5\n") || strings.Contains(out, "fable") || strings.Contains(out, "llama") {
-		t.Fatalf("suggested models:\n%s", out)
+	want := "models:\n"
+	for _, m := range config.BaselineModels("eu-west-1") {
+		want += "  - " + m + "\n"
 	}
-	out, errs := configure(srv.URL + "/missing.toml")
-	if strings.Contains(out, "models:") || !strings.Contains(errs, "models: stays empty") {
-		t.Fatalf("missing models.toml:\n%s\n%s", out, errs)
+	if !strings.Contains(out, want) || !strings.Contains(out, "global.anthropic.claude-haiku-5-5") {
+		t.Fatalf("baseline models:\n%s", out)
+	}
+	code, out, errs = run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
+		"--account", "123456789012", "--region", "eu-west-1", "--model", "eu.anthropic.claude-opus-5-5")
+	if code != 0 || !strings.Contains(out, "models:\n  - eu.anthropic.claude-opus-5-5\n") || strings.Contains(out, "global.") {
+		t.Fatalf("--model: %d\n%s\n%s", code, out, errs)
 	}
 }

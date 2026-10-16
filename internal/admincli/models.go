@@ -26,8 +26,8 @@ type modelRow struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
-	// Users is "allowed" when personal roles may call it under the file's models:, "not listed" when
-	// models: lists others, and "never" for models personal roles can't call (non-Claude, and Fable).
+	// Users is "allowed" when personal roles may call it under the file's models: (plus the baseline
+	// models), "not listed" when they may call others, and "never" for models policy.AllowedModel rejects.
 	Users string `json:"users"`
 	// Regions, with --regions, are where an allowed profile routes requests. It is ["any"] for global.
 	// profiles, which AWS may route to any commercial region.
@@ -46,12 +46,15 @@ func (a *App) modelsCmd() *cobra.Command {
 		Long: `models lists the inference profiles the region offers, from every provider. Their IDs are what
 models: in bedrock.yaml takes. --filter keeps those whose ID or name contains the text (any case).
 The USERS column says whether personal roles may call each one under the file: "allowed" (models:
-is empty, or lists it), "not listed" (models: lists others) or "never" (personal roles may call
-only Claude models, and never Fable).
+is empty, or it or the built-in baseline models list it), "not listed" (they list others) or
+"never" (personal roles may call only Claude models, and never Fable).
 
 --regions adds a REGIONS column: the regions each allowed profile sends requests to, as AWS reports
-them now (they can change). A global. profile may go to any commercial region. Users still use only
-the file's region and the IDs in models:; this shows where their requests are processed.
+them now (they can change). A global. profile may go to any commercial region. This shows where
+users' requests are processed.
+
+It lists only the region's profiles: eu. profiles exist only in EU regions, for example. Users can
+pick another region in bedrock setup; use --region to see what they get there.
 
   bedrock-admin models
   bedrock-admin models --filter claude
@@ -88,7 +91,7 @@ the file's region and the IDs in models:; this shows where their requests are pr
 			if err != nil {
 				return err
 			}
-			rows := modelRows(profiles, cfg.Models, filter)
+			rows := modelRows(profiles, cfg.AllowedModels(), filter)
 			if regions {
 				if err := routeRegions(ctx, c.Bedrock, rows); err != nil {
 					return err
@@ -235,7 +238,8 @@ func (a *App) printModels(cfg *config.Config, rows []modelRow, filter string, re
 	if !a.Quiet {
 		if len(cfg.Models) == 0 {
 			fmt.Fprintf(a.Out, "\nmodels: is empty, so personal roles may call any Claude model except Fable. List IDs\n"+
-				"under models: to allow only those; doctor then test-calls them instead of %s.\n", config.DefaultTestModel(cfg.Region))
+				"under models: to allow only those plus the baseline models (%s), which apply\n"+
+				"enables and doctor test-calls either way.\n", strings.Join(config.BaselineModels(cfg.Region), ", "))
 		}
 		if len(missing) > 0 {
 			fmt.Fprintf(a.Out, "\nNot inference profiles in %s (foundation model IDs, or typos): %s\n", cfg.Region, strings.Join(missing, ", "))

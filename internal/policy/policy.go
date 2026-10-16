@@ -226,7 +226,12 @@ func UserTrust(account, email string) string {
 			"StringEquals": doc{"sts:RoleSessionName": email}}})
 }
 
-// AllowedModel reports whether UserInvoke can let personal roles call a model ID or inference profile ID.
+// AllowedModelsText describes the models AllowedModel accepts, for messages.
+const AllowedModelsText = "Anthropic Claude models except Fable"
+
+// AllowedModel reports whether UserInvoke can let personal roles call a model ID or inference profile
+// ID. It is the only rule on which models models: and models.toml may list; allowing other providers
+// means changing it and AllowedModelsText.
 func AllowedModel(model string) bool {
 	return strings.Contains(model, "anthropic.claude-") && !strings.Contains(model, "anthropic.claude-fable")
 }

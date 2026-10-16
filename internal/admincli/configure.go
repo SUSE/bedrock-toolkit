@@ -101,18 +101,15 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	}
 	a.fillFromAWS(ctx, cur)
 
-	// A new file starts with the models in the repository's models.toml, when it can be read.
-	var suggested []string
-	if doc.Kind == 0 && len(cur.Models) == 0 {
-		suggested = a.suggestedModels(ctx)
-	}
+	// A new file starts with the baseline models (the built-in models.toml).
+	newFile := doc.Kind == 0 && len(cur.Models) == 0
 	interactive := !a.Yes && cli.IsTerminal(a.In)
 	if interactive {
-		if err := a.ask(cur, cmd.Flags().Changed, suggested); err != nil {
+		if err := a.ask(cur, cmd.Flags().Changed, newFile); err != nil {
 			return err
 		}
-	} else if len(cur.Models) == 0 && cur.Region != "" {
-		cur.Models = config.SuggestedWithGeo(cur.Region, suggested)
+	} else if newFile && cur.Region != "" {
+		cur.Models = config.BaselineModels(cur.Region)
 	}
 	if cur.Region == "" {
 		return errors.New("no region: the profile has none; pass --region")
@@ -171,20 +168,7 @@ func (a *App) fillFromAWS(ctx context.Context, c *config.Config) {
 	}
 }
 
-// suggestedModels reads models.toml from ModelsURL; nil when it can't.
-func (a *App) suggestedModels(ctx context.Context) []string {
-	if a.ModelsURL == "" {
-		return nil
-	}
-	m, err := config.FetchSuggestedModels(ctx, a.ModelsURL)
-	if err != nil {
-		fmt.Fprintf(a.Err, "Couldn't read the suggested models (%v); models: stays empty: any Claude model except Fable.\n", err)
-		return nil
-	}
-	return m
-}
-
-func (a *App) ask(c *config.Config, changed func(string) bool, suggested []string) error {
+func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) error {
 	p := cli.NewPrompter(a.In, a.Err)
 	q := func(flag, question string, dst *string, def string) error {
 		if changed(flag) {
@@ -213,10 +197,10 @@ func (a *App) ask(c *config.Config, changed func(string) bool, suggested []strin
 	}
 	if !changed("model") {
 		def := c.Models
-		if len(def) == 0 {
-			def = config.SuggestedWithGeo(c.Region, suggested)
+		if len(def) == 0 && newFile {
+			def = config.BaselineModels(c.Region)
 		}
-		v, err := p.Ask("models users may call (comma-separated inference profile IDs; empty: any Claude model except Fable)",
+		v, err := p.Ask("models users may call (comma-separated inference profile IDs; the baseline models are always added; empty: any Claude model except Fable)",
 			strings.Join(def, ","))
 		if err != nil {
 			return err

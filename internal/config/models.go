@@ -1,20 +1,15 @@
 package config
 
 import (
-	"context"
-	"fmt"
-	"io"
-	"net/http"
+	"slices"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/BurntSushi/toml"
 
+	bedrocktoolkit "github.com/innobead/bedrock-toolkit"
 	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
-
-// SuggestedModelsURL is models.toml in the repository: the models configure puts in a new file.
-const SuggestedModelsURL = "https://raw.githubusercontent.com/innobead/bedrock-toolkit/main/models.toml"
 
 // Geo returns the region's inference profile prefix: us. or eu., else global. (apac. doesn't offer
 // the current Claude models).
@@ -38,43 +33,109 @@ func WithGeo(region string, models []string) []string {
 	return out
 }
 
-// SuggestedWithGeo is WithGeo for the models configure suggests: an ID without a prefix gets the
-// region's prefix and, in a US or EU region, global. too, for users whose region is elsewhere.
-func SuggestedWithGeo(region string, models []string) []string {
-	out := WithGeo(region, models)
-	if Geo(region) == "global." {
-		return out
-	}
-	for _, m := range models {
-		if policy.FoundationModelID(m) == m {
-			out = append(out, "global."+m)
-		}
-	}
-	return out
-}
-
 // DefaultModels returns the models bedrock doctor checks and bedrock claude uses for a region:
 // Claude Opus, Sonnet and Haiku 5.5, through the region's inference profile.
 func DefaultModels(region string) []string {
 	return WithGeo(region, []string{"anthropic.claude-opus-5-5", "anthropic.claude-sonnet-5-5", "anthropic.claude-haiku-5-5"})
 }
 
-// DefaultTestModel is the model admin checks call when models: is empty: Claude Haiku 5.5 through
-// the region's inference profile.
-func DefaultTestModel(region string) string {
-	return DefaultModels(region)[2]
-}
-
-// TestModels returns the models Step 1.5 enables and doctor calls: the listed ones, else Haiku 5.5.
+// TestModels returns the models doctor calls: those in models: the region can call, followed by the
+// region's baseline models they don't include (only the baseline when models: is empty). Other
+// geographies' inference profiles don't exist in the region, so they aren't tested.
 func (c *Config) TestModels() []string {
-	if len(c.Models) > 0 {
-		return c.Models
+	var here []string
+	for _, m := range c.Models {
+		if ModelRegion(c.Region, m) == c.Region {
+			here = append(here, m)
+		}
 	}
-	return []string{DefaultTestModel(c.Region)}
+	return appendMissing(here, BaselineModels(c.Region))
 }
 
-// ParseSuggestedModels reads a models.toml, keeping only models personal roles may call.
-func ParseSuggestedModels(b []byte) ([]string, error) {
+// EnableModels returns the models Step 1.5 enables: models: followed by every baseline model, with
+// every prefix (also when models: is empty, though personal roles may then call any Claude model
+// except Fable). Each is enabled from ModelRegion, as users in other regions call them too.
+func (c *Config) EnableModels() []string {
+	return appendMissing(c.Models, BaselineAllGeos())
+}
+
+// geoRegions are where Step 1.5 enables another geography's inference profiles.
+var geoRegions = map[string]string{"us.": "us-east-1", "eu.": "eu-central-1"}
+
+// ModelRegion returns the region to call a model from: the setup's region, unless the model is a
+// us. or eu. inference profile of another geography, which only that geography's regions offer.
+func ModelRegion(region, model string) string {
+	for geo, r := range geoRegions {
+		if strings.HasPrefix(model, geo) && Geo(region) != geo {
+			return r
+		}
+	}
+	return region
+}
+
+// AllowedModels returns the models personal roles may call: nil when models: is empty (any Claude
+// model except Fable), else models: followed by the baseline models it doesn't list, with every
+// geography's prefix (BaselineAllGeos): each user's CLI picks the prefix from the user's own region,
+// which can differ from the setup's.
+func (c *Config) AllowedModels() []string {
+	if len(c.Models) == 0 {
+		return nil
+	}
+	return appendMissing(c.Models, BaselineAllGeos())
+}
+
+func appendMissing(list, more []string) []string {
+	out := slices.Clone(list)
+	for _, m := range more {
+		if !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+var baseline = sync.OnceValues(func() ([]string, error) { return ParseModelsTOML(bedrocktoolkit.ModelsTOML) })
+
+// BaselineModels returns the built-in models.toml entries a region can call: those with the
+// region's prefix (us. or eu.), then those with global.; only global. outside the US and EU.
+func BaselineModels(region string) []string {
+	all := BaselineAllGeos()
+	out := []string{}
+	for _, geo := range slices.Compact([]string{Geo(region), "global."}) {
+		for _, m := range all {
+			if strings.HasPrefix(m, geo) {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
+
+// BaselineAllGeos returns every model in the built-in models.toml, whatever its prefix: personal
+// roles may call them all, as each user's CLI picks the prefix from the user's own region. An ID
+// without a prefix gets us., eu. and global.
+func BaselineAllGeos() []string {
+	m, err := baseline()
+	if err != nil {
+		panic("built-in models.toml: " + err.Error()) // TestBaselineModels guards it
+	}
+	out := []string{}
+	for _, id := range m {
+		ids := []string{id}
+		if policy.FoundationModelID(id) == id {
+			ids = []string{"us." + id, "eu." + id, "global." + id}
+		}
+		for _, id := range ids {
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+// ParseModelsTOML reads a models.toml, keeping only models personal roles may call.
+func ParseModelsTOML(b []byte) ([]string, error) {
 	var f struct {
 		Models []string `toml:"models"`
 	}
@@ -88,27 +149,4 @@ func ParseSuggestedModels(b []byte) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// FetchSuggestedModels downloads and parses models.toml from url.
-func FetchSuggestedModels(ctx context.Context, url string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	r, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Body.Close() }()
-	if r.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", url, r.Status)
-	}
-	b, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
-	if err != nil {
-		return nil, err
-	}
-	return ParseSuggestedModels(b)
 }

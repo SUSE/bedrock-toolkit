@@ -171,7 +171,7 @@ func modelFix(err error, region, model string) string {
 	case strings.Contains(msg, "service control policy") || strings.Contains(msg, "resource control policy"):
 		return "your organization blocks this call: ask your admin"
 	case !policy.AllowedModel(model):
-		return "your role may only call Anthropic Claude models (not Fable): ask your admin if you need this one"
+		return "your role may only call " + policy.AllowedModelsText + ": ask your admin if you need this one"
 	case strings.Contains(msg, "no identity-based policy allows"):
 		return "your admin doesn't allow this model: ask them which models you may use" + regionHint(region)
 	}

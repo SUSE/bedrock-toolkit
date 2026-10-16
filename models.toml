@@ -1,10 +1,21 @@
-# Models bedrock-admin configure puts in models: when it writes a new bedrock.yaml. configure
-# downloads this file from the repository's main branch (it isn't built into bedrock-admin) and
-# adds the region's prefix to IDs without one: us. or eu., plus global. for users whose own region
-# is elsewhere; only global. in other regions. When it can't download the file, or the list is empty, a
-# new bedrock.yaml leaves models: empty: personal roles may then call any Claude model except Fable.
+# The baseline models, built into bedrock-admin (each release carries its own copy).
+#
+# - When models: lists any model, personal roles may always call all of these too: plan and apply add
+#   them to the personal role policy, whatever the setup's region, as each user's CLI picks the
+#   prefix from the user's own region (an empty models: still means any Claude model except Fable).
+# - Step 1.5 enables all of them, calling us. and eu. ones from a region of that geography.
+# - configure and doctor use only those the setup's region can call: its us. or eu. entries plus
+#   the global. ones (only global. elsewhere).
+#
+# List each model with every prefix users need: us., eu. and global.
 models = [
-  "anthropic.claude-opus-5-5",
-  "anthropic.claude-sonnet-5-5",
-  "anthropic.claude-haiku-5-5",
+  "us.anthropic.claude-opus-5-5",
+  "us.anthropic.claude-sonnet-5-5",
+  "us.anthropic.claude-haiku-5-5",
+  "global.anthropic.claude-opus-5-5",
+  "global.anthropic.claude-sonnet-5-5",
+  "global.anthropic.claude-haiku-5-5",
+  "eu.anthropic.claude-opus-5-5",
+  "eu.anthropic.claude-sonnet-5-5",
+  "eu.anthropic.claude-haiku-5-5",
 ]

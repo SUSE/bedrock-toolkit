@@ -21,7 +21,7 @@ func TestModelFix(t *testing.T) {
 		{deny("... because no identity-based policy allows the bedrock:InvokeModel action"), "ap-south-1", "global.anthropic.claude-haiku-4-5", "--region us-east-1", "paused"},
 		{deny("... with an explicit deny in a service control policy"), "us-east-1", sonnet, "organization", ""},
 		{deny(""), "us-east-1", sonnet, "paused", "--region"},
-		{deny(""), "us-east-1", "us.anthropic.claude-fable-1-v1:0", "not Fable", ""},
+		{deny(""), "us-east-1", "us.anthropic.claude-fable-1-v1:0", "except Fable", ""},
 		{deny(""), "us-east-1", "amazon.nova-pro-v1:0", "only call Anthropic Claude", ""},
 		{&smithy.GenericAPIError{Code: "ValidationException"}, "us-east-1", sonnet, "not offered in us-east-1", ""},
 	}

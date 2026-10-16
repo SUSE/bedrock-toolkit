@@ -9,9 +9,10 @@ ADMIN_PROFILE = "default"
 # Bedrock region of the test setups. The web-search suite needs us-east-1, eu-west-1 or ap-northeast-1.
 REGION = "us-west-2"
 
-# models: in the test config: the only models the test users may call, which apply enables and the
-# suites call. Empty: the Opus, Sonnet and Haiku 5.5 inference profiles for REGION (us., eu. or
-# global. prefix). user-access checks that an unlisted model (Claude Haiku 4.5) is denied.
+# models: in the test config: the models the test users may call (plus the baseline models in
+# models.toml, which bedrock-admin always adds), which apply enables and the suites call. Empty: the
+# Opus, Sonnet and Haiku 5.5 inference profiles for REGION (us., eu. or global. prefix). user-access
+# checks that a baseline model MODELS doesn't list works and an unlisted model (Claude Haiku 4.5) is denied.
 MODELS = []
 
 # product tag of the test users.

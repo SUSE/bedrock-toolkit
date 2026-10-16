@@ -14,6 +14,7 @@ import (
 	cetypes "github.com/aws/aws-sdk-go-v2/service/costexplorer/types"
 
 	"github.com/innobead/bedrock-toolkit/internal/awsx"
+	"github.com/innobead/bedrock-toolkit/internal/config"
 	"github.com/innobead/bedrock-toolkit/internal/plan"
 	"github.com/innobead/bedrock-toolkit/internal/policy"
 )
@@ -49,12 +50,21 @@ func TestCall(ctx context.Context, c *bedrockruntime.Client, model string) error
 
 func (e *Env) models(ctx context.Context) ([]*plan.Item, error) {
 	var out []*plan.Item
-	for _, m := range e.Cfg.TestModels() {
-		it := e.item("1.5", "model "+m)
-		ok, why, err := ModelAvailable(ctx, e.C.Bedrock, m)
+	for _, m := range e.Cfg.EnableModels() {
+		region := config.ModelRegion(e.Cfg.Region, m)
+		target := "model " + m
+		bc, rc := e.C.Bedrock, e.C.Runtime
+		if region != e.Cfg.Region {
+			target += " (in " + region + ")"
+			cfg := e.C.Cfg.Copy()
+			cfg.Region = region
+			bc, rc = bedrock.NewFromConfig(cfg), bedrockruntime.NewFromConfig(cfg)
+		}
+		it := e.item("1.5", target)
+		ok, why, err := ModelAvailable(ctx, bc, m)
 		switch {
 		case err != nil && awsx.IsNotFound(err):
-			it.Op, it.Status = plan.Conflict, "unknown model in "+e.Cfg.Region
+			it.Op, it.Status = plan.Conflict, "unknown model in "+region
 		case err != nil:
 			it.Op, it.Status = plan.Info, "can't check ("+awsx.ErrorCode(err)+"); doctor makes a test call"
 		case !ok:
@@ -62,7 +72,7 @@ func (e *Env) models(ctx context.Context) ([]*plan.Item, error) {
 			it.Notes = []string{why}
 			model := m
 			it.Apply = func(ctx context.Context) error {
-				if err := TestCall(ctx, e.C.Runtime, model); err != nil {
+				if err := TestCall(ctx, rc, model); err != nil {
 					return fmt.Errorf("first call to %s: %w", model, err)
 				}
 				return nil

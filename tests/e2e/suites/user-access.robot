@@ -36,11 +36,17 @@ The Personal Role Works
         Model Call Should Work    ${PROFILE}    ${m}
     END
 
+Baseline Models Need Not Be Listed
+    [Documentation]    A set models: always allows the built-in baseline models (models.toml) too.
+    ${m}=    Baseline Only Model
+    Skip If    not $m    MODELS lists every baseline model
+    Model Call Should Work    ${PROFILE}    ${m}
+
 Only Listed Models Can Be Called
-    [Documentation]    models: is an allow-list: a Claude model the file doesn't list is denied by IAM
-    ...    (no Allow, so not an explicit deny). A denied call costs nothing.
+    [Documentation]    models: is an allow-list: a Claude model neither the file nor the baseline lists is
+    ...    denied by IAM (no Allow, so not an explicit deny). A denied call costs nothing.
     ${m}=    Unlisted Model
-    Skip If    not $m    MODELS lists every model this test could use
+    Skip If    not $m    MODELS or the baseline lists every model this test could use
     Model Call Should Be Denied    ${PROFILE}    ${m}    explicit=False
 
 Doctor Passes

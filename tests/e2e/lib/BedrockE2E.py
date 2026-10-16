@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -104,10 +105,30 @@ def setup_names(account, id_):
     }
 
 
-def default_models(region):
+def _geo(region):
     geo = region.split("-", 1)[0]
-    geo = geo if geo in ("us", "eu") else "global"
-    return [f"{geo}.anthropic.claude-{m}-5-5" for m in ("opus", "sonnet", "haiku")]
+    return geo if geo in ("us", "eu") else "global"
+
+
+def default_models(region):
+    return [f"{_geo(region)}.anthropic.claude-{m}-5-5" for m in ("opus", "sonnet", "haiku")]
+
+
+GEO_PREFIXES = ("us.", "eu.", "apac.", "global.", "jp.", "au.", "ca.", "us-gov.")
+
+
+def baseline_models(region):
+    """The repository's models.toml entries REGION can call (config.BaselineModels): those with its
+    us./eu. prefix, then the global. ones; only global. elsewhere. An ID without a prefix gets each."""
+    with open(HERE.parent.parent / "models.toml", "rb") as f:
+        models = tomllib.load(f).get("models", [])
+    every = []
+    for m in models:
+        every += [m] if m.startswith(GEO_PREFIXES) else [f"{g}.{m}" for g in ("us", "eu", "global")]
+    out = []
+    for g in dict.fromkeys([_geo(region), "global"]):
+        out += [m for m in every if m.startswith(g + ".") and m not in out]
+    return out
 
 
 class Result:
@@ -908,11 +929,21 @@ class BedrockE2E:
             raise Failure(f"call as {profile} denied, but not by an explicit deny: {r['message']}")
         return r["message"]
 
+    def allowed_models(self):
+        """The models the test users may call: MODELS followed by the baseline models it doesn't list."""
+        s = self._settings()
+        return s["MODELS"] + [m for m in baseline_models(s["REGION"]) if m not in s["MODELS"]]
+
+    def baseline_only_model(self):
+        """A baseline model MODELS doesn't list (the user may still call it), or ""."""
+        s = self._settings()
+        return next((m for m in baseline_models(s["REGION"]) if m not in s["MODELS"]), "")
+
     def unlisted_model(self):
-        """A Claude Haiku 4.5 inference profile for REGION, or "" when MODELS lists it."""
+        """A Claude Haiku 4.5 inference profile for REGION, or "" when MODELS or the baseline lists it."""
         geo = self.s["MODELS"][0].split(".", 1)[0]
         m = f"{geo}.anthropic.claude-haiku-4-5-20251001-v1:0"
-        return "" if m in self.s["MODELS"] else m
+        return "" if m in self.allowed_models() else m
 
     def model_call_is_denied(self, profile, model=None):
         r = self._call(profile, model, 1, "Reply with OK.")

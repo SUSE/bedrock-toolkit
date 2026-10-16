@@ -198,6 +198,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if cfg.Models, err = roleModels(ctx, c, found[0].r.RoleName); err != nil {
 			return nil, err
 		}
+		cfg.Models = withoutOtherGeoBaseline(cfg.Region, cfg.Models)
 	}
 
 	// Defaults: the file's when there is one, else the most common values.
@@ -257,4 +258,13 @@ func roleModels(ctx context.Context, c *awsx.Clients, role string) ([]string, er
 		return nil, err
 	}
 	return policy.ListedModels(policy.Decode(aws.ToString(p.PolicyDocument)))
+}
+
+// withoutOtherGeoBaseline drops the baseline models apply adds for other geographies than the
+// region's, so the exported models: holds only models the region offers.
+func withoutOtherGeoBaseline(region string, models []string) []string {
+	here := config.BaselineModels(region)
+	return slices.DeleteFunc(models, func(m string) bool {
+		return slices.Contains(config.BaselineAllGeos(), m) && !slices.Contains(here, m)
+	})
 }

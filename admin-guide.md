@@ -57,7 +57,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 ## How it works, in short
 
 - Each user gets a personal IAM role, `bedrock-user-<id>-<name>`, that can only call Claude models: the
-  ones in `models:`, or any Claude model except Fable when `models:` is empty.
+  ones in `models:` plus the baseline models, or any Claude model except Fable when `models:` is empty.
   They reach it from their SSO login.
 - The role is tagged with their SSO email. AWS bills each Bedrock call with that tag.
 - Each user has a monthly budget on that tag. At `alert_at_percent` they get an email. At
@@ -128,7 +128,7 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `permissions` | It could read every part of the account setup |
 | `Step 1.1` to `Step 1.8` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
-| `model <id>` | A test call to each model in `models:` works (Haiku 5.5 when `models:` is empty) |
+| `model <id>` | A test call to each model in `models:` and the baseline works (only the baseline when `models:` is empty) |
 
 In an account that isn't the organization's management account, Steps 1.6 and 1.7 wait for your org admin.
 
@@ -273,7 +273,7 @@ region: us-west-2
 profile: bedrock-admin          # AWS profile; --profile and $AWS_PROFILE win over it
 product: genai-tools            # product tag on the personal roles; a user's product: overrides it
 
-models:                         # optional: users may call only these; apply enables each, doctor tests each
+models:                         # optional: users may call only these and the baseline models; apply enables each, doctor tests each
   - us.anthropic.claude-opus-5-5
   - us.anthropic.claude-sonnet-5-5
   - us.anthropic.claude-haiku-5-5
@@ -318,7 +318,7 @@ users:                          # or: users: !include users.yaml
 | `id` | 1–20 lowercase letters and digits. Default `bedrock`. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
 | `account` | 12 digits, in quotes |
 | `product` | Required. The `product` tag on every personal role, to charge spend to a team or product, like `owner` charges it to a person. Billing only shows it once your org admin activates it as a cost allocation tag, as in Step 1.6. Letters, digits, spaces and `_.:/=+@-`, up to 128. A user's own `product:` overrides it for that user. |
-| `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those; `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` and `doctor` use Claude Haiku 5.5 (`us.`/`eu.` by region, `global.` elsewhere). Only Claude models other than Fable may be listed. |
+| `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those plus the baseline models (see [Choosing models](#choosing-models)); `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` still enables every baseline model and `doctor` tests the region's. Only Claude models other than Fable may be listed. |
 | `limit_usd` | More than 0, at most 1,000,000, at most 2 decimals. Each user needs one, or `defaults.limit_usd`. |
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
@@ -339,7 +339,10 @@ Which file is used: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, t
 ### Choosing models
 
 Leave `models:` empty to let users call any Claude model except Fable, or list the ones they may
-call. A new file from `configure` starts with the models in [`models.toml`](models.toml). To see which models your region offers, and which your file allows:
+call. When you list any, users may always call the **baseline models** too: the models in
+[`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), built into `bedrock-admin`, so
+the Claude models the `bedrock` user CLI and Claude Code use always work. A new file from
+`configure` starts with them. To see which models your region offers, and which your file allows:
 
 ```bash
 bedrock-admin models                    # every provider's inference profiles
@@ -351,11 +354,13 @@ Personal roles may call only Claude models other than Fable, so every other mode
 under USERS.
 
 `--regions` adds a REGIONS column: the regions each allowed model sends requests to, which is what
-matters for data residency. A `global.` profile shows `any region (global)`. Users still call only
-the IDs in `models:`, in the file's region; the column shows where AWS processes those calls.
+matters for data residency. A `global.` profile shows `any region (global)`. The column shows
+where AWS processes users' calls.
 
-`bedrock claude` gives users Claude Opus, Sonnet and Haiku 5.5. If you list models, include those
-three or tell your users which to use.
+`models` lists only the region's profiles: `eu.` profiles exist only in EU regions, for example.
+Users can pick another region in `bedrock setup`, so use `--region` to see what they get there.
+`bedrock claude` gives users Claude Opus, Sonnet and Haiku 5.5 through their region's profiles,
+which the baseline always allows.
 
 <details>
 <summary>Sample output and notes</summary>
@@ -377,8 +382,8 @@ MODEL ID                        NAME                            STATUS  USERS   
 us.anthropic.claude-haiku-5-5   US Anthropic Claude Haiku 5.5   ACTIVE  allowed  us-east-1 us-east-2 us-west-2
 ```
 
-- `USERS` is `allowed` when `models:` is empty or lists the model, `not listed` when `models:`
-  lists others, and `never` for the Claude Fable family. `--region` picks another region; `--json`
+- `USERS` is `allowed` when `models:` is empty or it or the baseline lists the model, `not listed`
+  when they list others, and `never` for the Claude Fable family. `--region` picks another region; `--json`
   prints JSON (with `--regions`, a `regions` list; `["any"]` for a `global.` profile).
 - REGIONS is what AWS reports today: one read-only `GetInferenceProfile` call per allowed model. AWS
   can add regions to a profile later.
@@ -393,14 +398,23 @@ us.anthropic.claude-haiku-5-5   US Anthropic Claude Haiku 5.5   ACTIVE  allowed 
   `global.` if requests must stay in your geography.
 - Then run `bedrock-admin plan`: Step 1.5 shows `unknown model in <region>` for a wrong ID, and
   `first call` for a model the account hasn't enabled yet (`apply` enables it).
+- Users can't enable a model themselves: their first call to a model the account hasn't enabled
+  fails with AccessDenied (personal roles have no AWS Marketplace permissions). `apply` enables the
+  models in `models:` and every baseline model, whatever your region (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). With an empty `models:`, users may call any
+  other Claude model except Fable only once the account has enabled it (for example, an admin's
+  first call); list it in `models:` to have `apply` enable it.
 - To see one model's state: `aws bedrock get-foundation-model-availability --model-id
   anthropic.claude-sonnet-5-5` (the ID without the prefix). Ready means `AUTHORIZED`, and `AVAILABLE`
   for region, agreement and entitlement.
-- For a new file, `bedrock-admin configure` suggests the models in the repository's
-  [`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), downloaded from GitHub (not
-  built into `bedrock-admin`), each with the region's prefix (`us.` or `eu.`) and `global.`; in other
-  regions only `global.`. When it can't download the file, or the list is empty, `models:` stays empty.
-  `--model` or your answer wins; an existing file keeps its `models:`.
+- `models.toml` lists each baseline model with every prefix (`us.`, `eu.` and `global.`), and the
+  personal role policy allows all of them, since each user's `bedrock` CLI picks the prefix from the
+  user's own region, which can differ from `region:`. Step 1.5 enables them all, each from a region of
+  its geography. `doctor` and `configure` use only the ones your region offers: its prefix (`us.` or
+  `eu.`) and `global.`, or only `global.` in other regions. Each `bedrock-admin` release carries its own copy of [`models.toml`](models.toml), so a
+  new baseline arrives with a new release (`plan` then shows the personal role policies changing).
+  You can't remove a baseline model; leave `models:` empty instead to allow any Claude model.
+- For a new file, `bedrock-admin configure` writes the region's baseline models into `models:`. `--model` or
+  your answer wins (the baseline is still allowed); an existing file keeps its `models:`.
   The `bedrock` user CLI uses Opus, Sonnet and Haiku 5.5 (`us.`/`eu.` by region, `global.`
   elsewhere): `bedrock doctor` tests them and `bedrock claude` prints them. The user CLI doesn't read `bedrock.yaml`: if you list other models,
   announce them. Users then update the model IDs in their own Claude Code settings and Claude
@@ -419,8 +433,8 @@ bedrock-admin export > bedrock.yaml
 
 The file starts with `# Exported from account 111122223333 by bedrock-admin export on <date>.` It
 exports only users with this config's `id`. Without a file or `--id` it reads the id from the
-`bedrock-deny-<id>` policy; with several setups in the account it asks for `--id`. It reads `models:` from a personal role's policy (empty when it allows any
-Claude model); `--model` overrides it. `product:` is the product tag most roles have (`--product`
+`bedrock-deny-<id>` policy; with several setups in the account it asks for `--id`. It reads `models:` from a personal role's policy, baseline models included (empty when it allows
+any Claude model); `--model` overrides it. `product:` is the product tag most roles have (`--product`
 overrides it); a user whose role has another one gets their own `product:`.
 
 </details>
@@ -493,7 +507,7 @@ Plan: 11 to create, 1 needs org admin.
 | 1.2 | `bedrock-deny-<id>`, the policy that pauses someone when attached to their role |
 | 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
-| 1.5 | Each model in `models:` (Claude Haiku 5.5 when empty) is available. If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
+| 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can activate it; elsewhere `plan` shows "needs org admin". |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
 | 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |

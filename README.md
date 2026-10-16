@@ -15,7 +15,8 @@ file; users set up their machine with one command.
 ## Features
 
 - **Personal access**: each user gets an IAM role tagged with their SSO email, which can call any
-  Claude model (except Fable), or only the ones listed in `models:`.
+  Claude model (except Fable), or only the ones listed in `models:` plus the built-in baseline
+  models (Claude Opus, Sonnet and Haiku 5.5).
 - **A budget per person**: AWS bills each Bedrock call with that tag, and a budget per user tracks it,
   with email alerts.
 - **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role.
@@ -165,7 +166,7 @@ problem. Run `<command> --help` for the flags.
 | `cmd/monthly-unpause` | The monthly Lambda, embedded in `bedrock-admin` at build time |
 | `internal/` | Shared packages: config, account setup, users, pausing, usage, web search |
 | `tests/e2e` | Robot Framework end-to-end suites and their container runner |
-| `models.toml` | The models `bedrock-admin configure` suggests for a new `bedrock.yaml` |
+| `models.toml` | The baseline models, built into `bedrock-admin`: `configure` puts them in a new `bedrock.yaml`, and a set `models:` always allows them too |
 | `install.sh` | The release installer |
 
 ## License
