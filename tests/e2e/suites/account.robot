@@ -27,8 +27,10 @@ Apply Creates The Account Setup
         Plan Op Should Be    ${p}    model ${m}    ok
     END
     ${tag}=    Plan Item    ${p}    cost allocation tag iamPrincipal/owner
-    IF    $tag["op"] == "needs-org-admin"
-        Should Contain    ${tag}[status]    management account
+    IF    $tag["op"] == "info" and "can't check" in $tag["status"]
+        Should Contain    ${tag}[warnings][0]    management account
+    ELSE IF    $tag["status"].startswith("active (")
+        Log    not readable from this account, active by evidence: ${tag}[status]
     ELSE
         Cost Allocation Tag Should Be Active
     END

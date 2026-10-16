@@ -182,13 +182,12 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/`. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st) | Re-arms every pause of the id's users each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
-| 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can activate it; from a member account `plan` shows "needs org admin", and `doctor` shows `ok` when a budget on the tag has spend or the cost export carries the tag, else a `WARN` that doesn't fail it. |
+| 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
 | 1.7 | Model calls outside personal roles are blocked | See below |
 | 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
 
 If an account step fails, `apply` skips the users. Step 1.6 shows "waiting for first use" until
-the tag can be activated. Steps that need the org admin (1.7, and 1.6 outside the management account)
-stay pending; the rest of `apply` continues, and `apply` exits 2 while something is pending.
+the tag can be activated. Steps that need the org admin (1.7) stay pending; the rest of `apply` continues, and `apply` exits 2 while something is pending.
 
 ### Step 1.7: block direct model calls
 

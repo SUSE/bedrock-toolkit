@@ -254,6 +254,21 @@ func (a *App) apply(ctx context.Context, p *plan.Plan) error {
 				a.printf("  %s\n    %s\n", itemLabel(it), it.Status)
 			}
 		}
+		var warned []*plan.Item
+		for _, it := range p.Items {
+			if len(it.Warnings) > 0 {
+				warned = append(warned, it)
+			}
+		}
+		if len(warned) > 0 {
+			a.printf("\nWarnings:\n")
+			for _, it := range warned {
+				a.printf("  %s: %s\n", itemLabel(it), it.Status)
+				for _, w := range it.Warnings {
+					a.printf("    %s\n", w)
+				}
+			}
+		}
 		if len(out.SetupCommands) > 0 {
 			a.printf("\nSend each new user their setup command (after aws sso login):\n")
 			for _, s := range out.SetupCommands {

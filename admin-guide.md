@@ -130,11 +130,12 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
 | `model <id>` | A test call to each model in `models:` and the baseline works (only the baseline when `models:` is empty) |
 
-In an account that isn't the organization's management account, Steps 1.6 and 1.7 wait for your org admin.
-`doctor` can't read the cost allocation tag (Step 1.6) there, so it looks for signs that the tag is
-active: a budget on `iamPrincipal/owner` with spend this month, or the tag in this or last month's
-cost export. With either, the line says `ok`; otherwise it's a `WARN`, which doesn't fail `doctor`
-but matters: until the tag is active, budgets count no spend, so nobody gets alerts or is paused.
+In an account that isn't the organization's management account, Step 1.7 waits for your org admin,
+and `bedrock-admin` can't read the cost allocation tag (Step 1.6). It then looks for signs that the
+tag is active: a budget on `iamPrincipal/owner` with spend this month, or the tag in this or last
+month's cost export. With either, Step 1.6 is `ok`; otherwise it's a warning (`WARN` in `doctor`),
+which doesn't change the exit code of `plan`, `apply` or `doctor` but matters: until the tag is
+active, budgets count no spend, so nobody gets alerts or is paused.
 
 </details>
 
@@ -496,7 +497,7 @@ Plan: 11 to create, 1 needs org admin.
 | `+` | Create |
 | `~` | Change |
 | `-` | Remove |
-| `?` | Needs your org admin (Step 1.7, or Step 1.6 outside the management account) |
+| `?` | Needs your org admin (Step 1.7) |
 | `!` | Conflict: something exists that `bedrock-admin` didn't create. It is left alone. |
 | (blank) | Nothing to do |
 
@@ -507,7 +508,7 @@ Plan: 11 to create, 1 needs org admin.
 | 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
 | 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
-| 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can activate it; elsewhere `plan` shows "needs org admin". |
+| 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can read and activate it; elsewhere Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning to ask your org admin (not a change, so the exit code stays 0). |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
 | 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
 

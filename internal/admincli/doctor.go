@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/budgets"
-	btypes "github.com/aws/aws-sdk-go-v2/service/budgets/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/spf13/cobra"
 
@@ -19,9 +17,6 @@ import (
 	"github.com/innobead/bedrock-toolkit/internal/cli"
 	"github.com/innobead/bedrock-toolkit/internal/config"
 	"github.com/innobead/bedrock-toolkit/internal/plan"
-	"github.com/innobead/bedrock-toolkit/internal/policy"
-	"github.com/innobead/bedrock-toolkit/internal/usage"
-	"github.com/innobead/bedrock-toolkit/internal/users"
 )
 
 func (a *App) uninstallCmd() *cobra.Command {
@@ -171,13 +166,13 @@ func (a *App) doctor(ctx context.Context) []Check {
 			switch it.Op {
 			case plan.Handoff:
 				ch.Fix = "bedrock-admin apply writes bedrock-block-policy.json and the instructions for the org admin"
-				if it.Step == "1.6" {
-					ch = a.costTagCheck(ctx, cfg, c, ch.Name)
-				}
 			case plan.Conflict:
 				ch.Fix = "see the detail; bedrock-admin never takes over resources it didn't create"
 			case plan.Create, plan.Update, plan.Delete:
 				ch.Fix = "bedrock-admin apply"
+			}
+			if len(it.Warnings) > 0 {
+				ch.Warn, ch.Fix = true, strings.Join(it.Warnings, "; ")
 			}
 			out = append(out, ch)
 		}
@@ -193,68 +188,6 @@ func (a *App) doctor(ctx context.Context) []Check {
 		out = append(out, ch)
 	}
 	return out
-}
-
-// costTagCheck is Step 1.6 when this account can't read cost allocation tags (only the management
-// account can). Budget spend or owner tags in the cost export show the tag is active; without
-// either, it's a warning: the admin can't check or fix it, but budgets count nothing until it's on.
-func (a *App) costTagCheck(ctx context.Context, cfg *config.Config, c *awsx.Clients, name string) Check {
-	if why := a.costTagEvidence(ctx, cfg, c); why != "" {
-		return Check{Name: name, OK: true, Detail: "active (" + why + ")"}
-	}
-	return Check{Name: name, OK: true, Warn: true,
-		Detail: "can't check from this account (only the management account can); budgets count spend only once it's active",
-		Fix:    "ask your org admin to activate " + policy.CostAllocationOwnerTag + " in the management account (Billing → Cost allocation tags)"}
-}
-
-// costTagEvidence says why the owner tag is known to be active, or "" if nothing shows it.
-func (a *App) costTagEvidence(ctx context.Context, cfg *config.Config, c *awsx.Clients) string {
-	var all []btypes.Budget
-	p := budgets.NewDescribeBudgetsPaginator(c.Budgets, &budgets.DescribeBudgetsInput{AccountId: aws.String(c.Account)})
-	for p.HasMorePages() {
-		r, err := p.NextPage(ctx)
-		if err != nil {
-			break
-		}
-		all = append(all, r.Budgets...)
-	}
-	if name := tagBudgetWithSpend(all); name != "" {
-		return "budget " + name + " counts spend"
-	}
-	src := &usage.S3Source{S3: c.BucketS3(ctx, cfg.CostExport.Bucket), Bucket: cfg.CostExport.Bucket, Prefix: cfg.ExportPrefix()}
-	now := a.now().UTC()
-	for _, month := range []string{now.Format("2006-01"), now.AddDate(0, -1, 0).Format("2006-01")} {
-		if found, _ := exportHasOwnerTag(ctx, src, month); found {
-			return "the cost export of " + month + " has " + policy.CostAllocationOwnerTag
-		}
-	}
-	return ""
-}
-
-// tagBudgetWithSpend returns a budget that filters on the owner tag and has spend this month. Budgets
-// count spend only for active tags, so one is enough to show the tag is active.
-func tagBudgetWithSpend(bs []btypes.Budget) string {
-	for i := range bs {
-		b := &bs[i]
-		f := b.FilterExpression
-		if f == nil || f.Tags == nil || aws.ToString(f.Tags.Key) != policy.CostAllocationOwnerTag {
-			continue
-		}
-		if actual, _ := users.Spend(b); actual > 0 {
-			return aws.ToString(b.BudgetName)
-		}
-	}
-	return ""
-}
-
-// exportHasOwnerTag reports whether a month's cost export has a row with the owner tag. The export
-// carries only active cost allocation tags.
-func exportHasOwnerTag(ctx context.Context, src usage.Source, month string) (bool, error) {
-	found := false
-	_, err := usage.ReadMonth(ctx, src, month, func(l usage.Line) {
-		found = found || l.Owner != ""
-	})
-	return found, err
 }
 
 // exportData checks that the cost export has delivered files lately.

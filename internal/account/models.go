@@ -90,7 +90,7 @@ func (e *Env) costTag(ctx context.Context) ([]*plan.Item, error) {
 	if err != nil {
 		if awsx.IsAccessDenied(err) || strings.Contains(strings.ToLower(err.Error()), "management account") ||
 			strings.Contains(strings.ToLower(err.Error()), "payer") || strings.Contains(strings.ToLower(err.Error()), "linked account") {
-			it.Op, it.Status = plan.Handoff, "needs org admin: activate it in the management account (Billing → Cost allocation tags)"
+			e.costTagUnreadable(ctx, it)
 			return one(it), nil
 		}
 		return nil, fmt.Errorf("reading cost allocation tags: %w", err)
