@@ -26,7 +26,7 @@ func run() error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	bin := filepath.Join(tmp, "bootstrap")
-	cmd := exec.Command("go", "build", "-trimpath", "-tags", "lambda.norpc", "-ldflags", "-s -w -buildid=",
+	cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-tags", "lambda.norpc", "-ldflags", "-s -w -buildid=",
 		"-o", bin, "../../cmd/monthly-unpause")
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
