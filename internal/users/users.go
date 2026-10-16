@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -198,6 +199,34 @@ func (e *Env) Observe(ctx context.Context, u config.Resolved) (Observed, error) 
 	return o, nil
 }
 
+// observeConcurrency bounds parallel reads; the Budgets API throttles (the SDK retries) above a few
+// requests per second.
+const observeConcurrency = 5
+
+// observeAll observes the users in parallel and returns them in the same order.
+func (e *Env) observeAll(ctx context.Context, us []config.Resolved) ([]Observed, error) {
+	out := make([]Observed, len(us))
+	errs := make([]error, len(us))
+	sem := make(chan struct{}, observeConcurrency)
+	var wg sync.WaitGroup
+	for i, u := range us {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out[i], errs[i] = e.Observe(ctx, u)
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 func actionShapeOK(a btypes.Action, acct, id, role string) bool {
 	d := a.Definition.IamActionDefinition
 	return a.NotificationType == btypes.NotificationTypeActual && a.ApprovalModel == btypes.ApprovalModelAuto &&
@@ -211,12 +240,14 @@ func actionShapeOK(a btypes.Action, acct, id, role string) bool {
 func (e *Env) Plan(ctx context.Context, noDelete bool) ([]*plan.Item, error) {
 	var out []*plan.Item
 	want := map[string]bool{}
-	for _, u := range e.Cfg.Resolve() {
+	resolved := e.Cfg.Resolve()
+	observed, err := e.observeAll(ctx, resolved)
+	if err != nil {
+		return nil, err
+	}
+	for i, u := range resolved {
 		want[u.RoleName] = true
-		o, err := e.Observe(ctx, u)
-		if err != nil {
-			return nil, err
-		}
+		o := observed[i]
 		c := Diff(u, o, e.Cfg.ID, e.now())
 		it := &plan.Item{Section: "users", Target: u.Email, Email: u.Email, Op: c.Op, Details: c.Details, Notes: c.Notes,
 			NeedsYes: c.NeedsYes, SetupCommand: SetupCommand(e.Cfg, e.C.Account, e.ProfileRegion, u)}
