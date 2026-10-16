@@ -340,7 +340,7 @@ Which file is used: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, t
 
 Leave `models:` empty to let users call any Claude model except Fable, or list the ones they may
 call. When you list any, users may always call the **baseline models** too: the models in
-[`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), built into `bedrock-admin`, so
+[`models.toml`](models.toml) (now Claude Opus, Sonnet and Haiku 5.5), built into both CLIs, so
 the Claude models the `bedrock` user CLI and Claude Code use always work. A new file from
 `configure` starts with them. To see which models your region offers, and which your file allows:
 
@@ -885,6 +885,8 @@ Code and the desktop app ([user guide](user-guide.md#web-search)).
   here: the setup manages only Bedrock model spend. Billing records no caller on search rows, so
   searches don't count against personal budgets and nothing limits them.
 - The gateway is in the file's `region`, which must be `us-east-1`, `eu-west-1` or `ap-northeast-1`.
+  Users whose profile is in another region still use it: `bedrock claude` finds the gateway and
+  prints its region.
 - `plan` shows Step 1.8 (role, gateway, target) and a `~` on each personal role: `bedrock-invoke`
   gains the right to call the gateway. Paused users can't search: `bedrock-deny-<id>` denies it too.
 - Searches show in `usage` under untracked spend as `web search (AgentCore)`, one line for the

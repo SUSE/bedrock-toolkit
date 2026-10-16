@@ -3,7 +3,7 @@ Documentation       Web search (Step 1.8) in the run's own setup (id e2e<hex>): 
 ...                 the setup's gateway and its role and gives personal roles the gateway rights, and a role
 ...                 can search; the pause denies search; turning it off removes the rights, the gateway and
 ...                 its role. With SSO_PROFILE set, also the user side: bedrock doctor, and the MCP server
-...                 printed by bedrock claude run through uvx and mcp-proxy-for-aws.
+...                 printed by bedrock claude run through uvx and mcp-proxy-for-aws, also for a profile in another region.
 ...                 REGION must be us-east-1, eu-west-1 or ap-northeast-1. A run costs a few cents.
 Resource            ../resources/common.resource
 Suite Setup         Start Web Search Run
@@ -61,6 +61,19 @@ The User CLI Finds And Uses Web Search
     Should Not Be Empty    ${json}    bedrock claude printed no MCP server:\n${out}
     Should Contain    ${json}[0]    ${URL}
     Mcp Proxy Should List Web Search    ${json}[0]
+
+A User In Another Region Finds The Gateway
+    [Documentation]    A profile in a region other than the gateway's: bedrock claude still prints the
+    ...    gateway, with the gateway's region in --region.
+    Skip If    not $SSO_PROFILE    SSO_PROFILE isn't set
+    ${other}=    Set Variable If    $REGION == "eu-central-1"    us-west-2    eu-central-1
+    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${other}
+    ...    --profile-name    ${PROFILE}-other    --yes    rc=any
+    ${out}=    Bedrock    claude    --profile-name    ${PROFILE}-other    --no-test    --no-search-test
+    ${json}=    Get Regexp Matches    ${out}    claude mcp add-json web-search '([^']+)'    1
+    Should Not Be Empty    ${json}    bedrock claude printed no MCP server:\n${out}
+    Should Contain    ${json}[0]    ${URL}
+    Should Contain    ${json}[0]    "--region","${REGION}"
 
 Turning It Off Removes The Rights And The Gateway
     Set Config    web_search.enabled    false

@@ -9,7 +9,7 @@ file; users set up their machine with one command.
 | Program | For | What it does |
 | --- | --- | --- |
 | `bedrock-admin` | Account admins | Sets up the AWS account and manages users, budgets and pauses from `bedrock.yaml` |
-| `bedrock` | Users | Writes the AWS profile of their personal role, checks it, tests Claude Code, shows their spend |
+| `bedrock` | Users | Writes the AWS profile of their personal role, checks it, lists the models they may use, tests Claude Code, shows their spend |
 | `monthly-unpause` | The account | A Lambda that saves a snapshot and re-arms every pause on the 1st of the month. Built into `bedrock-admin`, deployed by `apply` |
 
 ## Features
@@ -168,7 +168,7 @@ problem. Run `<command> --help` for the flags.
 | `cmd/monthly-unpause` | The monthly Lambda, embedded in `bedrock-admin` at build time |
 | `internal/` | Shared packages: config, account setup, users, pausing, usage, web search |
 | `tests/e2e` | Robot Framework end-to-end suites and their container runner |
-| `models.toml` | The baseline models, built into `bedrock-admin`: `configure` puts them in a new `bedrock.yaml`, and a set `models:` always allows them too |
+| `models.toml` | The baseline models, built into both CLIs: `configure` puts them in a new `bedrock.yaml`, and a set `models:` always allows them too |
 | `install.sh` | The release installer |
 
 ## License
