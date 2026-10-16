@@ -1,4 +1,4 @@
-// Package usercli is the bedrock user CLI: setup writes the personal role profile, doctor checks it, claude tests Claude Code and usage shows the user's own spend.
+// Package usercli is the bedrock user CLI: setup writes the personal role profile, doctor checks it, claude tests Claude Code, usage shows the user's own spend and models the models the user may call.
 package usercli
 
 import (
@@ -37,6 +37,8 @@ type AWS interface {
 	WebSearch(ctx context.Context, profile, region, url string, search bool) error
 	// Budget reads the user's own budget, pause threshold and pause state with their personal role.
 	Budget(ctx context.Context, profile, account, role, budget string) (Budget, error)
+	// RolePolicy reads the personal role's own invoke policy, decoded.
+	RolePolicy(ctx context.Context, profile, role string) (string, error)
 }
 
 // App holds the CLI's settings and streams.
@@ -94,7 +96,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed.`,
 	root.SetIn(a.In)
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
-	root.AddCommand(a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd())
+	root.AddCommand(a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd(), a.modelsCmd())
 	return root
 }
 

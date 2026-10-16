@@ -337,7 +337,7 @@ func UserInvoke(account, id, role, budget, webSearchRegion string, models []stri
 		{"Sid": "ReadOwnBudget", "Effect": "Allow", "Action": []string{"budgets:ViewBudget",
 			"budgets:DescribeBudgetActionsForBudget", "budgets:DescribeBudgetActionHistories"},
 			"Resource": []string{budgetArn, budgetArn + "/action/*"}},
-		{"Sid": "ReadOwnRole", "Effect": "Allow", "Action": []string{"iam:GetRole", "iam:ListRoleTags"},
+		{"Sid": "ReadOwnRole", "Effect": "Allow", "Action": []string{"iam:GetRole", "iam:ListRoleTags", "iam:GetRolePolicy"},
 			"Resource": UserRoleArn(account, id, role)},
 	}
 	if webSearchRegion != "" {

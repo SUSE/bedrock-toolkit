@@ -407,10 +407,13 @@ us.anthropic.claude-sonnet-5-5           US Anthropic Claude Sonnet 5.5      ACT
   You can't remove a baseline model; leave `models:` empty instead to allow any Claude model.
 - For a new file, `bedrock-admin configure` writes the region's baseline models into `models:`. `--model` or
   your answer wins (the baseline is still allowed); an existing file keeps its `models:`.
-  The `bedrock` user CLI uses Opus, Sonnet and Haiku 5.5 (`us.`/`eu.` by region, `global.`
-  elsewhere): `bedrock doctor` tests them and `bedrock claude` prints them. The user CLI doesn't read `bedrock.yaml`: if you list other models,
-  announce them. Users then update the model IDs in their own Claude Code settings and Claude
-  desktop app model list, and can test one with `bedrock doctor --model <id>`.
+  The `bedrock` user CLI has its own copy of `models.toml`: `bedrock doctor` tests the baseline
+  models the user's region can call (`us.`/`eu.` by region, then `global.`; only `global.`
+  elsewhere) and `bedrock claude` prints its Opus, Sonnet and Haiku. The user CLI doesn't read
+  `bedrock.yaml`, but `bedrock models` reads the user's own role policy and lists the models
+  allowed there. If you list other models, announce them: users then update the model IDs in
+  their own Claude Code settings and Claude desktop app model list, and can test one with
+  `bedrock doctor --model <id>`.
 
 </details>
 
@@ -681,9 +684,10 @@ bedrock-admin usage --json                # for scripts
 
 `usage` exits 2 when it finds spend outside personal roles, so a scheduled job can alert on it.
 
-Users can check their own spend and pause state with `bedrock usage`: their personal role may read
-only its own budget and its own tags. Roles created before this show a `~` on `bedrock-invoke` in
-`plan`; `apply` updates them.
+Users can check their own spend and pause state with `bedrock usage`, and their allowed models with
+`bedrock models`: their personal role may read only its own budget, its own tags and its own
+`bedrock-invoke` policy. Roles created before this show a `~` on `bedrock-invoke` in `plan`;
+`apply` updates them.
 
 <details>
 <summary>Sample output</summary>

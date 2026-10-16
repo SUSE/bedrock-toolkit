@@ -107,13 +107,14 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultModels(t *testing.T) {
+func TestClaudeModels(t *testing.T) {
 	for region, want := range map[string]string{
 		"us-west-2":      "us.anthropic.claude-opus-5-5,us.anthropic.claude-sonnet-5-5,us.anthropic.claude-haiku-5-5",
 		"eu-central-1":   "eu.anthropic.claude-opus-5-5,eu.anthropic.claude-sonnet-5-5,eu.anthropic.claude-haiku-5-5",
 		"ap-northeast-1": "global.anthropic.claude-opus-5-5,global.anthropic.claude-sonnet-5-5,global.anthropic.claude-haiku-5-5",
 	} {
-		m := config.DefaultModels(region)
+		opus, sonnet, haiku := config.ClaudeModels(region)
+		m := []string{opus, sonnet, haiku}
 		if got := strings.Join(m, ","); got != want {
 			t.Errorf("%s: %s", region, got)
 		}
@@ -245,9 +246,6 @@ func TestBaselineModels(t *testing.T) {
 	m, err := config.ParseModelsTOML(bedrocktoolkit.ModelsTOML)
 	if err != nil || len(m) == 0 {
 		t.Fatalf("models.toml: %v, %v", m, err)
-	}
-	if got := config.BaselineModels("us-west-2"); !slices.Equal(got[:3], config.DefaultModels("us-west-2")) {
-		t.Fatalf("us-west-2 starts with the user CLI's models: %v", got)
 	}
 	if got := config.BaselineAllGeos(); !slices.Equal(got, m) {
 		t.Fatalf("all geos: %v", got)

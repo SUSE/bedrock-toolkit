@@ -26,11 +26,12 @@ func (a *App) doctorCmd() *cobra.Command {
 	var models []string
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check your SSO sign-in, the bedrock profile, your personal role and a model call",
+		Short: "Check your SSO sign-in, the bedrock profile, your personal role and test calls to the built-in models",
 		Long: `doctor checks, in order: the bedrock profile in ~/.aws/config, your SSO sign-in, that your
 SSO login may use your personal role, the personal role itself and a test call to each model
-(by default Claude Opus, Sonnet and Haiku 5.5: the us. or eu. inference profiles of the profile's
-region, global. elsewhere).
+(by default the built-in models your admin always allows and enables that the profile's region can
+call: its us. or eu. inference profiles, then the global. ones; run bedrock models to see every
+model you may use).
 It prints the fix for each failed check and exits 2 when one failed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.runDoctor(cmd.Context(), profile, models) },
@@ -111,7 +112,7 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	out = append(out, cli.Check{Name: "personal role", OK: true, Detail: arn})
 
 	if len(models) == 0 {
-		models = config.DefaultModels(region)
+		models = config.BaselineModels(region)
 	}
 	for _, m := range models {
 		c := cli.Check{Name: "model " + m, OK: true, Detail: "test call works"}

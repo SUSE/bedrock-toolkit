@@ -29,6 +29,14 @@ type fakeAWS struct {
 	budget     Budget
 	budgetErr  error
 	budgetArgs string
+	rolePolicy string
+	policyErr  error
+	policyRole string
+}
+
+func (f *fakeAWS) RolePolicy(_ context.Context, _, role string) (string, error) {
+	f.policyRole = role
+	return f.rolePolicy, f.policyErr
 }
 
 func (f *fakeAWS) Budget(_ context.Context, profile, account, role, budget string) (Budget, error) {
@@ -109,12 +117,12 @@ func TestSetupWritesProfile(t *testing.T) {
 		t.Fatal("no backup")
 	}
 	for _, want := range []string{"ok    profile", "ok    SSO sign-in: achen@example.com", "ok    permission-set access",
-		"ok    model us.anthropic.claude-sonnet-5-5", "All checks passed."} {
+		"ok    model us.anthropic.claude-haiku-5-5", "All checks passed."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if len(f.invoked) != 3 || !strings.HasPrefix(f.invoked[0], "us-west-2 us.") {
+	if len(f.invoked) != 6 || !strings.HasPrefix(f.invoked[0], "us-west-2 us.") || !strings.HasPrefix(f.invoked[5], "us-west-2 global.") {
 		t.Fatalf("invoked %v", f.invoked)
 	}
 
@@ -214,9 +222,9 @@ func TestDoctorFailures(t *testing.T) {
 		},
 			[]string{"FAIL  permission-set access", "ask your admin to onboard achen@example.com"}},
 		{"paused", setUp, func(f *fakeAWS) {
-			f.invokeErrs = map[string]error{"us.anthropic.claude-sonnet-5-5": &smithy.GenericAPIError{
+			f.invokeErrs = map[string]error{"us.anthropic.claude-haiku-5-5": &smithy.GenericAPIError{
 				Code: "AccessDeniedException", Message: "... with an explicit deny in an identity-based policy"}}
-		}, []string{"FAIL  model us.anthropic.claude-sonnet-5-5", "paused", "ok    model us.anthropic.claude-haiku"}},
+		}, []string{"FAIL  model us.anthropic.claude-haiku-5-5", "paused"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

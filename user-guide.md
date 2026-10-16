@@ -21,6 +21,7 @@ minutes.
   - [Step 4. Set up Claude Code](#step-4-set-up-claude-code)
   - [Web search](#web-search)
 - [Check your spend](#check-your-spend)
+- [Which models you may use](#which-models-you-may-use)
 - [If something goes wrong](#if-something-goes-wrong)
 - [When you're paused](#when-youre-paused)
 
@@ -40,6 +41,7 @@ below; click the folded sections for sample output and details.
 - You use Bedrock through a personal AWS role that only you can use, from your SSO login.
 - You can use Anthropic Claude models, except the Claude Fable family, which is not approved. Your
   admin may allow only some of them, but Claude Opus, Sonnet and Haiku 5.5 are always allowed.
+  `bedrock models` lists the ones you may use.
 - You have a monthly budget. You get an email from AWS Budgets when you pass the alert threshold
   (usually 80%). When you reach your limit, your Bedrock access is paused until your admin unpauses
   you, or until the 1st of next month.
@@ -76,9 +78,10 @@ way in.
 | Command | What it does | Section |
 | --- | --- | --- |
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
-| `bedrock doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and a model call | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
+| `bedrock doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
 | `bedrock usage` | Shows this month's spend against your budget, where you get paused and whether you are paused | [Check your spend](#check-your-spend) |
+| `bedrock models` | Lists the models you may use in your profile's region | [Which models you may use](#which-models-you-may-use) |
 
 Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for the flags.
 
@@ -176,12 +179,18 @@ ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock
 ok    model us.anthropic.claude-opus-5-5: test call works
 ok    model us.anthropic.claude-sonnet-5-5: test call works
 ok    model us.anthropic.claude-haiku-5-5: test call works
+ok    model global.anthropic.claude-opus-5-5: test call works
+ok    model global.anthropic.claude-sonnet-5-5: test call works
+ok    model global.anthropic.claude-haiku-5-5: test call works
 
 All checks passed.
 ```
 
-By default it tests Claude Opus, Sonnet and Haiku 5.5 (`us.`/`eu.` inference profiles, `global.` elsewhere). Test
-another model with `--model <id>` (repeatable). `--json` prints the checks as JSON. It exits 2 when
+By default it tests the built-in models (now Claude Opus, Sonnet and Haiku 5.5), which your admin
+always allows and enables, that your profile's region can call: the `us.` or `eu.` inference
+profiles, then the `global.` ones (only `global.` outside the US and EU). Each test call costs a
+fraction of a cent. Test another model with `--model <id>` (repeatable); `bedrock models` lists the
+ones you may use. `--json` prints the checks as JSON. It exits 2 when
 a check fails, and prints the fix under it. See [If something goes wrong](#if-something-goes-wrong).
 
 </details>
@@ -261,6 +270,7 @@ test model.
 The model IDs are the standard defaults (Claude Opus, Sonnet and Haiku 5.5). Your settings are yours
 to keep up to date: if your admin announces other models, change the model IDs in your Claude Code
 settings and the desktop app's model list, and check one with `bedrock doctor --model <id>`.
+`bedrock models` lists every model you may use.
 
 </details>
 
@@ -359,6 +369,30 @@ as JSON. The spend lags: AWS refreshes it a few times a day, so the last hours a
 If it says your role cannot read its budget, your role predates `bedrock usage`: ask your admin to run
 `bedrock-admin apply`.
 
+## Which models you may use
+
+```text
+$ bedrock models
+Your admin allows these models in us-east-1 (profile bedrock):
+
+  us.anthropic.claude-opus-4-1
+  us.anthropic.claude-opus-5-5
+  us.anthropic.claude-sonnet-5-5
+  us.anthropic.claude-haiku-5-5
+  global.anthropic.claude-opus-5-5
+  global.anthropic.claude-sonnet-5-5
+  global.anthropic.claude-haiku-5-5
+```
+
+It reads your personal role's policy with the `bedrock` profile and lists the models you can call
+from the profile's region: its `us.` or `eu.` inference profiles, and the `global.` ones. Use these
+IDs in Claude Code or the desktop app's model list. When your admin allows any Claude model except
+Fable, it says so and lists the built-in models, which your admin always enables; other Claude
+models work once your admin has enabled them in the account. If it says your role can't read its
+policy yet, your role predates `bedrock models`: ask your admin to run `bedrock-admin apply`. It
+then lists only the built-in models. `--json` prints the same as JSON. A paused role still lists
+its models: `bedrock usage` shows whether you are paused.
+
 ## If something goes wrong
 
 Run `bedrock doctor`. It stops at the first failed setup check (the model checks all run) and prints
@@ -423,6 +457,7 @@ FAIL  model us.anthropic.claude-sonnet-5-5: AccessDeniedException
       fix: your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st
 FAIL  model us.anthropic.claude-haiku-5-5: AccessDeniedException
       fix: your Bedrock access is paused (monthly budget used up, or paused by your admin): ask your admin, or wait for the 1st
+...
 ```
 
 `bedrock usage` tells you why: `PAUSED: monthly budget used up`, or `PAUSED by your admin` with

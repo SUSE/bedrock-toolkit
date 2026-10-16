@@ -33,10 +33,30 @@ func WithGeo(region string, models []string) []string {
 	return out
 }
 
-// DefaultModels returns the models bedrock doctor checks and bedrock claude uses for a region:
-// Claude Opus, Sonnet and Haiku 5.5, through the region's inference profile.
-func DefaultModels(region string) []string {
-	return WithGeo(region, []string{"anthropic.claude-opus-5-5", "anthropic.claude-sonnet-5-5", "anthropic.claude-haiku-5-5"})
+// ClaudeModels returns the Opus, Sonnet and Haiku models bedrock claude uses in a region: the first
+// of each family among the region's baseline models (BaselineModels), or "" when models.toml has none.
+func ClaudeModels(region string) (opus, sonnet, haiku string) {
+	pick := func(family string) string {
+		for _, m := range BaselineModels(region) {
+			if strings.Contains(m, "anthropic.claude-"+family) {
+				return m
+			}
+		}
+		return ""
+	}
+	return pick("opus"), pick("sonnet"), pick("haiku")
+}
+
+// CallableModels returns the models of a list that can be called from a region: other geographies'
+// us. and eu. inference profiles don't exist there.
+func CallableModels(region string, models []string) []string {
+	out := []string{}
+	for _, m := range models {
+		if ModelRegion(region, m) == region {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // TestModels returns the models doctor calls: those in models: the region can call, followed by the

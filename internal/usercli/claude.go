@@ -85,8 +85,7 @@ func (a *App) claude(ctx context.Context, f claudeFlags) error {
 		return fmt.Errorf("no profile %s with a region in %s: run bedrock setup first", f.profile, path)
 	}
 	region := s.Keys["region"]
-	models := config.DefaultModels(region)
-	opus, sonnet, haiku := models[0], models[1], models[2]
+	opus, sonnet, haiku := config.ClaudeModels(region)
 	if f.model == "" {
 		f.model = sonnet
 	}

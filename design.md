@@ -153,7 +153,7 @@ users:
   trigger follows the limit. `pause_at_percent` is 1 to 200. Forecast-based pauses and fixed-dollar
   thresholds are not offered: forecasts are noisy early in the month, and fixed amounts would not
   follow the limit.
-- `models:` is optional. When listed, personal roles may call only those models and the baseline models (`Config.AllowedModels`): each inference profile and its foundation model in every region (cross-region profiles route to several). The baseline is `models.toml` in the repository, built into `bedrock-admin` with `go:embed` (each release pins its copy), so the Claude models the user CLI and Claude Code use always stay allowed; it lists each model with every prefix (`us.`, `eu.`, `global.`; an ID without a prefix gets all three) and the policy allows them all, since the user CLI picks the prefix from each user's region, which can differ from the setup's; Step 1.5 enables them all, calling another geography's `us.`/`eu.` profiles from us-east-1 or eu-central-1 (`Config.ModelRegion`), so users in any region find them enabled; `doctor` and `configure` use only the region's (its `us.`/`eu.` prefix and `global.`, or only `global.` in other regions), and `export` drops the other geographies' entries. When empty, they may call any Claude model except Fable, and `apply` still enables every baseline model (personal roles can't enable a model themselves) and `doctor` tests the region's. Listing a non-Claude or Fable model is a config error; `policy.AllowedModel` is the only rule on what may be listed (its wording is `policy.AllowedModelsText`), and the policy statements, budgets, usage and `Converse` test calls don't depend on the provider, so allowing other providers later means changing that rule. `bedrock-admin models` lists the region's inference profiles from every provider, `--filter` keeps those whose ID or name contains a text, and its USERS column marks what personal roles may call. Its REGIONS column shows the regions each allowed profile routes requests to, from `GetInferenceProfile` (`any` for `global.` profiles, which AWS reports only as the calling region). `configure` fills `models:` in a new file with the baseline models.
+- `models:` is optional. When listed, personal roles may call only those models and the baseline models (`Config.AllowedModels`): each inference profile and its foundation model in every region (cross-region profiles route to several). The baseline is `models.toml` in the repository, built into `bedrock-admin` and `bedrock` with `go:embed` (each release pins its copy), so the Claude models the user CLI and Claude Code use always stay allowed; it lists each model with every prefix (`us.`, `eu.`, `global.`; an ID without a prefix gets all three) and the policy allows them all, since the user CLI picks the prefix from each user's region, which can differ from the setup's; Step 1.5 enables them all, calling another geography's `us.`/`eu.` profiles from us-east-1 or eu-central-1 (`Config.ModelRegion`), so users in any region find them enabled; `doctor` and `configure` use only the region's (its `us.`/`eu.` prefix and `global.`, or only `global.` in other regions), and `export` drops the other geographies' entries. When empty, they may call any Claude model except Fable, and `apply` still enables every baseline model (personal roles can't enable a model themselves) and `doctor` tests the region's. Listing a non-Claude or Fable model is a config error; `policy.AllowedModel` is the only rule on what may be listed (its wording is `policy.AllowedModelsText`), and the policy statements, budgets, usage and `Converse` test calls don't depend on the provider, so allowing other providers later means changing that rule. `bedrock-admin models` lists the region's inference profiles from every provider, `--filter` keeps those whose ID or name contains a text, and its USERS column marks what personal roles may call. Its REGIONS column shows the regions each allowed profile routes requests to, from `GetInferenceProfile` (`any` for `global.` profiles, which AWS reports only as the calling region). `configure` fills `models:` in a new file with the baseline models.
 - The full list of fields and defaults is in the
   [admin guide](admin-guide.md#2-create-bedrockyaml).
 
@@ -294,7 +294,7 @@ Each user gets one role per setup, `bedrock-user-<id>-<name>`, under the path `/
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
 | Tag `product` | The user's `product`, else `product` from the file | Charge spend to a team or product |
 | Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-several-setups-in-one-account)) |
-| Inline policy `bedrock-invoke` | Call and stream the models in `models:` and the baseline, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend |
+| Inline policy `bedrock-invoke` | Call and stream the models in `models:` and the baseline, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`, `GetRolePolicy`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend, `bedrock models` nobody else's models |
 | Max session | 1 hour | The limit for role chaining |
 
 ### Trust policy
@@ -330,6 +330,12 @@ path, model list). It never writes Claude Code's settings: the user adds them, o
 `bedrock usage` reads the user's own budget (spend, forecast, the pause action's threshold) and the
 pause state (budget action status and the role's pause tags) with the personal role. The budget name
 comes from the profile's `role_arn`. It doesn't read the cost export, which holds everyone's spend.
+`bedrock models` reads the role's own `bedrock-invoke` policy (`policy.ListedModels`) and lists the
+allowed models the profile's region can call (`config.CallableModels`); when the policy allows any
+Claude model, or the role predates `GetRolePolicy`, it lists the region's baseline models.
+`bedrock doctor` tests the region's baseline models (`config.BaselineModels`), and `bedrock claude`
+takes its Opus, Sonnet and Haiku from them (`config.ClaudeModels`): the user CLI embeds the same
+`models.toml`.
 
 ## 6. Budgets and the pause
 
@@ -572,7 +578,7 @@ and a real AWS account:
 | `cli` | A smoke test of the built binaries, with no AWS |
 | `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall` |
 | `users` | Onboarding, limit changes and offboarding |
-| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, direct SSO calls denied, a pause seen by the user |
+| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, `bedrock models`, direct SSO calls denied, a pause seen by the user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

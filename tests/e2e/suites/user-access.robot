@@ -1,5 +1,5 @@
 *** Settings ***
-Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor and usage, the
+Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor, usage and models, the
 ...                 Step 1.7 block on direct SSO calls, and a manual pause seen from the user's side.
 ...                 Needs SSO_PROFILE signed in (aws sso login) in the same account. The runner is added as
 ...                 a user of the run's own setup (id e2e<hex>); the user CLI writes to a copy of ~/.aws/config,
@@ -58,6 +58,15 @@ Usage Reads The User's Own Budget
     ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --json
     Should Be Equal    ${u["state"]}    active
     Should Be True    $u["limit_usd"] > 0
+
+Models Lists The Role's Allowed Models
+    [Documentation]    bedrock models reads the personal role's own policy: the run's models: and the
+    ...    region's baseline models, without other geographies' profiles.
+    ${m}=    Bedrock    models    --profile-name    ${PROFILE}    --json
+    Should Be Equal    ${m["source"]}    role
+    Should Not Be True    $m["any_claude"]
+    ${allowed}=    Allowed Models
+    Lists Should Be Equal    ${m["models"]}    ${allowed}    ignore_order=True
 
 Direct SSO Calls Are Denied
     [Documentation]    Step 1.7. Skipped with a note when the org admin hasn't applied the deny to the

@@ -117,6 +117,7 @@ aws sso login                        # or: aws login
 bedrock setup                        # write the bedrock profile and check it
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget
+bedrock models                       # the models you may use
 ```
 
 ## Commands
@@ -141,9 +142,10 @@ bedrock usage                        # this month's spend against your budget
 | Command | What it does |
 | --- | --- |
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
-| `doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and a model call |
+| `doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and test calls to the built-in models |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |
 | `usage` | Shows this month's spend against your budget, and whether you are paused |
+| `models` | Lists the models you may use in your profile's region |
 
 Both CLIs exit with 0 when everything is fine, 1 on an error, and 2 when they ran but found a
 problem. Run `<command> --help` for the flags.
