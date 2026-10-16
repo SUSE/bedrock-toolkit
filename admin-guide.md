@@ -131,6 +131,10 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `model <id>` | A test call to each model in `models:` and the baseline works (only the baseline when `models:` is empty) |
 
 In an account that isn't the organization's management account, Steps 1.6 and 1.7 wait for your org admin.
+`doctor` can't read the cost allocation tag (Step 1.6) there, so it looks for signs that the tag is
+active: a budget on `iamPrincipal/owner` with spend this month, or the tag in this or last month's
+cost export. With either, the line says `ok`; otherwise it's a `WARN`, which doesn't fail `doctor`
+but matters: until the tag is active, budgets count no spend, so nobody gets alerts or is paused.
 
 </details>
 
@@ -153,8 +157,8 @@ ok    Step 1.4 schedule bedrock-monthly-unpause-acmeprod: ok
 ok    Step 1.5 model us.anthropic.claude-opus-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-sonnet-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-haiku-5-5: ok
-FAIL  Step 1.6 cost allocation tag iamPrincipal/owner: needs org admin: activate it in the management account (Billing → Cost allocation tags)
-      fix: ask your org admin to activate it in the management account (Billing → Cost allocation tags)
+WARN  Step 1.6 cost allocation tag iamPrincipal/owner: can't check from this account (only the management account can); budgets count spend only once it's active
+      fix: ask your org admin to activate iamPrincipal/owner in the management account (Billing → Cost allocation tags)
 FAIL  Step 1.7 block direct model calls: needs org admin: deny missing on AWSAdministratorAccess, AWSPowerUserAccess
       fix: bedrock-admin apply writes bedrock-block-policy.json and the instructions for the org admin
 ok    cost export data: 12 files, newest 2026-10-08 11:08 UTC (5h0m0s ago)
