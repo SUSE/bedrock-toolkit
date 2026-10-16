@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,6 +27,7 @@ type fakeAWS struct {
 	searchURL  string
 	searchErr  error
 	searches   []bool
+	searchIn   []string
 	budget     Budget
 	budgetErr  error
 	budgetArgs string
@@ -62,8 +64,9 @@ func (f *fakeAWS) WebSearchURL(context.Context, string, string) (string, error) 
 	return f.searchURL, nil
 }
 
-func (f *fakeAWS) WebSearch(_ context.Context, _, _, _ string, search bool) error {
+func (f *fakeAWS) WebSearch(_ context.Context, _, region, _ string, search bool) error {
 	f.searches = append(f.searches, search)
+	f.searchIn = append(f.searchIn, region)
 	return f.searchErr
 }
 
@@ -358,6 +361,16 @@ func TestClaudeWebSearch(t *testing.T) {
 	f.searchURL = gatewayURL
 	if code, out := runClaudeWith(t, f, cfg, ok, "--no-search-test"); code != cli.OK || len(f.searches) != 0 || !strings.Contains(out, "add-json web-search") {
 		t.Fatalf("--no-search-test: exit %d %v\n%s", code, f.searches, out)
+	}
+
+	// A user in another region still gets the setup region's gateway, called in its own region.
+	f = newFake()
+	f.searchURL = gatewayURL
+	euCfg := ssoConfig + "\n" + strings.ReplaceAll(wantBlock, "us-west-2", "eu-central-1")
+	code, out = runClaudeWith(t, f, euCfg, ok)
+	if code != cli.OK || !strings.Contains(out, `"--region","us-east-1"],"command":"uvx"}`) ||
+		!strings.Contains(out, "AWS region:        eu-central-1") || !slices.Equal(f.searchIn, []string{"us-east-1"}) {
+		t.Fatalf("other region: exit %d %v\n%s", code, f.searchIn, out)
 	}
 
 	f = newFake()

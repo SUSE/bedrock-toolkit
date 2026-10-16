@@ -57,6 +57,16 @@ type Target struct {
 	GatewayRole        bool
 }
 
+// URLRegion returns the region in a gateway URL
+// (https://<id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp), or fallback.
+func URLRegion(url, fallback string) string {
+	_, rest, ok := strings.Cut(url, ".gateway.bedrock-agentcore.")
+	if region, _, ok2 := strings.Cut(rest, "."); ok && ok2 && region != "" {
+		return region
+	}
+	return fallback
+}
+
 // FindGateway looks the gateway up by name (its ID is generated). It returns nil when it doesn't exist.
 func FindGateway(ctx context.Context, c *ac.Client, name string) (*Gateway, error) {
 	p := ac.NewListGatewaysPaginator(c, &ac.ListGatewaysInput{})

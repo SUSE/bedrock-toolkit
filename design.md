@@ -265,7 +265,10 @@ for models.
 
 - Personal roles: with web search on, `bedrock-invoke` also allows `InvokeGateway` on
   the setup's gateway (`gateway/bedrock-web-search-<id>-*` in the region: AgentCore adds a random
-  suffix to the name), and `ListGateways`/`GetGateway` so `bedrock claude` can find the URL. The
+  suffix to the name), and `ListGateways`/`GetGateway` so `bedrock claude` and `bedrock doctor` can
+  find the URL. They look in the profile's region, then in each web search region
+  (`config.WebSearchRegions`), since a user's region can differ from the setup's, and use the
+  gateway's region (from its URL) for the MCP proxy's `--region` and the test calls. The
   wildcard keeps the policy fixed before the gateway exists. With it off, the
   statements go away.
 - `bedrock-deny-<id>` always denies `InvokeGateway`, so the pause covers search whether web search is on

@@ -110,9 +110,10 @@ func (a *App) claude(ctx context.Context, f claudeFlags) error {
 	if err != nil {
 		a.printf("Couldn't check for web search: %v\n\n", short(err))
 	}
+	searchRegion := websearch.URLRegion(url, region) // the admin's setup region, maybe not the profile's
 	if url != "" && !f.noTest && !f.noSearchTest {
 		a.printf("Testing web search (one search through your personal role)...\n")
-		if err := a.AWS.WebSearch(ctx, f.profile, region, url, true); err != nil {
+		if err := a.AWS.WebSearch(ctx, f.profile, searchRegion, url, true); err != nil {
 			a.printf("FAIL  web search: %s\n      fix: %s\n\n", short(err), webSearchFix(err))
 			failed = true
 		} else {
@@ -149,7 +150,7 @@ Claude desktop app (Settings, Amazon Bedrock):
                      %[7]s
 `, f.profile, js, region, opus, awsPathLine(), sonnet, haiku)
 	if url != "" {
-		a.printWebSearch(f.profile, region, url)
+		a.printWebSearch(f.profile, searchRegion, url)
 	}
 	if failed {
 		return cli.Exit(cli.Problem)

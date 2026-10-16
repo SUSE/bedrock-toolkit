@@ -347,6 +347,9 @@ which only the local proxy makes.
 
 </details>
 
+Web search works from any region: the gateway lives in your admin's region, which `bedrock claude`
+finds and puts in `--region`, so it can differ from your profile's region.
+
 ## Check your spend
 
 ```text

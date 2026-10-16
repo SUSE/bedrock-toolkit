@@ -1,9 +1,11 @@
 package usercli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -142,7 +144,7 @@ func (a *App) webSearchChecks(ctx context.Context, profile, region string) []cli
 		out = append(out, cli.Check{Name: "uvx", OK: true, Detail: p})
 	}
 	c := cli.Check{Name: "web search", OK: true, Detail: "gateway answers " + url}
-	if err := a.AWS.WebSearch(ctx, profile, region, url, false); err != nil {
+	if err := a.AWS.WebSearch(ctx, profile, websearch.URLRegion(url, region), url, false); err != nil {
 		c.OK, c.Detail, c.Fix = false, short(err).Error(), webSearchFix(err)
 	}
 	return append(out, c)
@@ -250,25 +252,43 @@ func (sdkAWS) Invoke(ctx context.Context, profile, region, model string) error {
 	return err
 }
 
+// WebSearchURL looks for the gateway in the profile's region, then in each region that has web
+// search: the admin's setup region can differ from the user's. The URL names the gateway's region.
 func (sdkAWS) WebSearchURL(ctx context.Context, profile, region string) (string, error) {
-	cfg, err := load(ctx, profile, region)
-	if err != nil {
-		return "", err
-	}
 	_, id, _, err := profileRole(profile)
 	if err != nil {
 		return "", err
 	}
-	g, err := websearch.FindGateway(ctx, bedrockagentcorecontrol.NewFromConfig(cfg), policy.WebSearchGateway(id))
-	switch {
-	case err != nil && (awsx.IsAccessDenied(err) || awsx.ErrorCode(err) == "UnknownOperationException"):
-		return "", nil // the role has no web search statement: the admin hasn't enabled it
-	case err != nil:
-		return "", err
-	case g == nil:
+	regions := []string{region}
+	for _, r := range config.WebSearchRegions {
+		if !slices.Contains(regions, r) {
+			regions = append(regions, r)
+		}
+	}
+	var firstErr error
+	answered := false
+	for _, r := range regions {
+		cfg, err := load(ctx, profile, r)
+		if err != nil {
+			return "", err
+		}
+		g, err := websearch.FindGateway(ctx, bedrockagentcorecontrol.NewFromConfig(cfg), policy.WebSearchGateway(id))
+		switch {
+		case err != nil && awsx.IsAccessDenied(err):
+			return "", nil // the role has no web search statement: the admin hasn't enabled it
+		case err != nil:
+			// AgentCore may not be offered in this region: keep looking.
+			firstErr = cmp.Or(firstErr, err)
+		case g != nil:
+			return g.URL, nil
+		default:
+			answered = true
+		}
+	}
+	if answered {
 		return "", nil
 	}
-	return g.URL, nil
+	return "", firstErr
 }
 
 func (sdkAWS) WebSearch(ctx context.Context, profile, region, url string, search bool) error {

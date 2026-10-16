@@ -40,3 +40,15 @@ func TestFailed(t *testing.T) {
 		}
 	}
 }
+
+func TestURLRegion(t *testing.T) {
+	for url, want := range map[string]string{
+		"https://g-1.gateway.bedrock-agentcore.eu-west-1.amazonaws.com/mcp": "eu-west-1",
+		"https://example.com/mcp": "fallback",
+		"":                        "fallback",
+	} {
+		if got := URLRegion(url, "fallback"); got != want {
+			t.Errorf("URLRegion(%q) = %q", url, got)
+		}
+	}
+}
