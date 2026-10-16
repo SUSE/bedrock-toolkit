@@ -441,7 +441,7 @@ class BedrockE2E:
 
     @staticmethod
     def changes_but_handoffs(plan):
-        """Pending targets other than the org admin handoffs (1.6 outside the management account, 1.7)."""
+        """Pending targets other than the org admin handoffs (Step 1.7)."""
         return [i["target"] for i in plan["items"] if i["op"] in PENDING_OPS and i["op"] != "needs-org-admin"]
 
     def plan_should_have_no_changes(self, plan):

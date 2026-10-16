@@ -63,8 +63,14 @@ Doctor Names The Missing Piece
 
 Doctor Passes
     ${d}=    Admin    doctor    --json    rc=any
-    ${bad}=    Evaluate    [c["name"] for c in $d["checks"] if not c["ok"] and "org admin" not in (c.get("detail", "") + c.get("fix", "")) and c["name"] != "cost export data"]
+    ${bad}=    Evaluate    [c["name"] for c in $d["checks"] if not c["ok"] and not c["name"].startswith("Step 1.7 ") and c["name"] != "cost export data"]
     Should Be Empty    ${bad}    doctor failed: ${d}
+    # Step 1.6 never fails doctor when the tag can't be read: ok, or a warning to ask the org admin.
+    ${tag}=    Evaluate    next(c for c in $d["checks"] if c["name"].startswith("Step 1.6 "))
+    Should Be True    $tag["ok"]    ${tag}
+    IF    $tag.get("warn")
+        Should Contain    ${tag}[fix]    management account
+    END
     ${names}=    Evaluate    [c["name"] for c in $d["checks"]]
     Should Contain    ${names}    credentials
     Should Contain    ${names}    permissions
