@@ -32,8 +32,8 @@ func (a *App) modelsCmd() *cobra.Command {
 		Use:   "models",
 		Short: "List the models you may use in your profile's region",
 		Long: `models reads your personal role's policy, with the bedrock profile, and lists the models your admin
-allows that you can call from the profile's region: the us. or eu. inference profiles there,
-global. ones everywhere. Use these IDs as the model in Claude Code or the desktop app.
+allows for the profile's region: the us. or eu. inference profiles in the US and EU, global. ones
+elsewhere. Use these IDs as the model in Claude Code or the desktop app.
 
 When your admin allows any Claude model except Fable, it lists the built-in models, which your
 admin always enables; other Claude models work once your admin has enabled them in the account.
@@ -70,10 +70,7 @@ func (a *App) models(ctx context.Context, profile string) error {
 		}
 	}
 	out.AnyClaude = out.Source == "role" && listed == nil
-	if listed == nil {
-		listed = config.BaselineAllGeos()
-	}
-	out.Models = config.CallableModels(region, listed)
+	out.Models = config.RegionModels(region, listed)
 
 	if a.JSON {
 		b, _ := json.MarshalIndent(out, "", "  ")

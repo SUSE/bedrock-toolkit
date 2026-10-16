@@ -122,7 +122,7 @@ func TestSetupWritesProfile(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if len(f.invoked) != 6 || !strings.HasPrefix(f.invoked[0], "us-west-2 us.") || !strings.HasPrefix(f.invoked[5], "us-west-2 global.") {
+	if len(f.invoked) != 3 || !strings.HasPrefix(f.invoked[0], "us-west-2 us.") || !strings.HasPrefix(f.invoked[2], "us-west-2 us.") {
 		t.Fatalf("invoked %v", f.invoked)
 	}
 

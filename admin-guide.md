@@ -401,15 +401,15 @@ us.anthropic.claude-sonnet-5-5           US Anthropic Claude Sonnet 5.5      ACT
 - `models.toml` lists each baseline model with every prefix (`us.`, `eu.` and `global.`), and the
   personal role policy allows all of them, since each user's `bedrock` CLI picks the prefix from the
   user's own region, which can differ from `region:`. Step 1.5 enables them all, each from a region of
-  its geography. `doctor` and `configure` use only the ones your region offers: its prefix (`us.` or
-  `eu.`) and `global.`, or only `global.` in other regions. Each `bedrock-admin` release carries its own copy of [`models.toml`](models.toml), so a
+  its geography. `doctor` and `configure` use only your region's: its prefix (`us.` or `eu.`), or
+  `global.` in other regions (a US or EU region can call the `global.` ones too, but they're the
+  same models). Each `bedrock-admin` release carries its own copy of [`models.toml`](models.toml), so a
   new baseline arrives with a new release (`plan` then shows the personal role policies changing).
   You can't remove a baseline model; leave `models:` empty instead to allow any Claude model.
 - For a new file, `bedrock-admin configure` writes the region's baseline models into `models:`. `--model` or
   your answer wins (the baseline is still allowed); an existing file keeps its `models:`.
   The `bedrock` user CLI has its own copy of `models.toml`: `bedrock doctor` tests the baseline
-  models the user's region can call (`us.`/`eu.` by region, then `global.`; only `global.`
-  elsewhere) and `bedrock claude` prints its Opus, Sonnet and Haiku. The user CLI doesn't read
+  models with the user's region's prefix (`us.`/`eu.` by region, `global.` elsewhere) and `bedrock claude` prints its Opus, Sonnet and Haiku. The user CLI doesn't read
   `bedrock.yaml`, but `bedrock models` reads the user's own role policy and lists the models
   allowed there. If you list other models, announce them: users then update the model IDs in
   their own Claude Code settings and Claude desktop app model list, and can test one with

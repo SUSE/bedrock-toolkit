@@ -29,9 +29,9 @@ func (a *App) doctorCmd() *cobra.Command {
 		Short: "Check your SSO sign-in, the bedrock profile, your personal role and test calls to the built-in models",
 		Long: `doctor checks, in order: the bedrock profile in ~/.aws/config, your SSO sign-in, that your
 SSO login may use your personal role, the personal role itself and a test call to each model
-(by default the built-in models your admin always allows and enables that the profile's region can
-call: its us. or eu. inference profiles, then the global. ones; run bedrock models to see every
-model you may use).
+(by default the built-in models your admin always allows and enables, through the profile's
+region's inference profiles: us. or eu. in the US and EU, global. elsewhere; run bedrock models to
+see every model you may use).
 It prints the fix for each failed check and exits 2 when one failed.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.runDoctor(cmd.Context(), profile, models) },

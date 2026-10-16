@@ -59,17 +59,11 @@ func CallableModels(region string, models []string) []string {
 	return out
 }
 
-// TestModels returns the models doctor calls: those in models: the region can call, followed by the
-// region's baseline models they don't include (only the baseline when models: is empty). Other
-// geographies' inference profiles don't exist in the region, so they aren't tested.
+// TestModels returns the models doctor calls (RegionModels): the non-baseline models in models: the
+// region can call, followed by the region's baseline models (only those when models: is empty).
+// Baseline models with another prefix aren't tested.
 func (c *Config) TestModels() []string {
-	var here []string
-	for _, m := range c.Models {
-		if ModelRegion(c.Region, m) == c.Region {
-			here = append(here, m)
-		}
-	}
-	return appendMissing(here, BaselineModels(c.Region))
+	return RegionModels(c.Region, c.Models)
 }
 
 // EnableModels returns the models Step 1.5 enables: models: followed by every baseline model, with
@@ -116,19 +110,30 @@ func appendMissing(list, more []string) []string {
 
 var baseline = sync.OnceValues(func() ([]string, error) { return ParseModelsTOML(bedrocktoolkit.ModelsTOML) })
 
-// BaselineModels returns the built-in models.toml entries a region can call: those with the
-// region's prefix (us. or eu.), then those with global.; only global. outside the US and EU.
+// BaselineModels returns the built-in models.toml entries for a region: those with the region's
+// prefix (Geo: us. or eu., else global.). The region can call the global. ones too, but they're the
+// same models: doctor, configure and bedrock models stick to the region's own prefix.
 func BaselineModels(region string) []string {
-	all := BaselineAllGeos()
 	out := []string{}
-	for _, geo := range slices.Compact([]string{Geo(region), "global."}) {
-		for _, m := range all {
-			if strings.HasPrefix(m, geo) {
-				out = append(out, m)
-			}
+	for _, m := range BaselineAllGeos() {
+		if strings.HasPrefix(m, Geo(region)) {
+			out = append(out, m)
 		}
 	}
 	return out
+}
+
+// RegionModels returns the models a personal role allows that a user in a region should use: the
+// allowed ones the region can call that aren't baseline models, then the region's baseline models.
+// With nil (any Claude model allowed), only the region's baseline models.
+func RegionModels(region string, allowed []string) []string {
+	var own []string
+	for _, m := range CallableModels(region, allowed) {
+		if !slices.Contains(BaselineAllGeos(), m) {
+			own = append(own, m)
+		}
+	}
+	return appendMissing(own, BaselineModels(region))
 }
 
 // BaselineAllGeos returns every model in the built-in models.toml, whatever its prefix: personal

@@ -117,18 +117,21 @@ def default_models(region):
 GEO_PREFIXES = ("us.", "eu.", "apac.", "global.", "jp.", "au.", "ca.", "us-gov.")
 
 
-def baseline_models(region):
-    """The repository's models.toml entries REGION can call (config.BaselineModels): those with its
-    us./eu. prefix, then the global. ones; only global. elsewhere. An ID without a prefix gets each."""
+def baseline_all_geos():
+    """Every models.toml entry, whatever its prefix (config.BaselineAllGeos). An ID without a
+    prefix gets each."""
     with open(HERE.parent.parent / "models.toml", "rb") as f:
         models = tomllib.load(f).get("models", [])
     every = []
     for m in models:
         every += [m] if m.startswith(GEO_PREFIXES) else [f"{g}.{m}" for g in ("us", "eu", "global")]
-    out = []
-    for g in dict.fromkeys([_geo(region), "global"]):
-        out += [m for m in every if m.startswith(g + ".") and m not in out]
-    return out
+    return every
+
+
+def baseline_models(region):
+    """The models.toml entries for REGION (config.BaselineModels): those with its prefix (us./eu.,
+    else global.)."""
+    return [m for m in baseline_all_geos() if m.startswith(_geo(region) + ".")]
 
 
 class Result:
@@ -930,12 +933,15 @@ class BedrockE2E:
         return r["message"]
 
     def allowed_models(self):
-        """The models the test users may call: MODELS followed by the baseline models it doesn't list."""
+        """The models the test users use from REGION (config.RegionModels): MODELS without baseline
+        entries, followed by REGION's baseline models. Other prefixes' baseline models are allowed
+        but not tested."""
         s = self._settings()
-        return s["MODELS"] + [m for m in baseline_models(s["REGION"]) if m not in s["MODELS"]]
+        own = [m for m in s["MODELS"] if m not in baseline_all_geos()]
+        return own + baseline_models(s["REGION"])
 
     def baseline_only_model(self):
-        """A baseline model MODELS doesn't list (the user may still call it), or ""."""
+        """A baseline model for REGION that MODELS doesn't list (the user may still call it), or ""."""
         s = self._settings()
         return next((m for m in baseline_models(s["REGION"]) if m not in s["MODELS"]), "")
 
@@ -943,7 +949,7 @@ class BedrockE2E:
         """A Claude Haiku 4.5 inference profile for REGION, or "" when MODELS or the baseline lists it."""
         geo = self.s["MODELS"][0].split(".", 1)[0]
         m = f"{geo}.anthropic.claude-haiku-4-5-20251001-v1:0"
-        return "" if m in self.allowed_models() else m
+        return "" if m in self.s["MODELS"] + baseline_all_geos() else m
 
     def model_call_is_denied(self, profile, model=None):
         r = self._call(profile, model, 1, "Reply with OK.")

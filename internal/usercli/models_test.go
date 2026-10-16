@@ -13,18 +13,19 @@ import (
 
 func TestModels(t *testing.T) {
 	listed := policy.UserInvoke("111122223333", "bedrock", "bedrock-user-bedrock-achen", "b", "",
-		[]string{"us.anthropic.claude-opus-4-1", "eu.anthropic.claude-opus-4-1", "global.anthropic.claude-haiku-5-5"})
+		[]string{"us.anthropic.claude-opus-4-1", "eu.anthropic.claude-opus-4-1", "global.anthropic.claude-sonnet-4-5"})
 	cases := []struct {
 		name      string
 		change    func(*fakeAWS)
 		want, not []string
 	}{
 		{"listed", func(f *fakeAWS) { f.rolePolicy = listed },
-			[]string{"Your admin allows these models in us-west-2", "  us.anthropic.claude-opus-4-1\n", "  global.anthropic.claude-haiku-5-5\n"},
-			[]string{"eu.", "Other Claude models"}},
+			[]string{"Your admin allows these models in us-west-2", "  us.anthropic.claude-opus-4-1\n",
+				"  global.anthropic.claude-sonnet-4-5\n", "  us.anthropic.claude-haiku-5-5\n"},
+			[]string{"eu.", "global.anthropic.claude-haiku", "Other Claude models"}},
 		{"any claude", func(f *fakeAWS) { f.rolePolicy = policy.UserInvoke("111122223333", "bedrock", "r", "b", "", nil) },
-			[]string{"any Anthropic Claude models except Fable", "  us.anthropic.claude-haiku-5-5\n", "  global.anthropic.claude-opus-5-5\n", "Other Claude models work"},
-			[]string{"eu."}},
+			[]string{"any Anthropic Claude models except Fable", "  us.anthropic.claude-haiku-5-5\n", "Other Claude models work"},
+			[]string{"eu.", "global."}},
 		{"old role", func(f *fakeAWS) {
 			f.policyErr = &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized"}
 		},
@@ -58,7 +59,7 @@ func TestModelsJSONAndErrors(t *testing.T) {
 	code, out, _ := run(t, f, ssoConfig+"\n"+wantBlock, "", "models", "--json")
 	var got modelsJSON
 	if err := json.Unmarshal([]byte(out), &got); code != cli.OK || err != nil || !got.AnyClaude || got.Source != "role" ||
-		got.Region != "us-west-2" || len(got.Models) != 6 {
+		got.Region != "us-west-2" || len(got.Models) != 3 {
 		t.Fatalf("exit %d %v %+v\n%s", code, err, got, out)
 	}
 	if code, out, _ := run(t, newFake(), ssoConfig, "", "models"); code == cli.OK || !strings.Contains(out, "run bedrock setup") {

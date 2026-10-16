@@ -179,16 +179,13 @@ ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock
 ok    model us.anthropic.claude-opus-5-5: test call works
 ok    model us.anthropic.claude-sonnet-5-5: test call works
 ok    model us.anthropic.claude-haiku-5-5: test call works
-ok    model global.anthropic.claude-opus-5-5: test call works
-ok    model global.anthropic.claude-sonnet-5-5: test call works
-ok    model global.anthropic.claude-haiku-5-5: test call works
 
 All checks passed.
 ```
 
 By default it tests the built-in models (now Claude Opus, Sonnet and Haiku 5.5), which your admin
-always allows and enables, that your profile's region can call: the `us.` or `eu.` inference
-profiles, then the `global.` ones (only `global.` outside the US and EU). Each test call costs a
+always allows and enables, through your profile's region's inference profiles: `us.` or `eu.` in
+the US and EU, `global.` elsewhere. Each test call costs a
 fraction of a cent. Test another model with `--model <id>` (repeatable); `bedrock models` lists the
 ones you may use. `--json` prints the checks as JSON. It exits 2 when
 a check fails, and prints the fix under it. See [If something goes wrong](#if-something-goes-wrong).
@@ -379,13 +376,11 @@ Your admin allows these models in us-east-1 (profile bedrock):
   us.anthropic.claude-opus-5-5
   us.anthropic.claude-sonnet-5-5
   us.anthropic.claude-haiku-5-5
-  global.anthropic.claude-opus-5-5
-  global.anthropic.claude-sonnet-5-5
-  global.anthropic.claude-haiku-5-5
 ```
 
-It reads your personal role's policy with the `bedrock` profile and lists the models you can call
-from the profile's region: its `us.` or `eu.` inference profiles, and the `global.` ones. Use these
+It reads your personal role's policy with the `bedrock` profile and lists the models to use from the
+profile's region: `us.` or `eu.` inference profiles in the US and EU, `global.` elsewhere (a
+`global.` model your admin lists shows too). Use these
 IDs in Claude Code or the desktop app's model list. When your admin allows any Claude model except
 Fable, it says so and lists the built-in models, which your admin always enables; other Claude
 models work once your admin has enabled them in the account. If it says your role can't read its

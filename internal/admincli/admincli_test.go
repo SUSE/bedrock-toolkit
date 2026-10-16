@@ -175,9 +175,9 @@ func TestTestModels(t *testing.T) {
 	if got := (&config.Config{Region: "us-east-1", Models: c.Models}).TestModels(); slices.Contains(got, c.Models[0]) {
 		t.Fatalf("doctor tests another geography's profile: %v", got)
 	}
-	want := append(slices.Clone(c.Models), "eu.anthropic.claude-opus-5-5", "eu.anthropic.claude-sonnet-5-5",
-		"eu.anthropic.claude-haiku-5-5", "global.anthropic.claude-sonnet-5-5", "global.anthropic.claude-haiku-5-5")
-	if got := c.TestModels(); !slices.Equal(got, want) {
+	euBaseline := []string{"eu.anthropic.claude-opus-5-5", "eu.anthropic.claude-sonnet-5-5", "eu.anthropic.claude-haiku-5-5"}
+	// A listed baseline model with another prefix (global. in the EU) is allowed but not tested.
+	if got := c.TestModels(); !slices.Equal(got, append([]string{c.Models[0]}, euBaseline...)) {
 		t.Fatalf("listed plus baseline: %v", got)
 	}
 	// The policy allows the baseline with every prefix, as users may pick another region.
@@ -187,6 +187,8 @@ func TestTestModels(t *testing.T) {
 			t.Fatalf("allowed lacks %s: %v", m, allowed)
 		}
 	}
+	// export keeps only the region's baseline: a listed global. baseline model is allowed anyway.
+	want := append([]string{c.Models[0]}, euBaseline...)
 	if got := withoutOtherGeoBaseline("eu-west-1", allowed); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
 		t.Fatalf("export: %v", got)
 	}
@@ -250,13 +252,13 @@ func TestBaselineModels(t *testing.T) {
 	if got := config.BaselineAllGeos(); !slices.Equal(got, m) {
 		t.Fatalf("all geos: %v", got)
 	}
-	for region, want := range map[string]int{"us-east-1": 2 * len(m) / 3, "eu-west-1": 2 * len(m) / 3, "ap-northeast-1": len(m) / 3} {
+	for region, want := range map[string]int{"us-east-1": len(m) / 3, "eu-west-1": len(m) / 3, "ap-northeast-1": len(m) / 3} {
 		got := config.BaselineModels(region)
 		if len(got) != want {
 			t.Fatalf("%s: %v", region, got)
 		}
 		for _, id := range got {
-			if !strings.HasPrefix(id, config.Geo(region)) && !strings.HasPrefix(id, "global.") {
+			if !strings.HasPrefix(id, config.Geo(region)) {
 				t.Fatalf("%s: %v", region, got)
 			}
 		}
@@ -280,7 +282,7 @@ func TestConfigureBaselineModels(t *testing.T) {
 	for _, m := range config.BaselineModels("eu-west-1") {
 		want += "  - " + m + "\n"
 	}
-	if !strings.Contains(out, want) || !strings.Contains(out, "global.anthropic.claude-haiku-5-5") {
+	if !strings.Contains(out, want) || strings.Contains(out, "global.") {
 		t.Fatalf("baseline models:\n%s", out)
 	}
 	code, out, errs = run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
