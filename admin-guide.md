@@ -600,7 +600,7 @@ bedrock-admin apply          # add --yes when it removes users
 | Charge cdiaz's spend to another product | `product: data-platform` on cdiaz |
 | No alerts for anyone | `defaults.alert_at_percent: []` |
 | Remove achen | Delete the entry, then `apply --yes` |
-| Fix a wrong email (not the SSO username) | Change `email` to the SSO username ([how to find it](#2-create-bedrockyaml)), `apply --yes`, then the user runs `bedrock setup --yes` |
+| Fix a wrong email (not the SSO username) | Change `email` to the SSO username ([how to find it](#2-create-bedrockyaml)), `apply --yes`, then the user runs the `bedrock setup` command `apply` prints, with `--yes` |
 
 <details>
 <summary>Sample plan output, removals and drift</summary>

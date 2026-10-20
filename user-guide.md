@@ -478,6 +478,14 @@ the fix under it:
 | `uvx` | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) |
 | `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |
 
+> [!NOTE]
+> `bedrock setup --yes` here means the command your admin sent you, plus `--yes`. Setup doesn't read
+> the old profile, so keep every option you first used: `--id`, `--role-arn`, `--source-profile`
+> (always with an IAM user) and `--profile-name`. For example, if your admin's setup id is `team1`
+> and you leave out `--id team1`, setup uses the default id `bedrock` and points the profile at a
+> role that doesn't exist (`.../bedrock-user-bedrock-<you>` instead of
+> `.../bedrock-user-team1-<you>`). The `permission-set access` check then fails with AccessDenied.
+
 `bedrock setup` itself can stop with:
 
 | Message | Fix |
