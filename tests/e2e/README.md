@@ -25,7 +25,7 @@ cd tests/e2e
 ./run.sh cli                 # no AWS: smoke test of the built binaries
 cp config/example.py config/$USER.py   # then fill it in
 aws sso login --profile <ADMIN_PROFILE>
-./run.sh account             # or users, user-access, usage
+./run.sh account             # or users, user-access, iam-user, usage
 ./run.sh fast                # every suite but billing and web-search
 ./run.sh web-search          # opt-in: REGION us-east-1, eu-west-1 or ap-northeast-1
 ./run.sh users --test "Pause*"     # any robot option works after the suite
@@ -50,6 +50,7 @@ leaves it in place to look at after a failure. A run stops at its start when app
 | `account` | admin | `apply` creates Steps 1.1–1.7 and a second `apply` changes nothing. `plan` names exactly the missing or drifted piece and `apply` fixes it. Step 1.7 handoff. `doctor`. `models` shows regions only for allowed models. `export` round trip. A personal role without the id tag is left alone. A second setup (another id) in the same account: its own resources, the same person a user of both, the Lambda and `uninstall` touching only their own id, `export` asking for `--id`. `uninstall` refuses while users remain, keeps the bucket, and `--delete-data` removes it. |
 | `users` | admin | Onboarding (role, budget, alerts, pause action), changes in place, and drift. A user's own `product:` retags only their role. Removing a user needs `--yes`, and `--no-delete` skips it. Pause and unpause by hand. `apply` and the monthly Lambda leave a manual pause in place. Off for the month. The Lambda re-arms users and saves the snapshot. |
 | `user-access` | admin, SSO | `bedrock setup`, calls through the personal role, a baseline model `models:` doesn't list allowed, an unlisted model denied (`models:` allow-list), `bedrock doctor`, `bedrock usage`, `bedrock models`, direct SSO calls denied (Step 1.7), and a manual pause seen from the user's side. |
+| `iam-user` | admin | A user with an IAM user's access key instead of SSO: apply tags the IAM user `owner`, `product` and `bedrock-admin:id`, attaches the Step 1.9 policy and adds it to the pause action; `bedrock setup --source-profile` reads the email from the tag and writes a working profile; direct calls with the key denied; a pause denies the key too and unpause lifts it; removing `iam_user` releases the IAM user. The run creates and deletes its own IAM user. |
 | `usage` | admin | `usage` on fixture cost export files and a snapshot uploaded to the setup's bucket: totals, tracked and untracked spend, a past month from its snapshot, `--months`, and one person. |
 | `web-search` | admin; SSO optional | Opt-in. Turning `web_search` on creates the setup's gateway `bedrock-web-search-<id>` and its role, and gives a personal role the gateway rights; the role can search, the pause denies it and unpause restores it. With SSO: `bedrock doctor`'s web search check, and the MCP server `bedrock claude` prints, run through `uvx mcp-proxy-for-aws`, and for a profile in another region, the same gateway with its region. Turning it off removes the rights, the gateway and its role. Needs REGION `us-east-1`, `eu-west-1` or `ap-northeast-1`; a run costs a few cents. |
 | `billing` | admin | Everything that waits for AWS billing, in phases (below). |
@@ -63,7 +64,7 @@ leaves it in place to look at after a failure. A run stops at its start when app
 - Org-level settings are shared: the cost allocation tag activation and the Step 1.7 permission set
   policies. The suites only read them.
 - Use a dedicated test account anyway if you can.
-- Every suite except `cli` creates real AWS resources, and `user-access` and `billing` make paid
+- Every suite except `cli` creates real AWS resources, and `user-access`, `iam-user` and `billing` make paid
   model calls. A full `billing` run costs about $4.
 
 ## `billing`: phased

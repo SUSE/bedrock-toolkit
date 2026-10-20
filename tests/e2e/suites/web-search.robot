@@ -51,7 +51,7 @@ The User CLI Finds And Uses Web Search
     Apply
     ${arn}=    Role Arn Of    me
     Wait Until Sso Can Assume    ${arn}
-    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
+    Bedrock    setup    --source-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
     ...    --profile-name    ${PROFILE}    --yes
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json
     ${names}=    Evaluate    [c["name"] for c in $d["checks"] if c["ok"]]
@@ -67,7 +67,7 @@ A User In Another Region Finds The Gateway
     ...    gateway, with the gateway's region in --region.
     Skip If    not $SSO_PROFILE    SSO_PROFILE isn't set
     ${other}=    Set Variable If    $REGION == "eu-central-1"    us-west-2    eu-central-1
-    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${other}
+    Bedrock    setup    --source-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${other}
     ...    --profile-name    ${PROFILE}-other    --yes    rc=any
     ${out}=    Bedrock    claude    --profile-name    ${PROFILE}-other    --no-test    --no-search-test
     ${json}=    Get Regexp Matches    ${out}    claude mcp add-json web-search '([^']+)'    1

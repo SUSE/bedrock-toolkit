@@ -2,7 +2,7 @@
 # Runs an e2e suite in a container. Builds both CLIs for Linux first.
 #
 #   ./run.sh <suite> [robot options...]
-#       suites: cli account users user-access usage web-search billing, or "fast"
+#       suites: cli account users user-access iam-user usage web-search billing, or "fast"
 #       (all but billing and web-search)
 #   ./run.sh shell       a shell in the test container, for debugging
 #   ./run.sh build       rebuild the image
@@ -52,7 +52,7 @@ build_clis() {
 suite=${1:-}; shift || true
 extra=()
 case "$suite" in
-  cli|account|users|user-access|usage|web-search|billing) target=suites/$suite.robot ;;
+  cli|account|users|user-access|iam-user|usage|web-search|billing) target=suites/$suite.robot ;;
   fast) target=suites; extra=(--exclude billing --exclude web-search) ;;
   shell) target= ;;
   build) build_image; exit ;;

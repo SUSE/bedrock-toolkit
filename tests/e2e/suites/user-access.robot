@@ -19,7 +19,7 @@ Setup Writes A Working Profile
     [Documentation]    bedrock setup --id finds the personal role from the SSO email, as the setup
     ...    command apply prints for a setup that isn't the default id.
     Should Be Equal    ${SETUP_COMMAND}    bedrock setup --id ${ID}
-    ${r}=    Bedrock    setup    --sso-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
+    ${r}=    Bedrock    setup    --source-profile    ${SSO_PROFILE}    --id    ${ID}    --region    ${REGION}
     ...    --profile-name    ${PROFILE}    output=result    rc=any
     Should Be Equal As Integers    ${r.rc}    0    setup or its doctor failed:\n${r.stdout}\n${r.stderr}
     ${text}=    User Aws Config Text

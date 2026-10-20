@@ -985,6 +985,122 @@ class BedrockE2E:
             else:
                 os.environ["AWS_CONFIG_FILE"] = old
 
+    # ---------------------------------------------------------------- IAM users
+
+    def _iam_users_policy_arn(self, id_=None):
+        return f"arn:aws:iam::{self.account}:policy/bedrock/bedrock-iam-users-{id_ or self.cfg['id']}"
+
+    def create_test_iam_user(self, x):
+        """Creates IAM user <run id>-x with an access key, and adds profile e2e-key-x with the key to
+        the run's AWS config (written here when SSO wasn't started). Returns [name, profile]."""
+        name, profile = f"{self.run_id}-{x}", f"e2e-key-{x}"
+        iam = self._iam()
+        iam.create_user(UserName=name, Tags=[{"Key": "e2e-run", "Value": self.run_id}])
+        key = iam.create_access_key(UserName=name)["AccessKey"]
+        if not self.user_aws_config:
+            self.user_aws_config = self.work / "aws-config"
+            self.user_aws_config.write_text("")
+            BuiltIn().set_global_variable("${USER_AWS_CONFIG}", str(self.user_aws_config))
+        with open(self.user_aws_config, "a") as f:
+            f.write(f"\n[profile {profile}]\naws_access_key_id = {key['AccessKeyId']}\n"
+                    f"aws_secret_access_key = {key['SecretAccessKey']}\nregion = {self.s['REGION']}\n")
+        logger.info(f"IAM user {name}, profile {profile}", also_console=True)
+        return [name, profile]
+
+    def wait_until_access_key_works(self, profile, timeout=120):
+        """New access keys take a few seconds to be usable."""
+        deadline, err = time.time() + int(timeout), None
+        while time.time() < deadline:
+            try:
+                return self.identity(profile)
+            except Exception as e:  # noqa: BLE001 - InvalidClientTokenId until the key propagates
+                err = e
+                time.sleep(5)
+        raise Failure(f"access key of {profile} still doesn't work after {timeout}s: {err}")
+
+    def iam_user_tags(self, name):
+        tags = self._iam().list_user_tags(UserName=name)["Tags"]
+        return {t["Key"]: t["Value"] for t in tags}
+
+    def iam_users_policy_attached(self, name):
+        pols = self._iam().list_attached_user_policies(UserName=name)["AttachedPolicies"]
+        return any(p["PolicyArn"] == self._iam_users_policy_arn() for p in pols)
+
+    def iam_user_should_be_onboarded(self, name, email, product=None):
+        """Tagged like the personal role (owner, product, bedrock-admin:id), so the user's budget
+        counts its spend, with the setup's IAM user policy attached."""
+        tags = self.iam_user_tags(name)
+        want = {"bedrock-admin:id": self.cfg["id"], "owner": email, "product": product or self.cfg["product"]}
+        for k, v in want.items():
+            if tags.get(k) != v:
+                raise Failure(f"IAM user {name}: tag {k} is {tags.get(k)!r}, expected {v!r}")
+        if not self.iam_users_policy_attached(name):
+            raise Failure(f"IAM user {name}: {self._iam_users_policy_arn()} is not attached")
+
+    def iam_user_should_be_released(self, name):
+        """Detached, unpaused and untagged, but not deleted."""
+        tags = self.iam_user_tags(name)
+        left = [k for k in tags if k in ("owner", "product") or k.startswith("bedrock-admin:")]
+        if left:
+            raise Failure(f"IAM user {name} still has tags {left}")
+        if self.iam_users_policy_attached(name):
+            raise Failure(f"IAM user {name}: {self._iam_users_policy_arn()} is still attached")
+        if self.deny_attached_to_iam_user(name):
+            raise Failure(f"IAM user {name}: {self.names()['deny']} is still attached")
+
+    def deny_attached_to_iam_user(self, name):
+        pols = self._iam().list_attached_user_policies(UserName=name)["AttachedPolicies"]
+        return any(p["PolicyArn"] == self._deny_arn() for p in pols)
+
+    def deny_policy_should_be_attached_to_iam_user(self, name):
+        if not self.deny_attached_to_iam_user(name):
+            raise Failure(f"{self.names()['deny']} is not attached to IAM user {name}")
+
+    def deny_policy_should_not_be_attached_to_iam_user(self, name):
+        if self.deny_attached_to_iam_user(name):
+            raise Failure(f"{self.names()['deny']} is attached to IAM user {name}")
+
+    def budget_action_iam_users_should_be(self, x, *names):
+        """The IAM users the user's pause action denies, besides the personal role."""
+        d = self.budget_action(self.budget_of(x))["Definition"]["IamActionDefinition"]
+        got = sorted(d.get("Users") or [])
+        if got != sorted(names):
+            raise Failure(f"{self.budget_of(x)}: pause action IAM users {got}, expected {sorted(names)}")
+
+    def _iam_users_policy_exists(self, id_=None):
+        try:
+            self._iam().get_policy(PolicyArn=self._iam_users_policy_arn(id_))
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchEntity":
+                return False
+            raise
+
+    def iam_users_policy_should_exist(self, id_=None):
+        if not self._iam_users_policy_exists(id_):
+            raise Failure(f"{self._iam_users_policy_arn(id_)} does not exist")
+
+    def iam_users_policy_should_not_exist(self, id_=None):
+        if self._iam_users_policy_exists(id_):
+            raise Failure(f"{self._iam_users_policy_arn(id_)} still exists")
+
+    def delete_test_iam_users(self):
+        """Deletes the IAM users this run created (detaching policies and deleting keys first)."""
+        if not self.run_id or self.offline:
+            return
+        iam = self._iam()
+        for page in iam.get_paginator("list_users").paginate():
+            for u in page["Users"]:
+                name = u["UserName"]
+                if not name.startswith(self.run_id + "-"):
+                    continue
+                for p in iam.list_attached_user_policies(UserName=name)["AttachedPolicies"]:
+                    iam.detach_user_policy(UserName=name, PolicyArn=p["PolicyArn"])
+                for k in iam.list_access_keys(UserName=name)["AccessKeyMetadata"]:
+                    iam.delete_access_key(UserName=name, AccessKeyId=k["AccessKeyId"])
+                iam.delete_user(UserName=name)
+                logger.info(f"deleted IAM user {name}", also_console=True)
+
     def write_test_user_profile(self, x, profile=None):
         """Adds a profile for test user x's role to the run's AWS config, with the SSO profile as
         source (the trust policy only lets the SSO login with session name <email> in, so this only
