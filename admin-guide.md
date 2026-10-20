@@ -262,7 +262,8 @@ users:
   Billing records IAM principal tags only on Bedrock, so the IAM user's other AWS spend never counts;
 - adds the IAM user to the pause action, next to the personal role: when the budget pauses the user,
   or you run `bedrock-admin pause`, `bedrock-deny-<id>` is attached to both, and the monthly Lambda
-  and `unpause` take it off both;
+  and `unpause` take it off both. On the IAM user it also stops direct calls with the access key:
+  an explicit deny wins over any Allow the IAM user has, even `AdministratorAccess`;
 - adds a second statement to the personal role's trust: the IAM user may assume it with session name
   `<email>`. The user's SSO login, if they have one, still works too;
 - prints a setup command with `--source-profile <your <iam_user> access key profile>` and
