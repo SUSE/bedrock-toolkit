@@ -1084,6 +1084,13 @@ class BedrockE2E:
         if self._iam_users_policy_exists(id_):
             raise Failure(f"{self._iam_users_policy_arn(id_)} still exists")
 
+    def attach_aws_policy_to_test_iam_user(self, name, policy):
+        """Attaches the AWS managed policy <policy> to IAM user <name> (one this run created), so it
+        has its own Allow; delete_test_iam_users detaches it."""
+        if not name.startswith(self.run_id + "-"):
+            raise Failure(f"{name} wasn't created by this run")
+        self._iam().attach_user_policy(UserName=name, PolicyArn=f"arn:aws:iam::aws:policy/{policy}")
+
     def delete_test_iam_users(self):
         """Deletes the IAM users this run created (detaching policies and deleting keys first)."""
         if not self.run_id or self.offline:
