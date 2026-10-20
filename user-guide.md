@@ -16,9 +16,11 @@ minutes.
 - [Before you start](#before-you-start)
 - [Setup](#setup)
   - [Step 1. Sign in with SSO](#step-1-sign-in-with-sso)
+  - [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key)
   - [Step 2. Write your Bedrock profile](#step-2-write-your-bedrock-profile)
   - [Step 3. Check it](#step-3-check-it)
   - [Step 4. Set up Claude Code](#step-4-set-up-claude-code)
+  - [Running an agent for hours or days](#running-an-agent-for-hours-or-days)
   - [Web search](#web-search)
 - [Check your spend](#check-your-spend)
 - [Which models you may use](#which-models-you-may-use)
@@ -28,7 +30,7 @@ minutes.
 ## Quick start
 
 ```bash
-aws sso login --profile <your-sso-profile>   # or: aws login
+aws sso login --profile <your-sso-profile>   # skip with an IAM user access key
 bedrock setup                                # the command your admin sent you
 bedrock claude                               # test Claude Code, print the settings to add
 ```
@@ -38,7 +40,8 @@ below; click the folded sections for sample output and details.
 
 ## How it works
 
-- You use Bedrock through a personal AWS role that only you can use, from your SSO login.
+- You use Bedrock through a personal AWS role that only you can use, from your SSO login (or, if
+  your admin gave you one, an IAM user's access key).
 - You can use Anthropic Claude models, except the Claude Fable family, which is not approved. Your
   admin may allow only some of them, but Claude Opus, Sonnet and Haiku 5.5 are always allowed.
   `bedrock models` lists the ones you may use.
@@ -78,7 +81,7 @@ way in.
 | Command | What it does | Section |
 | --- | --- | --- |
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
-| `bedrock doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
+| `bedrock doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
 | `bedrock usage` | Shows this month's spend against your budget, where you get paused and whether you are paused | [Check your spend](#check-your-spend) |
 | `bedrock models` | Lists the models you may use in your profile's region | [Which models you may use](#which-models-you-may-use) |
@@ -88,7 +91,8 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 ## Before you start
 
 - You can sign in to the AWS account with SSO, and you have an SSO profile in `~/.aws/config`
-  (from `aws configure sso`), or you sign in with `aws login`.
+  (from `aws configure sso`). Without SSO, your admin gives you an
+  IAM user's access key instead; see [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key).
 - The AWS CLI v2 is installed.
 - The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
 
@@ -114,11 +118,29 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 ### Step 1. Sign in with SSO
 
 ```bash
-aws sso login --profile <your-sso-profile>     # or: aws login
+aws sso login --profile <your-sso-profile>
 ```
 
-`aws login` reuses whatever identity your browser console is signed in as. `bedrock setup` checks
-that it is an SSO login.
+### Sign in with an IAM user access key
+
+Skip Step 1 if your admin gave you an IAM user's access key instead of SSO. Store the key in a
+profile, then pass that profile to the setup command your admin sent you (it already has
+`--source-profile` and `--default-region`):
+
+```bash
+aws configure --profile my-key          # access key ID, secret, and the region
+bedrock setup --source-profile my-key --default-region us-east-1
+```
+
+The region comes from `--region`, else the `my-key` profile, else `--default-region` (your admin's
+setup region).
+
+`setup` reads your email from the IAM user's `owner` tag, which your admin's `apply` set; if it can't,
+pass `--email <your email>`. The profile it writes has `source_profile = my-key` and your email as
+`role_session_name`. The access key itself can't call models: only the `bedrock` profile can. Your
+budget counts any Bedrock calls made with the access key (only Bedrock, nothing else on AWS), and
+when you're paused the access key is denied too.
+`bedrock doctor` shows `sign-in: IAM user <name> (profile my-key)` instead of `SSO sign-in`.
 
 ### Step 2. Write your Bedrock profile
 
@@ -154,7 +176,7 @@ region = us-west-2
 - It keeps the previous file as `config.bak`. If a `bedrock` profile already exists, it shows the
   old and new block and asks before replacing it. `--yes` replaces it without asking.
 - If you have several SSO profiles, it asks which one you sign in with, or pass
-  `--sso-profile <profile>`.
+  `--source-profile <profile>`.
 - `--profile-name` writes a profile with another name.
 
 </details>
@@ -202,8 +224,10 @@ It makes one test call with Claude Code and prints the settings to add, for Clau
 Claude desktop app. It never changes your Claude settings: you add them yourself. If your admin
 turned on web search, it also prints how to add it to both; see [Web search](#web-search).
 
-- Your personal role can only call Claude models. For any other AWS command, use your SSO profile.
-- Credentials renew automatically while your SSO sign-in is valid.
+- Your personal role can only call Claude models. For any other AWS command, use your SSO (or access key) profile.
+- Credentials renew automatically; see [How long a session lasts](#how-long-a-session-lasts).
+- With an IAM user access key, `bedrock claude` leaves out `awsAuthRefresh`: there is no sign-in
+  to renew.
 - To change the profile or region later, edit the settings or run `/setup-bedrock` again.
 
 <details>
@@ -253,6 +277,22 @@ Claude desktop app (Settings, Amazon Bedrock):
 
 </details>
 
+### How long a session lasts
+
+Your personal role's credentials last one hour, and the AWS CLI, the SDKs and Claude Code fetch new
+ones by themselves. What ends a session is the sign-in behind your source profile:
+
+| You sign in with | Lasts | When it ends |
+| --- | --- | --- |
+| SSO (`aws sso login`) | Your organization's IAM Identity Center session length, 8 hours by default | Claude Code runs `awsAuthRefresh` (`aws sso login`) and opens the browser; or run it yourself |
+| IAM user access key | Until the key is deactivated or rotated | Nothing to renew |
+
+A longer SSO session is set by whoever runs IAM Identity Center for your organization (up to 90
+days), not by your Bedrock admin. It applies only to SSO profiles with an `sso_session` (what
+`aws configure sso` writes). With Microsoft AD or an external IdP behind Identity Center, the
+shorter of the two sessions applies. The permission set's own 1 to 12 hour limit doesn't matter:
+the AWS CLI renews those credentials while the SSO session lasts. A pause stops both within seconds.
+
 <details>
 <summary>How the test works, and keeping models up to date</summary>
 
@@ -270,6 +310,28 @@ settings and the desktop app's model list, and check one with `bedrock doctor --
 `bedrock models` lists every model you may use.
 
 </details>
+
+### Running an agent for hours or days
+
+A coding agent that runs unattended for hours or days (Claude Code in a long session, a CI job, an
+agent built on an AWS SDK) can use the `bedrock` profile the same way, if:
+
+- **It uses the profile, not exported keys.** Set `AWS_PROFILE=bedrock` (and `AWS_REGION`), or the
+  settings `bedrock claude` prints, so the SDK renews the one-hour role credentials by itself. Don't
+  hand it `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` from
+  `aws configure export-credentials`: nothing renews those, and they stop working within an hour.
+- **Its sign-in outlives the run.** With an
+  [IAM user access key](#sign-in-with-an-iam-user-access-key) there is nothing to renew, so this is
+  the choice for runs of a day or more. With SSO the agent stops when the SSO session ends (8 hours
+  by default): `awsAuthRefresh` opens a browser that nobody answers. Run `aws sso login` right
+  before you start it, or ask whoever runs IAM Identity Center for a longer session.
+- **It stops on a pause.** When you reach your limit, every call fails with
+  `AccessDeniedException` until your admin unpauses you or the month ends. Make sure the agent stops
+  or waits rather than retrying in a loop, and check `bedrock usage` before a long run.
+
+> [!WARNING]
+> Don't use Bedrock API keys for this: your admin's budget doesn't count them, and short-term keys
+> last at most 12 hours.
 
 ### Web search
 
@@ -401,10 +463,12 @@ the fix under it:
 | `profile` | `no profile bedrock in <file>` | `bedrock setup` |
 | `profile` | `missing role_arn, ...` | `bedrock setup --yes` |
 | `profile` | `<key> has a comment at the end of the line` | Put comments on their own line, or run `bedrock setup --yes` |
-| `SSO sign-in` | Your SSO session expired or you are not signed in | `aws sso login --profile <profile>` (or `aws login`) |
-| `SSO sign-in` | `signed in as ..., not with SSO` | Set `source_profile` to your SSO profile, or run `bedrock setup --sso-profile <profile>` |
+| `SSO sign-in` | Your SSO session expired or you are not signed in | `aws sso login --profile <profile>` |
+| `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with aws sso login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
+| `sign-in` | The access key of the IAM user profile doesn't work | `aws configure --profile <profile>` with a valid key; ask your admin for a new one |
+| `session name` | `role_session_name is ..., but it must be your email` (IAM user) | `bedrock setup --yes` |
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
-| `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. |
+| `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. With an IAM user: ask them to onboard your email with `iam_user: <name>`. |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
 | `model <id>` | `AccessDeniedException ... explicit deny in an identity-based policy` (or no message), on a Claude model | Your Bedrock access is paused (monthly budget used up). It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
 | `model <id>` | `AccessDeniedException ... no identity-based policy allows` | Your admin doesn't allow this model. If the model starts with `global.`, your profile's region isn't a US or EU one: when your admin allows `us.` or `eu.` models, run `bedrock setup --region us-east-1 --yes` (or an EU region). |
@@ -418,8 +482,9 @@ the fix under it:
 
 | Message | Fix |
 | --- | --- |
-| `no SSO profile in <file>` | Run `aws configure sso` (or `aws login`) first, or pass `--sso-profile` |
-| `several SSO profiles in <file> (...)` | Pass `--sso-profile <profile>` (it asks when run in a terminal) |
+| `no SSO profile in <file>` | Run `aws configure sso` first, or pass `--source-profile` |
+| `several SSO profiles in <file> (...)` | Pass `--source-profile <profile>` (it asks when run in a terminal) |
+| `IAM user <name> has no owner tag ...` | Ask your admin to onboard you with `iam_user: <name>`, or pass `--email <your email>` |
 | `profile <name> has no region` | Pass `--region`. Your admin knows the Bedrock region. |
 | `reading your SSO identity ...` | Sign in first, with the command it prints |
 | `the profile exists: run again with --yes to replace it` | Run `bedrock setup --yes` |

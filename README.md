@@ -1,8 +1,8 @@
 # bedrock-toolkit
 
-Tools to give a team model access on Amazon Bedrock: each person signs in with SSO to their own role,
-has a monthly budget, and is paused alone when they reach it. Admins manage everyone from one
-file; users set up their machine with one command.
+Tools to give a team model access on Amazon Bedrock: each person signs in with SSO (or, without SSO,
+an IAM user's access key) to their own role, has a monthly budget, and is paused alone when they
+reach it. Admins manage everyone from one file; users set up their machine with one command.
 
 ## What's in the toolkit
 
@@ -19,8 +19,11 @@ file; users set up their machine with one command.
   models (Claude Opus, Sonnet and Haiku 5.5).
 - **A budget per person**: AWS bills each Bedrock call with that tag, and a budget per user tracks it,
   with email alerts.
-- **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role.
-  A monthly renewal process re-arms it. Admins can also pause and unpause by hand.
+- **Pausing only that person**: at the limit, the budget attaches a deny policy to that user's role
+  (and IAM user, if they have one). A monthly renewal process re-arms it. Admins can also pause
+  and unpause by hand.
+- **Users without SSO**: `iam_user:` lets someone sign in with an existing IAM user's access key.
+  They still call models only through their personal role, with the same budget and pause.
 - **One file, plan and apply**: `bedrock.yaml` lists the settings and the users. `plan` shows what
   differs from the account, `apply` makes them match, and `export` writes the file back from the account.
 - **Usage reports**: spend per user, and spend that bypasses personal roles.
@@ -34,8 +37,8 @@ file; users set up their machine with one command.
 ## How it works
 
 ```
- User (SSO login)
-    │  aws sso login, then profile "bedrock" (written by bedrock setup)
+ User (SSO login, or IAM user access key)
+    │  profile "bedrock" (written by bedrock setup)
     ▼
  Personal role  bedrock-user-<id>-<name> Claude/allowed models only, tagged owner=<sso-email>
     │  bedrock:InvokeModel
@@ -45,7 +48,7 @@ file; users set up their machine with one command.
                         ▼
                   AWS Budget  bedrock-<id>-<name>  (filter: iamPrincipal/owner = <sso-email>)
                     alert_at_percent  → email
-                    pause_at_percent  → attach bedrock-deny-<id> to that person's role (paused)
+                    pause_at_percent  → attach bedrock-deny-<id> to that person's role and IAM user (paused)
                         │
                         ▼
                   1st of the month, 06:00 UTC: Lambda bedrock-monthly-unpause-<id>
@@ -113,7 +116,7 @@ bedrock-admin apply                  # set up the account and the users
 Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 
 ```bash
-aws sso login                        # or: aws login
+aws sso login                        # or nothing, with an IAM user access key
 bedrock setup                        # write the bedrock profile and check it
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget
@@ -142,7 +145,7 @@ bedrock models                       # the models you may use
 | Command | What it does |
 | --- | --- |
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
-| `doctor` | Checks your SSO sign-in, the `bedrock` profile, your personal role and test calls to the built-in models |
+| `doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |
 | `usage` | Shows this month's spend against your budget, and whether you are paused |
 | `models` | Lists the models you may use in your profile's region |

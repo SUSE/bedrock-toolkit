@@ -50,9 +50,11 @@ There are two CLIs:
 | Credentials | Temporary only | Password or long-lived access keys |
 | Lifecycle | Managed centrally from the identity provider; offboarding is automatic | Managed separately in each account |
 | Caller ARN | `...:assumed-role/AWSReservedSSO_<Set>_<id>/achen@example.com` | `...:user/achen` |
-| CLI sign-in | `aws sso login`, or `aws login` | Access keys or `aws login` |
+| CLI sign-in | `aws sso login` | Access key (no console access needed) |
 
-Everyone uses SSO. IAM users are not used for Bedrock.
+SSO is the default. A user without SSO may sign in with an IAM user's access key instead (`iam_user:`
+on their entry, see [IAM users](#iam-users)); they still go through their personal role, with the
+same budget and pause.
 
 ### Why SSO alone is not enough for per-person budgets
 
@@ -94,7 +96,7 @@ Marketplace charges too.
 | Per-person cost attribution | IAM principal tag on a personal role | Application inference profiles per user: one per user per model, too many. SSO session tags: need IT changes, and billing support is unconfirmed. |
 | Per-person enforcement | A budget action attaches a shared deny policy to the personal role | A deny on the shared SSO role: pauses everyone, or needs one conditional policy per user, and Identity Center may overwrite it |
 | Model access | Anthropic Claude models, or only those in `models:` plus the built-in baseline models when listed; the Claude Fable family is always denied (not approved) | All models: less predictable spend, and most use is Claude. Per-model budgets: Budgets can't pause per model. |
-| Getting into the personal role | SSO, then `sts:AssumeRole` (role chaining) | IAM account access manager: no chaining, but IT must enable it in the management account. See [Later](#15-later-and-open-items). |
+| Getting into the personal role | SSO (or an IAM user's access key), then `sts:AssumeRole` (role chaining) | IAM account access manager: no chaining, but IT must enable it in the management account. See [Later](#15-later-and-open-items). |
 | Configuration | A desired-state file and `plan`/`apply` | Copy-paste commands and per-user scripts: easy to drift, no review |
 | Reading spend | The cost export's Parquet files, read directly | Cost Explorer: can't group by caller. A query engine (DuckDB): an extra install for four columns. |
 
@@ -179,12 +181,13 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | --- | --- | --- |
 | 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
 | 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
-| 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/`. |
+| 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/` and on IAM users tagged `bedrock-admin:id=<id>`. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st) | Re-arms every pause of the id's users each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
 | 1.7 | Model calls outside personal roles are blocked | See below |
 | 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
+| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` (path `/bedrock/`) | Lets those IAM users assume a personal role and read their own tags, and carries the Step 1.7 deny for them. `apply` attaches it per user. See [IAM users](#iam-users). |
 
 If an account step fails, `apply` skips the users. Step 1.6 shows "waiting for first use" until
 the tag can be activated. Steps that need the org admin (1.7) stay pending; the rest of `apply` continues, and `apply` exits 2 while something is pending.
@@ -316,18 +319,62 @@ The role trusts the account root, with three conditions that must all hold:
 }
 ```
 
-- `aws:PrincipalArn`: only SSO roles may assume it, not IAM users or other roles, and not another
-  personal role.
+- `aws:PrincipalArn`: only SSO roles may use this statement, not IAM users or other roles, and not
+  another personal role. IAM users get their own statement, below.
 - `aws:userid`: Identity Center sets the part after the colon to the user's SSO email. The caller
   can't choose it.
 - `sts:RoleSessionName`: the session name must be the email, so the caller ARN of every call ends
   in the email, in CloudTrail and in the cost export.
 
+### IAM users
+
+With `iam_user: <name>` on a user, the trust gets a second statement (Sid `IAMUser`), and the SSO
+statement stays, so the user may use either:
+
+```json
+{
+  "Sid": "IAMUser",
+  "Effect": "Allow",
+  "Principal": {"AWS": "arn:aws:iam::111122223333:root"},
+  "Action": "sts:AssumeRole",
+  "Condition": {"StringEquals": {
+    "aws:PrincipalType": "User", "aws:username": "dlee-bedrock",
+    "sts:RoleSessionName": "dlee@example.com"}}
+}
+```
+
+- The IAM user is created by the admin, outside `bedrock-admin`; `apply` never creates or deletes
+  IAM users or keys. `aws:username` is case-sensitive, so `plan` warns when the name differs in case.
+- `apply` attaches the Step 1.9 policy `bedrock-iam-users-<id>` to the IAM user: `sts:AssumeRole`
+  on the id's personal roles (each trust admits only its own IAM user), `iam:ListUserTags` on itself,
+  and with `block_direct_calls.enabled` the same deny as Step 1.7, so the access key can't call
+  models directly. This needs no org admin. One managed policy instead of an inline one per user,
+  so removals are found with `ListEntitiesForPolicy`.
+- It tags the IAM user like the personal role, `owner=<email>`, `product` and `bedrock-admin:id`, so
+  the budget's `iamPrincipal/owner` filter counts the IAM user's direct Bedrock calls, the same as an
+  SSO user's role. Billing records IAM principal tags only on Bedrock line items, so the IAM user's
+  other AWS spend never reaches the budget. `bedrock setup --source-profile <key profile>` reads the
+  email from the `owner` tag (or `--email`). The setup command `apply` prints adds
+  `--default-region <setup region>`, used only when neither `--region` nor the key profile sets one. `export` rebuilds `iam_user:` from the tags. `usage` counts lines of an IAM user tagged
+  with a user's `owner` as that user's.
+- The pause action's `IamActionDefinition` lists the IAM user in `Users` next to the role, so AWS
+  Budgets attaches and detaches `bedrock-deny-<id>` on both. `apply` updates `Users` in place (no
+  re-arm) and, when the user is paused, attaches or detaches the deny itself. `pause`/`unpause` act
+  on the action's `Users` too, and the monthly Lambda re-attaches a pause by hand to them after the
+  reverse. The budget actions role (Step 1.3) may `iam:AttachUserPolicy`/`DetachUserPolicy` and
+  the Lambda role (Step 1.4) `iam:AttachUserPolicy`, only for the deny policy and only on IAM users
+  tagged `bedrock-admin:id=<id>`.
+- Removing `iam_user:` (or the user) detaches the policy and any pause, removes the tags and takes
+  the IAM user out of the pause action, with `--yes`. The
+  policy is deleted when no user has `iam_user:` left; `uninstall` detaches it from every user and
+  group first.
+
 `bedrock setup` writes an AWS CLI profile that uses the SSO profile as `source_profile` and sets
 `role_session_name` to the SSO email. `bedrock doctor` checks each part. `bedrock claude` runs
 `claude -p` once with the profile, in a temporary empty `CLAUDE_CONFIG_DIR` (no tools, MCP servers,
-hooks or plugins), to show it works, then prints the Claude Code settings (`env` block and
-`awsAuthRefresh`). It also prints the values for the Claude desktop app's Amazon Bedrock settings (region, profile, AWS CLI
+hooks or plugins), to show it works, then prints the Claude Code settings (`env` block, and
+`awsAuthRefresh` when the source profile signs in with SSO; an access key profile
+needs none). It also prints the values for the Claude desktop app's Amazon Bedrock settings (region, profile, AWS CLI
 path, model list). It never writes Claude Code's settings: the user adds them, or uses `/setup-bedrock`.
 `bedrock usage` reads the user's own budget (spend, forecast, the pause action's threshold) and the
 pause state (budget action status and the role's pause tags) with the personal role. The budget name
@@ -498,6 +545,7 @@ bucket. One account with a single setup is the same thing with one id.
 | Budget actions role | `bedrock-budget-actions-<id>` |
 | Monthly Lambda, its role, its schedule | `bedrock-monthly-unpause-<id>` |
 | Scheduler role | `bedrock-monthly-unpause-scheduler-<id>` |
+| IAM user policy | `bedrock-iam-users-<id>` |
 | Web search gateway, its role | `bedrock-web-search-<id>`, `bedrock-web-search-gateway-<id>` |
 | Cost export, bucket | `bedrock-cur-<id>`, `bedrock-cur-<account>-<id>` |
 
@@ -545,7 +593,8 @@ sets.
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
 - `bedrock-admin` needs only account-level admin rights. It never touches AWS Organizations.
-- `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles.
+- `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles
+  and the IAM users tagged `bedrock-admin:id=<id>`.
 - The cost export bucket is private and writable only by Data Exports.
 - `bedrock.yaml` has no secrets.
 - Personal roles can call only Bedrock. An agent such as Claude Code running with the personal role
@@ -560,7 +609,7 @@ sets.
 | Pause effect | Within seconds, including running sessions. Access returns within about a minute of an unpause. |
 | Re-arming | A reversed action never fires again until it is reset. `apply` and the Lambda always do both. |
 | Untracked spend | No budget, no alert, no pause, no team charge. Found after the fact by `usage`. |
-| Credentials | Role chaining limits personal-role credentials to 1 hour. The AWS CLI, the SDKs and Claude Code refresh them while the SSO sign-in is valid. |
+| Credentials | Role chaining limits personal-role credentials to 1 hour. The AWS CLI, the SDKs and Claude Code refresh them while the source profile's sign-in is valid: the Identity Center session (8 hours by default, set by the Organizations admin), or, for an IAM user access key, indefinitely. |
 | Personal role scope | Bedrock only; other AWS commands need the SSO profile |
 | Emails | Only AWS Budgets sends email (alerts and the automatic pause), with fixed wording. No email for a pause or unpause by hand. |
 | Claude Code settings | The `/login` wizard writes `~/.claude/settings.json`, which every Claude Code session on the machine reads. Users with a personal Claude account should use a separate `CLAUDE_CONFIG_DIR`. |
@@ -581,6 +630,7 @@ and a real AWS account:
 | `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall` |
 | `users` | Onboarding, limit changes and offboarding |
 | `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, `bedrock models`, direct SSO calls denied, a pause seen by the user |
+| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied, a pause denies the key too, removing `iam_user:` releases the IAM user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

@@ -126,7 +126,7 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `config` | The file loads and is valid |
 | `credentials` | The profile has valid credentials. Fix: `aws sso login --profile <profile>` |
 | `permissions` | It could read every part of the account setup |
-| `Step 1.1` to `Step 1.8` | Each account setup item is in place (one line per item, as in `plan`) |
+| `Step 1.1` to `Step 1.9` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
 | `model <id>` | A test call to each model in `models:` and the baseline works (only the baseline when `models:` is empty) |
 
@@ -184,7 +184,7 @@ them all.
 
 | Service | Used for |
 | --- | --- |
-| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (Step 1.7) |
+| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (Step 1.7). With `iam_user:` users: `iam:GetUser`, `iam:ListUserTags`, `iam:TagUser`, `iam:UntagUser`, `iam:AttachUserPolicy`, `iam:DetachUserPolicy`, `iam:ListAttachedUserPolicies` and `iam:ListEntitiesForPolicy` (Step 1.9) |
 | AWS Budgets | Budgets, notifications and budget actions, including running and resetting actions |
 | Data Exports (`bcm-data-exports`) | The CUR 2.0 export (Step 1.1) |
 | S3 | Creating the cost export bucket, its policy and public access block; listing and reading the export and snapshot files. Include `s3:GetBucketLocation` on the bucket: `usage` and `doctor` read the bucket's region with it. |
@@ -238,6 +238,48 @@ The address to use is the end of `Arn`, here `achen@example.com`:
 Identity Center, it is the user's **Username** there.
 
 The file holds no secrets. Keep it in Git and review changes in pull requests.
+
+### Users without SSO: IAM users
+
+Someone without an SSO login can sign in with an IAM user's access key instead. Create the IAM user
+and its access key yourself (in the console or with `aws iam create-user` and
+`aws iam create-access-key`; it needs no policy), then name it in the user's entry:
+
+```yaml
+users:
+  - email: dlee@example.com      # still required: the role, budget and alerts use it
+    iam_user: dlee-bedrock        # exact IAM user name (case matters)
+```
+
+`apply` then:
+
+- creates `bedrock-iam-users-<id>` (Step 1.9) and attaches it to the IAM user. It lets the user
+  assume only their own personal role and read their own tags, and, with
+  `block_direct_calls.enabled`, denies direct model calls, so IAM users need nothing from your org
+  admin for Step 1.7;
+- tags the IAM user like the personal role: `owner=<email>`, `product` and `bedrock-admin:id`. The
+  budget counts the Bedrock calls the IAM user makes directly as well as the personal role's.
+  Billing records IAM principal tags only on Bedrock, so the IAM user's other AWS spend never counts;
+- adds the IAM user to the pause action, next to the personal role: when the budget pauses the user,
+  or you run `bedrock-admin pause`, `bedrock-deny-<id>` is attached to both, and the monthly Lambda
+  and `unpause` take it off both;
+- adds a second statement to the personal role's trust: the IAM user may assume it with session name
+  `<email>`. The user's SSO login, if they have one, still works too;
+- prints a setup command with `--source-profile <your <iam_user> access key profile>` and
+  `--default-region <region>`: the setup's region, used only when the user's key profile has none
+  (or `--region <region>` instead, when your profile's region differs from the setup's).
+
+Send the user the access key and that command. They store the key with
+`aws configure --profile <name>` and run `bedrock setup --source-profile <name>`; see the
+[user guide](user-guide.md#sign-in-with-an-iam-user-access-key).
+
+If you add `iam_user:` to someone who is paused, `apply` attaches the deny to the IAM user right away.
+
+`plan` warns, and changes nothing on the IAM user, when it doesn't exist, when its name differs only
+in case, or when another setup's id manages it. Take `iam_user:` out (or remove the user) and `apply`
+detaches the policy (and any pause), removes the tags and takes it out of the pause action, but keeps the IAM user and its keys: delete them yourself.
+That removal needs `--yes`, like offboarding. When no user has `iam_user:` left, `apply` deletes the
+Step 1.9 policy.
 
 <details>
 <summary>configure without questions, and its flags</summary>
@@ -328,6 +370,7 @@ users:                          # or: users: !include users.yaml
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
 | `notify` | `owner` (the user's SSO email) or an email address. Use an address when the SSO email gets no mail. |
+| `iam_user` (per user) | Optional. An existing IAM user the user signs in with instead of (or as well as) SSO; see [IAM users](#users-without-sso-iam-users). Letters, digits and `+=,.@_-`, up to 64. Each IAM user may belong to one user. |
 | `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). At most 30 characters, so the role name fits IAM's 64. The role is `bedrock-user-<id>-<name>`, the budget `bedrock-<id>-<name>`. |
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
 | `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
@@ -449,10 +492,11 @@ bedrock-admin apply    # creates what is missing; safe to re-run
 `apply` prints each change and, for each new user, the command to send them:
 
 ```
-Send each new user their setup command (after aws sso login):
+Send each new user their setup command (after aws sso login, or with their access key profile for IAM users):
   achen@example.com: bedrock setup
   bkim@example.com: bedrock setup
   cdiaz@example.com: bedrock setup
+  dlee@example.com: bedrock setup --source-profile <your dlee-bedrock access key profile> --default-region us-west-2
 ```
 
 Send it, and point them to the [user guide](user-guide.md). Step 1.6 clears by itself within 24
@@ -505,12 +549,13 @@ Plan: 11 to create, 1 needs org admin.
 | --- | --- |
 | 1.1 | A private S3 bucket that only AWS Data Exports may write to, and a CUR 2.0 export (Parquet, hourly, with caller identity) into it |
 | 1.2 | `bedrock-deny-<id>`, the policy that pauses someone when attached to their role |
-| 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles. |
+| 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles and on IAM users tagged `bedrock-admin:id=<id>`. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
 | 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can read and activate it; elsewhere Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning to ask your org admin (not a change, so the exit code stays 0). |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
 | 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
+| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` attached to those IAM users; see [IAM users](#users-without-sso-iam-users). It warns about IAM users that don't exist. |
 
 </details>
 
@@ -816,6 +861,9 @@ It needs AWS Organizations rights, so your org admin applies it:
 3. When they are done, set `block_direct_calls.method` to what they used (`permission-set` or
    `scp`), and run `bedrock-admin plan`.
 
+Step 1.7 covers SSO logins. IAM users with `iam_user:` get the same deny from the Step 1.9 policy,
+which `apply` attaches itself.
+
 <details>
 <summary>The setting and the instructions apply prints</summary>
 
@@ -860,7 +908,7 @@ From then on, only personal roles (tracked and capped) and the admin permission 
 models. Check with `bedrock-admin usage --untracked`: no SSO roles should appear. If one does, the
 block isn't covering it.
 
-The deny doesn't cover IAM users, application roles or long-term Bedrock API keys. Keep the rights
+The deny doesn't cover IAM users without `iam_user:`, application roles or long-term Bedrock API keys. Keep the rights
 to create those out of users' permission sets. The untracked section of `usage` is the safety net.
 
 </details>
@@ -953,6 +1001,7 @@ own users, budgets, `models:`, pause policy, monthly Lambda, cost export and buc
 | Budget actions role | `bedrock-budget-actions-<id>` |
 | Monthly Lambda, its role and schedule | `bedrock-monthly-unpause-<id>` |
 | Scheduler role | `bedrock-monthly-unpause-scheduler-<id>` |
+| IAM user policy | `bedrock-iam-users-<id>`, path `/bedrock/` |
 | Web search gateway and its role | `bedrock-web-search-<id>`, `bedrock-web-search-gateway-<id>` |
 | Cost export and bucket | `bedrock-cur-<id>`, `bedrock-cur-<account>-<id>` |
 
@@ -996,14 +1045,14 @@ the account from the SSO profile it signs in with, so they need an SSO profile f
 (`aws configure sso` once per account, with any role they have there). The messages you send differ
 per account:
 
-- First account: `bedrock setup --sso-profile <SSO profile for account A>`. It writes the `bedrock`
+- First account: `bedrock setup --source-profile <SSO profile for account A>`. It writes the `bedrock`
   profile.
-- Second account: `bedrock setup --sso-profile <SSO profile for account B> --profile-name
+- Second account: `bedrock setup --source-profile <SSO profile for account B> --profile-name
   bedrock-<product>`, for example `--profile-name bedrock-harvester`, so it doesn't replace the
   first one.
 
 `apply` prints only `bedrock setup` (with `--id`, `--region` or `--role-arn` when needed); add
-`--sso-profile` and `--profile-name` yourself for someone already in another account. They then use
+`--source-profile` and `--profile-name` yourself for someone already in another account. They then use
 `bedrock doctor --profile-name bedrock-harvester`, and the same flag for `claude` and `usage`, or
 `AWS_PROFILE=bedrock-harvester` for Claude Code and other tools.
 
@@ -1025,8 +1074,11 @@ No email is sent for a pause or unpause by hand, an unpause by `apply`, or a mon
 - After a limit raise unpauses someone, more spend can still arrive. If it passes the new trigger,
   they are paused again, which is intended.
 - A pause takes effect within seconds of the policy change, including in running sessions.
-- Personal role credentials last one hour and are refreshed automatically while the SSO sign-in is
-  valid.
+- Personal role credentials last one hour and are refreshed automatically. A session lasts as long
+  as the user's sign-in: the IAM Identity Center session (8 hours by default, up to 90 days, set
+  in Identity Center settings by the Organizations admin), or, with an IAM user access key, until
+  the key is deactivated. Raising the role's 1-hour limit
+  wouldn't help: SSO users reach the role by role chaining, which AWS caps at 1 hour.
 - `--json` works on every command, for scripts. Exit codes: 0 ok, 1 error, 2 ran fine but found a
   problem.
 
