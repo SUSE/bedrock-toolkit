@@ -125,7 +125,7 @@ func (a *App) claude(ctx context.Context, f claudeFlags) error {
 	// An access key profile has no sign-in to renew: the SDK gets new role credentials with the key.
 	refresh := ""
 	if src := s.Keys["source_profile"]; src != "" {
-		if ss := file.Profile(src); ss == nil || ss.IsSSO() {
+		if ss := file.Profile(src); ss != nil && ss.IsSSO() {
 			refresh = loginCommand(src)
 			settings["awsAuthRefresh"] = refresh
 		}

@@ -341,6 +341,11 @@ func TestClaude(t *testing.T) {
 		!strings.Contains(out, `"AWS_PROFILE": "bedrock"`) {
 		t.Fatalf("access key profile: exit %d:\n%s", code, out)
 	}
+	// An access key profile only in ~/.aws/credentials isn't in the config file at all.
+	credsOnly := strings.Replace(wantBlock, "source_profile = sso", "source_profile = creds-only", 1)
+	if code, out := runClaudeCmd(t, credsOnly, never, "--no-test"); code != cli.OK || strings.Contains(out, "awsAuthRefresh") {
+		t.Fatalf("credentials-only profile: exit %d:\n%s", code, out)
+	}
 }
 
 const gatewayURL = "https://bedrock-web-search-abc.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
