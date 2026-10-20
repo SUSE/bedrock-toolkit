@@ -121,3 +121,32 @@ func TestNames(t *testing.T) {
 		}
 	}
 }
+
+func TestUserTrustIAMUser(t *testing.T) {
+	sso := Decode(UserTrust("123456789012", "a@x.io", ""))
+	if strings.Contains(sso, "aws:username") || strings.Contains(sso, "IAMUser") {
+		t.Fatalf("SSO-only trust must not admit IAM users: %s", sso)
+	}
+	both := UserTrust("123456789012", "a@x.io", "a.dev")
+	for _, want := range []string{`"aws:username":"a.dev"`, `"aws:PrincipalType":"User"`, `"Sid":"IAMUser"`, "AWSReservedSSO_"} {
+		if !strings.Contains(both, want) {
+			t.Errorf("want %s in %s", want, both)
+		}
+	}
+	if strings.Count(both, `"sts:RoleSessionName":"a@x.io"`) != 2 {
+		t.Errorf("both statements must pin the session name to the email: %s", both)
+	}
+}
+
+func TestIAMUsersPolicy(t *testing.T) {
+	off, on := IAMUsers("123456789012", "t", false), IAMUsers("123456789012", "t", true)
+	if HasBlock(off) || !HasBlock(on) {
+		t.Fatalf("block: off %v on %v", HasBlock(off), HasBlock(on))
+	}
+	if !strings.Contains(off, UserRolesArn("123456789012", "t")) || !strings.Contains(off, "user/${aws:username}") {
+		t.Fatalf("got %s", off)
+	}
+	if IAMUsersPolicyName("t") != "bedrock-iam-users-t" || IAMUsersPolicyArn("1", "t") != "arn:aws:iam::1:policy"+Path+"bedrock-iam-users-t" {
+		t.Fatalf("names %s %s", IAMUsersPolicyName("t"), IAMUsersPolicyArn("1", "t"))
+	}
+}

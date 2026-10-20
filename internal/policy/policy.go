@@ -40,16 +40,17 @@ const (
 
 // Names of an id's account resources. An id is 1-20 lowercase letters and digits, so every name
 // fits AWS limits (IAM role names: 64) and a name maps back to exactly one id.
-func UserPath(id string) string          { return UsersPath + id + "/" }
-func DenyPolicyName(id string) string    { return "bedrock-deny-" + id }
-func BudgetActionsRole(id string) string { return "bedrock-budget-actions-" + id }
-func LambdaName(id string) string        { return "bedrock-monthly-unpause-" + id }
-func LambdaRole(id string) string        { return "bedrock-monthly-unpause-" + id }
-func SchedulerRole(id string) string     { return "bedrock-monthly-unpause-scheduler-" + id }
-func ScheduleName(id string) string      { return "bedrock-monthly-unpause-" + id }
-func WebSearchRole(id string) string     { return "bedrock-web-search-gateway-" + id }
-func WebSearchGateway(id string) string  { return "bedrock-web-search-" + id }
-func ExportName(id string) string        { return "bedrock-cur-" + id }
+func UserPath(id string) string           { return UsersPath + id + "/" }
+func DenyPolicyName(id string) string     { return "bedrock-deny-" + id }
+func BudgetActionsRole(id string) string  { return "bedrock-budget-actions-" + id }
+func LambdaName(id string) string         { return "bedrock-monthly-unpause-" + id }
+func LambdaRole(id string) string         { return "bedrock-monthly-unpause-" + id }
+func SchedulerRole(id string) string      { return "bedrock-monthly-unpause-scheduler-" + id }
+func ScheduleName(id string) string       { return "bedrock-monthly-unpause-" + id }
+func WebSearchRole(id string) string      { return "bedrock-web-search-gateway-" + id }
+func WebSearchGateway(id string) string   { return "bedrock-web-search-" + id }
+func ExportName(id string) string         { return "bedrock-cur-" + id }
+func IAMUsersPolicyName(id string) string { return "bedrock-iam-users-" + id }
 func BucketName(account, id string) string {
 	return "bedrock-cur-" + account + "-" + id
 }
@@ -96,6 +97,9 @@ func WebSearchToolArn(region string) string {
 func DenyPolicyArn(account, id string) string {
 	return fmt.Sprintf("arn:aws:iam::%s:policy/bedrock/%s", account, DenyPolicyName(id))
 }
+func IAMUsersPolicyArn(account, id string) string {
+	return fmt.Sprintf("arn:aws:iam::%s:policy/bedrock/%s", account, IAMUsersPolicyName(id))
+}
 func BudgetActionsRoleArn(account, id string) string {
 	return fmt.Sprintf("arn:aws:iam::%s:role/bedrock/%s", account, BudgetActionsRole(id))
 }
@@ -139,7 +143,7 @@ func document(s ...stmt) string {
 	return mustJSON(doc{"Version": "2012-10-17", "Statement": list})
 }
 
-// Deny is the pause policy AWS Budgets (or pause) attaches to a personal role.
+// Deny is the pause policy AWS Budgets (or pause) attaches to a personal role and its IAM user.
 func Deny() string {
 	return document(stmt{"Sid": "PauseBedrockModelUsage", "Effect": "Deny", "Action": DenyActions, "Resource": "*"})
 }
@@ -152,11 +156,23 @@ func BudgetActionsTrust(account string) string {
 }
 
 // BudgetActionsPermissions lets AWS Budgets attach and detach the id's deny policy, on the id's
-// personal roles only.
+// personal roles and the IAM users tagged with the id only.
 func BudgetActionsPermissions(account, id string) string {
-	return document(stmt{"Effect": "Allow", "Action": []string{"iam:AttachRolePolicy", "iam:DetachRolePolicy"},
-		"Resource":  UserRolesArn(account, id),
-		"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}})
+	return document(
+		stmt{"Sid": "PauseRoles", "Effect": "Allow", "Action": []string{"iam:AttachRolePolicy", "iam:DetachRolePolicy"},
+			"Resource":  UserRolesArn(account, id),
+			"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}},
+		stmt{"Sid": "PauseIAMUsers", "Effect": "Allow", "Action": []string{"iam:AttachUserPolicy", "iam:DetachUserPolicy"},
+			"Resource": IAMUsersArn(account), "Condition": idUserCondition(account, id)},
+	)
+}
+
+// IAMUsersArn matches every IAM user of the account.
+func IAMUsersArn(account string) string { return fmt.Sprintf("arn:aws:iam::%s:user/*", account) }
+
+func idUserCondition(account, id string) doc {
+	return doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)},
+		"StringEquals": doc{"aws:ResourceTag/" + IDTag: id}}
 }
 
 func ServiceTrust(service, account string) string {
@@ -194,6 +210,8 @@ func LambdaPermissions(region, account, id, bucket, snapshotPrefix string) strin
 		stmt{"Sid": "KeepManualPauses", "Effect": "Allow", "Action": "iam:AttachRolePolicy",
 			"Resource":  UserRolesArn(account, id),
 			"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}},
+		stmt{"Sid": "KeepManualPausesIAMUsers", "Effect": "Allow", "Action": "iam:AttachUserPolicy",
+			"Resource": IAMUsersArn(account), "Condition": idUserCondition(account, id)},
 		stmt{"Sid": "Snapshots", "Effect": "Allow", "Action": "s3:PutObject",
 			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", bucket, snapshotPrefix)},
 		stmt{"Sid": "Logs", "Effect": "Allow", "Action": []string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"},
@@ -217,13 +235,37 @@ func CurBucket(bucket, account string) string {
 }
 
 // UserTrust lets only the matching SSO identity assume a personal role, with its email as the
-// session name.
-func UserTrust(account, email string) string {
-	return document(stmt{"Effect": "Allow", "Principal": doc{"AWS": fmt.Sprintf("arn:aws:iam::%s:root", account)},
+// session name, and, when iamUser is set, that IAM user of the account, with the same session name.
+func UserTrust(account, email, iamUser string) string {
+	root := doc{"AWS": fmt.Sprintf("arn:aws:iam::%s:root", account)}
+	s := []stmt{{"Effect": "Allow", "Principal": root,
 		"Action": "sts:AssumeRole", "Condition": doc{
 			"ArnLike":      doc{"aws:PrincipalArn": fmt.Sprintf("arn:aws:iam::%s:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_*", account)},
 			"StringLike":   doc{"aws:userid": "*:" + email},
-			"StringEquals": doc{"sts:RoleSessionName": email}}})
+			"StringEquals": doc{"sts:RoleSessionName": email}}}}
+	if iamUser != "" {
+		s = append(s, stmt{"Sid": "IAMUser", "Effect": "Allow", "Principal": root, "Action": "sts:AssumeRole",
+			"Condition": doc{"StringEquals": doc{"aws:PrincipalType": "User", "aws:username": iamUser,
+				"sts:RoleSessionName": email}}})
+	}
+	return document(s...)
+}
+
+// IAMUsers is the managed policy attached to the IAM users that may use personal roles: assume a
+// personal role (each role's trust admits only its own IAM user), read their own tags (bedrock
+// setup reads the email from them) and, with block, the Step 1.7 deny, so their access keys can't
+// call models directly.
+func IAMUsers(account, id string, block bool) string {
+	s := []stmt{
+		{"Sid": "AssumeBedrockPersonalRole", "Effect": "Allow", "Action": "sts:AssumeRole", "Resource": UserRolesArn(account, id)},
+		{"Sid": "ReadOwnTags", "Effect": "Allow", "Action": "iam:ListUserTags", "Resource": []string{
+			fmt.Sprintf("arn:aws:iam::%s:user/${aws:username}", account),
+			fmt.Sprintf("arn:aws:iam::%s:user/*/${aws:username}", account)}},
+	}
+	if block {
+		s = append(s, stmt{"Sid": BlockSid, "Effect": "Deny", "Action": BlockActions, "Resource": "*"})
+	}
+	return document(s...)
 }
 
 // AllowedModelsText describes the models AllowedModel accepts, for messages.

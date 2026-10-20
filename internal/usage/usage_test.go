@@ -286,12 +286,16 @@ func TestOtherIDs(t *testing.T) {
 		// a@x.test is also a user of the setup "beta": that spend is beta's, not acme's or untracked.
 		{Principal: sts("bedrock-user-beta-a", "a@x.test"), Owner: "a@x.test", Cost: 2},
 		{Principal: sts("bedrock-user-beta-b", "b@x.test"), Owner: "b@x.test", Cost: 3},
+		// a@x.test's IAM user is tagged owner: its spend is a's (the budget counts it too).
+		{Principal: "arn:aws:iam::" + acct + ":user/a.dev", Owner: "a@x.test", Cost: 0.5},
+		// An IAM user without an owner tag stays untracked.
+		{Principal: "arn:aws:iam::" + acct + ":user/ci", Cost: 0.25},
 		// A personal role of acme that isn't configured stays untracked.
 		{Principal: sts("bedrock-user-acme-c", "c@x.test"), Owner: "c@x.test", Cost: 4},
 	}
 	r := Summarize("2026-10", "acme", lines, us, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
-	if r.TrackedUSD != 1 || r.OtherIDsUSD != 5 || r.UntrackedUSD != 4 || len(r.Untracked) != 1 ||
-		r.Untracked[0].UsedVia != "personal role without budget: bedrock-user-acme-c" {
+	if r.TrackedUSD != 1.5 || r.Users[0].SpentUSD != 1.5 || r.OtherIDsUSD != 5 || r.UntrackedUSD != 4.25 || len(r.Untracked) != 2 ||
+		r.Untracked[0].UsedVia != "personal role without budget: bedrock-user-acme-c" || r.Untracked[1].UsedVia != "IAM user" {
 		t.Fatalf("%+v", r)
 	}
 	var out bytes.Buffer

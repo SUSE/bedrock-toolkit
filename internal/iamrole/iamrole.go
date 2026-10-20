@@ -59,7 +59,7 @@ func Observe(ctx context.Context, c *iam.Client, s Spec) (State, error) {
 		st.Drift = append(st.Drift, fmt.Sprintf("path is %s, not %s (needs recreating)", aws.ToString(r.Role.Path), s.Path))
 	}
 	if !policy.Equal(policy.Decode(aws.ToString(r.Role.AssumeRolePolicyDocument)), s.Trust) {
-		st.Drift = append(st.Drift, "trust policy changed outside the file")
+		st.Drift = append(st.Drift, "trust policy differs from the file")
 		st.fix.trust = true
 	}
 	if s.MaxSession != 0 && aws.ToInt32(r.Role.MaxSessionDuration) != s.MaxSession {

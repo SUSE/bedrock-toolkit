@@ -144,6 +144,8 @@ type IAMAPI interface {
 	UntagRole(context.Context, *iam.UntagRoleInput, ...func(*iam.Options)) (*iam.UntagRoleOutput, error)
 	AttachRolePolicy(context.Context, *iam.AttachRolePolicyInput, ...func(*iam.Options)) (*iam.AttachRolePolicyOutput, error)
 	DetachRolePolicy(context.Context, *iam.DetachRolePolicyInput, ...func(*iam.Options)) (*iam.DetachRolePolicyOutput, error)
+	AttachUserPolicy(context.Context, *iam.AttachUserPolicyInput, ...func(*iam.Options)) (*iam.AttachUserPolicyOutput, error)
+	DetachUserPolicy(context.Context, *iam.DetachUserPolicyInput, ...func(*iam.Options)) (*iam.DetachUserPolicyOutput, error)
 }
 
 // Manager changes pause state.
@@ -269,11 +271,15 @@ func TagValue(s string) string {
 	return s
 }
 
-// Pause pauses a user by hand: attaches bedrock-deny and records who, when and why.
-func (m *Manager) Pause(ctx context.Context, role, by, reason string) error {
+// Pause pauses a user by hand: attaches bedrock-deny to the role and the user's IAM users, and
+// records who, when and why on the role.
+func (m *Manager) Pause(ctx context.Context, role string, iamUsers []string, by, reason string) error {
 	if _, err := m.IAM.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{RoleName: aws.String(role),
 		PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil {
 		return fmt.Errorf("attaching %s to %s: %w", policy.DenyPolicyName(m.ID), role, err)
+	}
+	if err := m.AttachToUsers(ctx, iamUsers); err != nil {
+		return err
 	}
 	_, err := m.IAM.TagRole(ctx, &iam.TagRoleInput{RoleName: aws.String(role), Tags: []itypes.Tag{
 		{Key: aws.String(TagPausedBy), Value: aws.String(TagValue(by))},
@@ -281,6 +287,37 @@ func (m *Manager) Pause(ctx context.Context, role, by, reason string) error {
 		{Key: aws.String(TagPauseReason), Value: aws.String(TagValue(reason))},
 	}})
 	return err
+}
+
+// ActionUsers is the IAM users a budget's pause action denies.
+func (m *Manager) ActionUsers(ctx context.Context, budget string) ([]string, error) {
+	a, err := m.Action(ctx, budget)
+	if err != nil || a == nil || a.Definition == nil || a.Definition.IamActionDefinition == nil {
+		return nil, err
+	}
+	return a.Definition.IamActionDefinition.Users, nil
+}
+
+// AttachToUsers attaches bedrock-deny to IAM users.
+func (m *Manager) AttachToUsers(ctx context.Context, iamUsers []string) error {
+	for _, u := range iamUsers {
+		if _, err := m.IAM.AttachUserPolicy(ctx, &iam.AttachUserPolicyInput{UserName: aws.String(u),
+			PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil {
+			return fmt.Errorf("attaching %s to IAM user %s: %w", policy.DenyPolicyName(m.ID), u, err)
+		}
+	}
+	return nil
+}
+
+// DetachFromUsers detaches bedrock-deny from IAM users; a user without it is fine.
+func (m *Manager) DetachFromUsers(ctx context.Context, iamUsers []string) error {
+	for _, u := range iamUsers {
+		if _, err := m.IAM.DetachUserPolicy(ctx, &iam.DetachUserPolicyInput{UserName: aws.String(u),
+			PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil && !isNoSuchEntity(err) {
+			return fmt.Errorf("detaching %s from IAM user %s: %w", policy.DenyPolicyName(m.ID), u, err)
+		}
+	}
+	return nil
 }
 
 // Result says what an unpause did.
@@ -295,8 +332,9 @@ const (
 )
 
 // Unpause restores access. A pause by hand is removed (the action is left as it is); a pause by
-// AWS Budgets is reversed, which leaves the pause off until the 1st.
-func (m *Manager) Unpause(ctx context.Context, role, budget, by, reason string) (Result, error) {
+// AWS Budgets is reversed, which leaves the pause off until the 1st. iamUsers are the user's IAM
+// users, paused with the role.
+func (m *Manager) Unpause(ctx context.Context, role, budget string, iamUsers []string, by, reason string) (Result, error) {
 	s, err := m.Status(ctx, role, budget)
 	if err != nil {
 		return "", err
@@ -307,6 +345,9 @@ func (m *Manager) Unpause(ctx context.Context, role, budget, by, reason string) 
 			if _, err := m.IAM.DetachRolePolicy(ctx, &iam.DetachRolePolicyInput{RoleName: aws.String(role),
 				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil && !isNoSuchEntity(err) {
 				return "", fmt.Errorf("detaching %s from %s: %w", policy.DenyPolicyName(m.ID), role, err)
+			}
+			if err := m.DetachFromUsers(ctx, iamUsers); err != nil {
+				return "", err
 			}
 		}
 		if _, err := m.IAM.UntagRole(ctx, &iam.UntagRoleInput{RoleName: aws.String(role),

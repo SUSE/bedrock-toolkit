@@ -143,6 +143,10 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		return nil, err
 	}
 	env := a.usersEnv(ctx, &cfg, c)
+	iamUsers, err := exportIAMUsers(ctx, c, cfg.ID)
+	if err != nil {
+		return nil, err
+	}
 	type got struct {
 		r       config.Resolved
 		limit   float64
@@ -220,7 +224,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	cfg.ApplyDefaults()
 	cfg.Users = []config.User{}
 	for _, g := range found {
-		u := config.User{Email: g.r.Email}
+		u := config.User{Email: g.r.Email, IAMUser: iamUsers[g.r.Email]}
 		if g.r.Name != config.NameFromEmail(g.r.Email) {
 			u.Name = g.r.Name
 		}
@@ -267,4 +271,32 @@ func withoutOtherGeoBaseline(region string, models []string) []string {
 	return slices.DeleteFunc(models, func(m string) bool {
 		return slices.Contains(config.BaselineAllGeos(), m) && !slices.Contains(here, m)
 	})
+}
+
+// exportIAMUsers maps emails to the IAM users the id's IAM user policy is attached to.
+func exportIAMUsers(ctx context.Context, c *awsx.Clients, id string) (map[string]string, error) {
+	names, err := account.AttachedIAMUsers(ctx, c.IAM, c.Account, id)
+	if err != nil {
+		return nil, fmt.Errorf("listing the IAM users of %s: %w", policy.IAMUsersPolicyName(id), err)
+	}
+	out := map[string]string{}
+	for _, n := range names {
+		r, err := c.IAM.ListUserTags(ctx, &iam.ListUserTagsInput{UserName: aws.String(n)})
+		if err != nil {
+			return nil, fmt.Errorf("reading the tags of IAM user %s: %w", n, err)
+		}
+		var email, tagID string
+		for _, t := range r.Tags {
+			switch aws.ToString(t.Key) {
+			case policy.OwnerTag:
+				email = aws.ToString(t.Value)
+			case policy.IDTag:
+				tagID = aws.ToString(t.Value)
+			}
+		}
+		if email != "" && tagID == id {
+			out[email] = n
+		}
+	}
+	return out, nil
 }

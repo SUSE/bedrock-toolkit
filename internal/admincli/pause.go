@@ -3,6 +3,7 @@ package admincli
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -54,12 +55,16 @@ func (a *App) pauseCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			iamUsers, err := env.Pause.ActionUsers(ctx, u.BudgetName)
+			if err != nil {
+				return err
+			}
 			out := PauseJSON{Email: u.Email, Role: u.RoleName, Before: before, Result: "paused"}
 			if a.DryRun {
 				out.Result = "dry-run"
-				a.info("Would attach bedrock-deny to %s and tag it with the reason.\n", u.RoleName)
+				a.info("Would attach bedrock-deny to %s%s and tag it with the reason.\n", u.RoleName, iamUserSuffix(iamUsers))
 			} else {
-				if err := env.Pause.Pause(ctx, u.RoleName, awsx.Identity(c.CallerArn), reason); err != nil {
+				if err := env.Pause.Pause(ctx, u.RoleName, iamUsers, awsx.Identity(c.CallerArn), reason); err != nil {
 					return err
 				}
 				after, err := env.Pause.Status(ctx, u.RoleName, u.BudgetName)
@@ -113,13 +118,17 @@ cap, raise limit_usd in the file and run apply instead.`,
 				}
 				return err
 			}
+			iamUsers, err := env.Pause.ActionUsers(ctx, u.BudgetName)
+			if err != nil {
+				return err
+			}
 			out := PauseJSON{Email: u.Email, Role: u.RoleName, Before: before}
 			var res pause.Result
 			switch {
 			case a.DryRun:
 				res = "dry-run"
 			default:
-				res, err = env.Pause.Unpause(ctx, u.RoleName, u.BudgetName, awsx.Identity(c.CallerArn), reason)
+				res, err = env.Pause.Unpause(ctx, u.RoleName, u.BudgetName, iamUsers, awsx.Identity(c.CallerArn), reason)
 				if err != nil {
 					return err
 				}
@@ -156,4 +165,11 @@ cap, raise limit_usd in the file and run apply instead.`,
 	}
 	cmd.Flags().StringVar(&reason, "reason", "", "why (saved as a tag on the role)")
 	return cmd
+}
+
+func iamUserSuffix(iamUsers []string) string {
+	if len(iamUsers) == 0 {
+		return ""
+	}
+	return " and IAM user " + strings.Join(iamUsers, ", ")
 }

@@ -55,7 +55,7 @@ func NewPause(c *awsx.Clients, id string) *pause.Manager {
 func RoleSpec(cfg *config.Config, account string, u config.Resolved) iamrole.Spec {
 	return iamrole.Spec{Name: u.RoleName, Path: policy.UserPath(cfg.ID),
 		Description: "Personal Bedrock role of " + u.Email,
-		Trust:       policy.UserTrust(account, u.Email), InlineName: policy.InvokePolicyName,
+		Trust:       policy.UserTrust(account, u.Email, u.IAMUser), InlineName: policy.InvokePolicyName,
 		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.AllowedModels()), MaxSession: MaxSession,
 		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: u.Product, policy.IDTag: cfg.ID}}
 }
@@ -71,13 +71,21 @@ func WebSearchRegion(cfg *config.Config) string {
 // SetupCommand is the command to send the user.
 func SetupCommand(cfg *config.Config, account, profileRegion string, u config.Resolved) string {
 	cmd := "bedrock setup"
-	if profileRegion != "" && cfg.Region != profileRegion {
+	regionSet := profileRegion != "" && cfg.Region != profileRegion
+	if regionSet {
 		cmd += " --region " + cfg.Region
 	}
 	if u.CustomName {
 		cmd += " --role-arn " + policy.UserRoleArn(account, cfg.ID, u.RoleName)
 	} else if cfg.ID != policy.DefaultID {
 		cmd += " --id " + cfg.ID
+	}
+	if u.IAMUser != "" {
+		cmd += " --source-profile <your " + u.IAMUser + " access key profile>"
+		// An access key profile often has no region; it isn't the admin's SSO profile.
+		if !regionSet {
+			cmd += " --default-region " + cfg.Region
+		}
 	}
 	return cmd
 }
@@ -146,6 +154,11 @@ func (e *Env) Observe(ctx context.Context, u config.Resolved) (Observed, error) 
 		return o, err
 	}
 	o.RoleExists, o.RoleID, o.RoleDrift = st.Exists, st.ID(), st.Drift
+	if u.IAMUser != "" {
+		if o.IAM, err = e.observeIAMUser(ctx, u.IAMUser); err != nil {
+			return o, err
+		}
+	}
 	b, err := e.C.Budgets.DescribeBudget(ctx, &budgets.DescribeBudgetInput{AccountId: aws.String(acct), BudgetName: aws.String(u.BudgetName)})
 	if err != nil {
 		var nf *btypes.NotFoundException
@@ -190,6 +203,9 @@ func (e *Env) Observe(ctx context.Context, u config.Resolved) (Observed, error) 
 			o.ActionThreshold = int(a.ActionThreshold.ActionThresholdValue)
 		}
 		o.ActionSubscribers = subscribers(a.Subscribers)
+		if a.Definition != nil && a.Definition.IamActionDefinition != nil {
+			o.ActionUsers = a.Definition.IamActionDefinition.Users
+		}
 	}
 	if o.RoleExists {
 		if o.Pause, err = e.Pause.Status(ctx, u.RoleName, u.BudgetName); err != nil {
@@ -227,12 +243,22 @@ func (e *Env) observeAll(ctx context.Context, us []config.Resolved) ([]Observed,
 	return out, nil
 }
 
+// actionShapeOK checks the action apart from its IAM users, which apply updates in place.
 func actionShapeOK(a btypes.Action, acct, id, role string) bool {
+	if a.Definition == nil || a.Definition.IamActionDefinition == nil {
+		return false
+	}
 	d := a.Definition.IamActionDefinition
-	return a.NotificationType == btypes.NotificationTypeActual && a.ApprovalModel == btypes.ApprovalModelAuto &&
+	return aws.ToString(d.PolicyArn) == policy.DenyPolicyArn(acct, id) && a.NotificationType == btypes.NotificationTypeActual && a.ApprovalModel == btypes.ApprovalModelAuto &&
 		a.ActionThreshold != nil && a.ActionThreshold.ActionThresholdType == btypes.ThresholdTypePercentage &&
 		aws.ToString(a.ExecutionRoleArn) == policy.BudgetActionsRoleArn(acct, id) &&
-		slices.Equal(d.Roles, []string{role}) && len(d.Users) == 0 && len(d.Groups) == 0
+		slices.Equal(d.Roles, []string{role}) && len(d.Groups) == 0
+}
+
+// actionDefinition denies the personal role and the IAM users.
+func (e *Env) actionDefinition(u config.Resolved, iamUsers []string) *btypes.Definition {
+	return &btypes.Definition{IamActionDefinition: &btypes.IamActionDefinition{
+		PolicyArn: aws.String(policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)), Roles: []string{u.RoleName}, Users: iamUsers}}
 }
 
 // Plan returns one item per configured user, then one per managed user to remove and per
@@ -249,7 +275,7 @@ func (e *Env) Plan(ctx context.Context, noDelete bool) ([]*plan.Item, error) {
 		want[u.RoleName] = true
 		o := observed[i]
 		c := Diff(u, o, e.Cfg.ID, e.now())
-		it := &plan.Item{Section: "users", Target: u.Email, Email: u.Email, Op: c.Op, Details: c.Details, Notes: c.Notes,
+		it := &plan.Item{Section: "users", Target: u.Email, Email: u.Email, Op: c.Op, Details: c.Details, Notes: c.Notes, Warnings: c.Warnings,
 			NeedsYes: c.NeedsYes, SetupCommand: SetupCommand(e.Cfg, e.C.Account, e.ProfileRegion, u)}
 		if o.RoleExists {
 			it.Pause = o.Pause.Text(e.now())
@@ -296,7 +322,11 @@ func (e *Env) Plan(ctx context.Context, noDelete bool) ([]*plan.Item, error) {
 		}
 		out = append(out, it)
 	}
-	return out, nil
+	iamUsers, err := e.planIAMUserRemovals(ctx, noDelete)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, iamUsers...), nil
 }
 
 func (e *Env) wantBudget(u config.Resolved) *btypes.Budget {
@@ -387,8 +417,7 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	if c.CreateAction || c.RecreateAction {
 		in := &budgets.CreateBudgetActionInput{AccountId: acct, BudgetName: bn, NotificationType: btypes.NotificationTypeActual,
 			ActionType: btypes.ActionTypeIam, ActionThreshold: threshold,
-			Definition: &btypes.Definition{IamActionDefinition: &btypes.IamActionDefinition{
-				PolicyArn: aws.String(policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)), Roles: []string{u.RoleName}}},
+			Definition:       e.actionDefinition(u, c.ActionUsers),
 			ExecutionRoleArn: aws.String(policy.BudgetActionsRoleArn(e.C.Account, e.Cfg.ID)), ApprovalModel: btypes.ApprovalModelAuto,
 			Subscribers: email(u.Notify)}
 		err := iamrole.Retry(ctx, 60*time.Second, retryable, func() error { _, err := e.C.Budgets.CreateBudgetAction(ctx, in); return err })
@@ -398,9 +427,21 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	}
 	if c.UpdateAction {
 		if _, err := e.C.Budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: acct, BudgetName: bn,
-			ActionId: aws.String(o.ActionID), ActionThreshold: threshold, Subscribers: email(u.Notify)}); err != nil {
+			ActionId: aws.String(o.ActionID), ActionThreshold: threshold, Subscribers: email(u.Notify),
+			Definition: e.actionDefinition(u, c.ActionUsers)}); err != nil {
 			return fmt.Errorf("updating the pause action of %s: %w", u.BudgetName, err)
 		}
+	}
+	if c.FixIAMUser {
+		if err := e.fixIAMUser(ctx, u); err != nil {
+			return err
+		}
+	}
+	if err := e.Pause.AttachToUsers(ctx, c.PauseIAMUsers); err != nil {
+		return err
+	}
+	if err := e.Pause.DetachFromUsers(ctx, c.UnpauseIAMUsers); err != nil {
+		return err
 	}
 	if c.Rearm {
 		if err := e.Pause.UnpauseAndRearm(ctx, u.RoleName, u.BudgetName, o.ActionID, "bedrock-admin apply ("+

@@ -185,9 +185,15 @@ func (m *Manager) Monthly(ctx context.Context, save func(context.Context, Snapsh
 		}
 		role := policy.RoleForBudget(budget)
 		if _, ok := tags[role][TagPausedBy]; ok {
-			// Reversing the action detaches bedrock-deny, even from a role paused by hand.
+			// Reversing the action detaches bedrock-deny, even from a role (and IAM user) paused by hand.
+			var iamUsers []string
+			if a.Definition != nil && a.Definition.IamActionDefinition != nil {
+				iamUsers = a.Definition.IamActionDefinition.Users
+			}
 			if _, err := m.IAM.AttachRolePolicy(ctx, &iam.AttachRolePolicyInput{RoleName: aws.String(role),
 				PolicyArn: aws.String(policy.DenyPolicyArn(m.Account, m.ID))}); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("keeping the pause by hand of %s: %v", role, err))
+			} else if err := m.AttachToUsers(ctx, iamUsers); err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("keeping the pause by hand of %s: %v", role, err))
 			} else {
 				res.Done[budget] += "; still paused by hand"

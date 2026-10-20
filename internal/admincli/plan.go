@@ -270,7 +270,7 @@ func (a *App) apply(ctx context.Context, p *plan.Plan) error {
 			}
 		}
 		if len(out.SetupCommands) > 0 {
-			a.printf("\nSend each new user their setup command (after aws sso login):\n")
+			a.printf("\nSend each new user their setup command (after aws sso login, or with their access key profile for IAM users):\n")
 			for _, s := range out.SetupCommands {
 				a.printf("  %s: %s\n", s.Email, s.Command)
 			}

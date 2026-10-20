@@ -94,6 +94,8 @@ type User struct {
 	Notify         string   `yaml:"notify,omitempty" json:"notify,omitempty"`
 	// Product overrides the file's product tag on this user's role.
 	Product string `yaml:"product,omitempty" json:"product,omitempty"`
+	// IAMUser is an existing IAM user that may also assume the personal role.
+	IAMUser string `yaml:"iam_user,omitempty" json:"iam_user,omitempty"`
 }
 
 // Resolved is a user with every default applied and every derived name filled in.
@@ -108,6 +110,7 @@ type Resolved struct {
 	AlertAtPercent []int   `json:"alert_at_percent"`
 	Notify         string  `json:"notify"`
 	Product        string  `json:"product"`
+	IAMUser        string  `json:"iam_user,omitempty"`
 }
 
 // TriggerUSD is the spend at which the user is paused.
@@ -125,6 +128,7 @@ var (
 	bucketRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	productRe = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,128}$`)
 	psRe      = regexp.MustCompile(`^[A-Za-z0-9+=,.@-]{1,32}$`)
+	iamUserRe = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
 	domainRe  = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 	invalidCh = regexp.MustCompile(`[^a-z0-9.-]+`)
 )
@@ -368,6 +372,7 @@ func (c *Config) Validate() error {
 
 	emails := map[string]int{}
 	names := map[string]int{}
+	iamUsers := map[string]int{}
 	for i, u := range c.Users {
 		where := fmt.Sprintf("users[%d]", i)
 		if u.Email != "" {
@@ -416,6 +421,17 @@ func (c *Config) Validate() error {
 		}
 		if u.Product != "" && !productRe.MatchString(u.Product) {
 			add("%s: product: letters, digits, spaces and _.:/=+@- only (got %q)", where, u.Product)
+		}
+		if u.IAMUser != "" {
+			if !iamUserRe.MatchString(u.IAMUser) {
+				add("%s: iam_user: not an IAM user name (got %q)", where, u.IAMUser)
+			}
+			// IAM user names are case-insensitive.
+			key := strings.ToLower(u.IAMUser)
+			if j, ok := iamUsers[key]; ok {
+				add("%s: iam_user: %s is also used by users[%d]", where, u.IAMUser, j)
+			}
+			iamUsers[key] = i
 		}
 	}
 	if len(p) > 0 {
@@ -504,7 +520,7 @@ func (c *Config) ResolveUser(u User) Resolved {
 		notify = u.Email
 	}
 	r.Notify = notify
-	r.Product = u.Product
+	r.Product, r.IAMUser = u.Product, u.IAMUser
 	if r.Product == "" {
 		r.Product = c.Product
 	}

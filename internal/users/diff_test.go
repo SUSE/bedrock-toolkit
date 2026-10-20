@@ -157,3 +157,92 @@ func TestRoleSpecProduct(t *testing.T) {
 		t.Errorf("erin product tag %q", got)
 	}
 }
+
+func TestDiffIAMUser(t *testing.T) {
+	w := want(50, 100)
+	w.IAMUser = "dave.dev"
+	ok := IAMUserState{Exists: true, Name: "dave.dev", ID: "acme", Owner: "dave@acme.com", Attached: true}
+	cases := []struct {
+		name    string
+		iam     IAMUserState
+		op      plan.Op
+		fix     bool
+		detail  string
+		warning string
+	}{
+		{"in sync", ok, plan.OK, false, "", ""},
+		{"missing", IAMUserState{}, plan.OK, false, "", "doesn't exist"},
+		{"case", IAMUserState{Exists: true, Name: "Dave.Dev"}, plan.OK, false, "", "named Dave.Dev in AWS"},
+		{"other id", IAMUserState{Exists: true, Name: "dave.dev", ID: "other"}, plan.OK, false, "", "managed by other"},
+		{"new", IAMUserState{Exists: true, Name: "dave.dev"}, plan.Update, true, "tag IAM user dave.dev, attach bedrock-iam-users-acme", ""},
+		{"detached", IAMUserState{Exists: true, Name: "dave.dev", ID: "acme", Owner: "dave@acme.com"}, plan.Update, true, "attach", ""},
+		{"owner changed", IAMUserState{Exists: true, Name: "dave.dev", ID: "acme", Owner: "old@acme.com", Attached: true}, plan.Update, true, "tag IAM user", ""},
+		{"product changed", IAMUserState{Exists: true, Name: "dave.dev", ID: "acme", Owner: "dave@acme.com", Product: "x", Attached: true}, plan.Update, true, "tag IAM user", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := observed(50, 100, 0, pause.Armed)
+			o.IAM = tc.iam
+			o.ActionUsers = actionUsers(w, tc.iam, "acme")
+			c := Diff(w, o, "acme", now)
+			if c.Op != tc.op || c.FixIAMUser != tc.fix || !strings.Contains(line(c), tc.detail) ||
+				!strings.Contains(strings.Join(c.Warnings, ";"), tc.warning) || (tc.warning == "") != (len(c.Warnings) == 0) {
+				t.Fatalf("got %+v", c)
+			}
+		})
+	}
+	// A new user with an IAM user is onboarded and the IAM user attached in the same apply.
+	c := Diff(w, Observed{IAM: IAMUserState{Exists: true, Name: "dave.dev"}}, "acme", now)
+	if c.Op != plan.Create || !c.CreateRole || !c.FixIAMUser {
+		t.Fatalf("got %+v", c)
+	}
+	// No iam_user: the IAM user state is ignored.
+	if c := Diff(want(50, 100), observed(50, 100, 0, pause.Armed), "acme", now); c.Op != plan.OK || c.FixIAMUser {
+		t.Fatalf("got %+v", c)
+	}
+}
+
+func TestDiffActionIAMUsers(t *testing.T) {
+	w := want(50, 100)
+	w.IAMUser = "dave.dev"
+	iamOK := IAMUserState{Exists: true, Name: "dave.dev", ID: "acme", Owner: "dave@acme.com", Attached: true}
+	cases := []struct {
+		name           string
+		want           config.Resolved
+		iam            IAMUserState
+		have           []string
+		st             pause.State
+		line           string
+		pause, unpause []string
+	}{
+		{"added", w, iamOK, nil, pause.Armed, "pause action IAM users none → dave.dev", nil, nil},
+		{"added while paused", w, iamOK, nil, pause.Paused, "pause action IAM users none → dave.dev  (paused: the deny follows the IAM user change)", []string{"dave.dev"}, nil},
+		{"removed while paused by hand", want(50, 100), IAMUserState{}, []string{"dave.dev"}, pause.PausedByHand, "pause action IAM users dave.dev → none  (paused: the deny follows the IAM user change)", nil, []string{"dave.dev"}},
+		{"IAM user missing", w, IAMUserState{}, nil, pause.Armed, "", nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := observed(50, 100, 0, tc.st)
+			o.IAM, o.ActionUsers = tc.iam, tc.have
+			c := Diff(tc.want, o, "acme", now)
+			if got := line(c); got != tc.line || c.UpdateAction != (tc.line != "") ||
+				strings.Join(c.PauseIAMUsers, ",") != strings.Join(tc.pause, ",") || strings.Join(c.UnpauseIAMUsers, ",") != strings.Join(tc.unpause, ",") {
+				t.Fatalf("got %q %+v", got, c)
+			}
+		})
+	}
+}
+
+func TestSetupCommandIAMUser(t *testing.T) {
+	u := want(50, 100)
+	u.IAMUser = "dave.dev"
+	got := SetupCommand(&config.Config{ID: "bedrock", Region: "us-west-2"}, "123456789012", "us-west-2", u)
+	if got != "bedrock setup --source-profile <your dave.dev access key profile> --default-region us-west-2" {
+		t.Fatalf("got %q", got)
+	}
+	// With --region already in the command, no --default-region.
+	got = SetupCommand(&config.Config{ID: "bedrock", Region: "us-east-1"}, "123456789012", "us-west-2", u)
+	if got != "bedrock setup --region us-east-1 --source-profile <your dave.dev access key profile>" {
+		t.Fatalf("got %q", got)
+	}
+}

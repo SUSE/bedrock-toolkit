@@ -109,7 +109,8 @@ func (s userSet) owner(l Line) (User, bool) {
 		return User{}, false
 	}
 	u, ok := s[strings.ToLower(l.Owner)]
-	if ok && u.Role != "" && principalRole(l.Principal) != u.Role {
+	// The user's IAM user is tagged owner too, so its spend counts in the user's budget.
+	if ok && u.Role != "" && principalRole(l.Principal) != u.Role && !strings.Contains(l.Principal, ":user/") {
 		return User{}, false
 	}
 	return u, ok

@@ -137,6 +137,12 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 		name := r.name
 		del(r.step, r.label+name, st.ID(), func(ctx context.Context) error { return iamrole.Delete(ctx, e.C.IAM, name) })
 	}
+	uarn := policy.IAMUsersPolicyArn(e.C.Account, e.Cfg.ID)
+	if id, ok, err := PolicyID(ctx, e.C.IAM, uarn); err != nil {
+		return nil, err
+	} else if ok {
+		del("1.9", "IAM user policy "+policy.IAMUsersPolicyName(e.Cfg.ID), id, func(ctx context.Context) error { return deletePolicy(ctx, e.C.IAM, uarn) })
+	}
 	arn := policy.DenyPolicyArn(e.C.Account, e.Cfg.ID)
 	if id, ok, err := PolicyID(ctx, e.C.IAM, arn); err != nil {
 		return nil, err
@@ -184,6 +190,16 @@ func deletePolicy(ctx context.Context, c *iam.Client, arn string) error {
 	}
 	for _, r := range ents.PolicyRoles {
 		if _, err := c.DetachRolePolicy(ctx, &iam.DetachRolePolicyInput{RoleName: r.RoleName, PolicyArn: aws.String(arn)}); err != nil {
+			return err
+		}
+	}
+	for _, u := range ents.PolicyUsers {
+		if _, err := c.DetachUserPolicy(ctx, &iam.DetachUserPolicyInput{UserName: u.UserName, PolicyArn: aws.String(arn)}); err != nil && !isNoSuchEntity(err) {
+			return err
+		}
+	}
+	for _, g := range ents.PolicyGroups {
+		if _, err := c.DetachGroupPolicy(ctx, &iam.DetachGroupPolicyInput{GroupName: g.GroupName, PolicyArn: aws.String(arn)}); err != nil && !isNoSuchEntity(err) {
 			return err
 		}
 	}

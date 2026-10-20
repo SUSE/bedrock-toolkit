@@ -118,6 +118,8 @@ func TestValidation(t *testing.T) {
 		"bad method":        {base + "block_direct_calls: {method: magic}\n", "method"},
 		"web search region": {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
 		"web search domain": {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},
+		"bad iam_user":      {base + "users: [{email: a@x.io, iam_user: \"a b\"}]\n", "iam_user: not an IAM user name"},
+		"dup iam_user":      {base + "users: [{email: a@x.io, iam_user: dave}, {email: b@x.io, iam_user: Dave}]\n", "iam_user: Dave is also used by users[0]"},
 		"no limit any":      {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
 	}
 	for name, tc := range cases {
@@ -223,5 +225,17 @@ func TestMarshalRoundTrip(t *testing.T) {
 	}
 	if c2.Users[0].AlertAtPercent == nil || len(*c2.Users[0].AlertAtPercent) != 0 {
 		t.Fatalf("empty alert list lost:\n%s", out)
+	}
+}
+
+func TestIAMUserResolved(t *testing.T) {
+	p := write(t, t.TempDir(), "bedrock.yaml", base+"users: [{email: a@x.io, iam_user: a.dev}, {email: b@x.io}]\n")
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	us := cfg.Resolve()
+	if us[0].IAMUser != "a.dev" || us[1].IAMUser != "" {
+		t.Fatalf("got %q %q", us[0].IAMUser, us[1].IAMUser)
 	}
 }

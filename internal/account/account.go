@@ -1,4 +1,4 @@
-// Package account checks and makes the one-time account setup (Steps 1.1–1.8).
+// Package account checks and makes the one-time account setup (Steps 1.1–1.9).
 package account
 
 import (
@@ -54,7 +54,7 @@ func (e *Env) Plan(ctx context.Context) ([]*plan.Item, error) {
 	var out []*plan.Item
 	steps := []func(context.Context) ([]*plan.Item, error){
 		e.costExport, e.denyPolicy, e.budgetActionsRole, e.monthlyLambda, e.models, e.costTag, e.blockDirectCalls,
-		e.webSearch,
+		e.webSearch, e.iamUsersPolicy,
 	}
 	for _, s := range steps {
 		items, err := s(ctx)

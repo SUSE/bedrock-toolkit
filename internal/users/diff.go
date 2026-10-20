@@ -34,8 +34,11 @@ type Observed struct {
 	ActionShapeOK     bool // type, policy, role, execution role, approval, ACTUAL, PERCENTAGE
 	ActionThreshold   int
 	ActionSubscribers []string
+	ActionUsers       []string // IAM users the action denies
 
 	Pause pause.Status
+
+	IAM IAMUserState
 }
 
 // Change is what apply must do for one user, and how plan describes it.
@@ -43,7 +46,14 @@ type Change struct {
 	Op       plan.Op
 	Details  []string
 	Notes    []string
+	Warnings []string
 	NeedsYes bool
+
+	FixIAMUser bool
+	// ActionUsers is the IAM users the pause action should deny.
+	ActionUsers []string
+	// PauseIAMUsers and UnpauseIAMUsers keep a paused user's IAM users in step with the action.
+	PauseIAMUsers, UnpauseIAMUsers []string
 
 	CreateRole, FixRole                 bool
 	CreateBudget, UpdateBudget          bool
@@ -76,8 +86,42 @@ func alertList(a []int) string {
 	return strings.Join(s, " ")
 }
 
+// actionUsers is the IAM users a user's pause action denies: the file's iam_user, once it exists
+// under that exact name and isn't another id's.
+func actionUsers(want config.Resolved, o IAMUserState, id string) []string {
+	if want.IAMUser == "" || !o.Exists || o.Name != want.IAMUser || (o.ID != "" && o.ID != id) {
+		return nil
+	}
+	return []string{want.IAMUser}
+}
+
+func userList(u []string) string {
+	if len(u) == 0 {
+		return "none"
+	}
+	return strings.Join(u, ",")
+}
+
 // Diff compares a configured user with what exists. id is this config's id.
 func Diff(want config.Resolved, o Observed, id string, now time.Time) Change {
+	c := diffRoleAndBudget(want, o, id, now)
+	c.ActionUsers = actionUsers(want, o.IAM, id)
+	if c.Op == plan.Conflict {
+		return c
+	}
+	details, warnings, fix := diffIAMUser(want, o.IAM, id)
+	c.Warnings = warnings
+	if fix {
+		c.FixIAMUser = true
+		c.Details = append(c.Details, details...)
+		if c.Op == plan.OK {
+			c.Op = plan.Update
+		}
+	}
+	return c
+}
+
+func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Time) Change {
 	var c Change
 	if o.RoleExists && o.RoleID != id {
 		c.Op = plan.Conflict
@@ -167,6 +211,23 @@ func Diff(want config.Resolved, o Observed, id string, now time.Time) Change {
 		}
 		if !slices.Equal(o.ActionSubscribers, []string{want.Notify}) {
 			c.UpdateAction, notifyChanged = true, true
+		}
+		if wantUsers := actionUsers(want, o.IAM, id); !slices.Equal(o.ActionUsers, wantUsers) {
+			c.UpdateAction = true
+			c.Details = append(c.Details, "pause action IAM users "+userList(o.ActionUsers)+" → "+userList(wantUsers))
+			if o.Pause.State == pause.Paused || o.Pause.State == pause.PausedByHand {
+				for _, u := range wantUsers {
+					if !slices.Contains(o.ActionUsers, u) {
+						c.PauseIAMUsers = append(c.PauseIAMUsers, u)
+					}
+				}
+				for _, u := range o.ActionUsers {
+					if !slices.Contains(wantUsers, u) {
+						c.UnpauseIAMUsers = append(c.UnpauseIAMUsers, u)
+					}
+				}
+				c.Notes = append(c.Notes, "paused: the deny follows the IAM user change")
+			}
 		}
 	}
 	if notifyChanged {
