@@ -42,9 +42,9 @@ func (s *Section) Profile() string {
 	return ""
 }
 
-// IsSignIn reports whether the profile signs in with SSO (aws sso login) or aws login.
-func (s *Section) IsSignIn() bool {
-	return s.Keys["sso_session"] != "" || s.Keys["sso_start_url"] != "" || s.Keys["login_session"] != ""
+// IsSSO reports whether the profile signs in with SSO (aws sso login).
+func (s *Section) IsSSO() bool {
+	return s.Keys["sso_session"] != "" || s.Keys["sso_start_url"] != ""
 }
 
 // File is a parsed config file.
@@ -101,11 +101,11 @@ func (f *File) Profile(name string) *Section {
 	return nil
 }
 
-// SignInProfiles returns the names of the profiles that sign in with SSO or aws login.
-func (f *File) SignInProfiles() []string {
+// SSOProfiles returns the names of the profiles that sign in with SSO.
+func (f *File) SSOProfiles() []string {
 	var out []string
 	for _, s := range f.Sections {
-		if p := s.Profile(); p != "" && s.IsSignIn() {
+		if p := s.Profile(); p != "" && s.IsSSO() {
 			out = append(out, p)
 		}
 	}

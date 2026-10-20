@@ -122,8 +122,13 @@ func (a *App) claude(ctx context.Context, f claudeFlags) error {
 	}
 
 	settings := map[string]any{"env": env}
+	// An access key profile has no sign-in to renew: the SDK gets new role credentials with the key.
+	refresh := ""
 	if src := s.Keys["source_profile"]; src != "" {
-		settings["awsAuthRefresh"] = loginCommand(file, src)
+		if ss := file.Profile(src); ss == nil || ss.IsSSO() {
+			refresh = loginCommand(src)
+			settings["awsAuthRefresh"] = refresh
+		}
 	}
 	js, _ := json.MarshalIndent(settings, "  ", "  ")
 	a.printf(`Claude Code settings for the %[1]s profile. bedrock doesn't write them; add them yourself:
@@ -150,7 +155,7 @@ Claude desktop app (Settings, Amazon Bedrock):
                      %[7]s
 `, f.profile, js, region, opus, awsPathLine(), sonnet, haiku)
 	if url != "" {
-		a.printWebSearch(f.profile, searchRegion, url)
+		a.printWebSearch(f.profile, searchRegion, url, refresh)
 	}
 	if failed {
 		return cli.Exit(cli.Problem)
@@ -202,7 +207,7 @@ func claudeFix(out string) string {
 	switch {
 	case strings.Contains(low, "token") && (strings.Contains(low, "expired") || strings.Contains(low, "invalid")),
 		strings.Contains(low, "sso"):
-		return "your SSO sign-in expired: aws sso login (or aws login), then run bedrock claude again"
+		return "your SSO sign-in expired: aws sso login, then run bedrock claude again"
 	case strings.Contains(low, "accessdenied") || strings.Contains(low, "not authorized"):
 		return "run bedrock doctor: it shows whether you are paused or not onboarded"
 	}
@@ -253,7 +258,7 @@ func mcpServer(command, profile, region, url string) map[string]any {
 		"--service", websearch.Service, "--profile", profile, "--region", region}}
 }
 
-func (a *App) printWebSearch(profile, region, url string) {
+func (a *App) printWebSearch(profile, region, url, refresh string) {
 	one, _ := json.Marshal(mcpServer("uvx", profile, region, url))
 	uvx, err := exec.LookPath("uvx")
 	uvxNote := ""
@@ -291,7 +296,13 @@ which only the local proxy makes.
   Args:     (one per line)%[4]s
   OAuth:    None; no headers
 
-Then Sign in & test, save, and quit and reopen the app. Run aws sso login --profile %[5]s first
-when your session has expired.
-`, uvxNote, one, uvx, args, profile)
+Then Sign in & test, save, and quit and reopen the app.%[5]s
+`, uvxNote, one, uvx, args, refreshNote(refresh))
+}
+
+func refreshNote(refresh string) string {
+	if refresh == "" {
+		return ""
+	}
+	return " Run " + refresh + " first\nwhen your sign-in has expired."
 }

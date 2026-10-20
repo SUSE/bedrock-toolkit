@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	rtypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/spf13/cobra"
 
@@ -81,16 +82,34 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	roleArn, src, session, region := s.Keys["role_arn"], s.Keys["source_profile"], s.Keys["role_session_name"], s.Keys["region"]
 	out = append(out, cli.Check{Name: "profile", OK: true, Detail: fmt.Sprintf("%s in %s", profile, path)})
 
+	signIn := "SSO sign-in"
+	if s := file.Profile(src); s == nil || !s.IsSSO() {
+		signIn = "sign-in"
+	}
 	arn, err := a.AWS.Identity(ctx, src)
 	if err != nil {
-		return append(out, cli.Check{Name: "SSO sign-in", Detail: fmt.Sprintf("profile %s: %v", src, short(err)),
-			Fix: loginCommand(file, src)})
+		fix := loginCommand(src)
+		if signIn != "SSO sign-in" {
+			fix = "check the access key of profile " + src + " (aws configure --profile " + src + ")"
+		}
+		return append(out, cli.Check{Name: signIn, Detail: fmt.Sprintf("profile %s: %v", src, short(err)), Fix: fix})
 	}
-	_, email, err := ssoIdentity(arn)
+	id, err := parseIdentity(arn)
 	if err != nil {
-		return append(out, cli.Check{Name: "SSO sign-in", Detail: err.Error(), Fix: "set source_profile to your SSO profile, or run bedrock setup --sso-profile <profile>"})
+		return append(out, cli.Check{Name: signIn, Detail: err.Error(),
+			Fix: "set source_profile to your SSO or IAM user profile, or run bedrock setup --source-profile <profile>"})
 	}
-	out = append(out, cli.Check{Name: "SSO sign-in", OK: true, Detail: email + " (profile " + src + ")"})
+	email := id.email
+	if id.iamUser != "" {
+		out = append(out, cli.Check{Name: "sign-in", OK: true, Detail: "IAM user " + id.iamUser + " (profile " + src + ")"})
+		if !config.IsEmail(session) {
+			return append(out, cli.Check{Name: "session name",
+				Detail: fmt.Sprintf("role_session_name is %s, but it must be your email", session), Fix: "bedrock setup --yes"})
+		}
+		email = session
+	} else {
+		out = append(out, cli.Check{Name: "SSO sign-in", OK: true, Detail: email + " (profile " + src + ")"})
+	}
 
 	if session != email {
 		return append(out, cli.Check{Name: "session name",
@@ -99,7 +118,9 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	}
 	if err := a.AWS.AssumeRole(ctx, src, roleArn, session); err != nil {
 		c := cli.Check{Name: "permission-set access", Detail: fmt.Sprintf("cannot use %s: %v", roleArn, short(err))}
-		if awsx.IsAccessDenied(err) {
+		if awsx.IsAccessDenied(err) && id.iamUser != "" {
+			c.Fix = "ask your admin to onboard " + email + " with iam_user: " + id.iamUser + " (and check role_arn, if they gave you one)"
+		} else if awsx.IsAccessDenied(err) {
 			c.Fix = "ask your admin to onboard " + email + " (and check role_arn, if they gave you one), " +
 				"or to let your SSO permission set use the bedrock-users roles"
 		}
@@ -228,6 +249,23 @@ func (sdkAWS) Identity(ctx context.Context, profile string) (string, error) {
 		return "", err
 	}
 	return aws.ToString(r.Arn), nil
+}
+
+func (sdkAWS) UserEmail(ctx context.Context, profile, user string) (string, error) {
+	cfg, err := load(ctx, profile, "")
+	if err != nil {
+		return "", err
+	}
+	r, err := iam.NewFromConfig(cfg).ListUserTags(ctx, &iam.ListUserTagsInput{UserName: aws.String(user)})
+	if err != nil {
+		return "", err
+	}
+	for _, t := range r.Tags {
+		if aws.ToString(t.Key) == policy.OwnerTag {
+			return aws.ToString(t.Value), nil
+		}
+	}
+	return "", nil
 }
 
 func (sdkAWS) AssumeRole(ctx context.Context, profile, roleArn, session string) error {

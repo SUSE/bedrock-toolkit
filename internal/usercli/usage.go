@@ -118,7 +118,7 @@ func (a *App) usage(ctx context.Context, profile string) error {
 		case awsx.IsNotFound(err):
 			return fmt.Errorf("no budget %s: ask your admin to onboard you", budget)
 		}
-		return fmt.Errorf("%w\nif your sign-in expired: aws sso login (or aws login), then try again", short(err))
+		return fmt.Errorf("%w\nif your sign-in expired: aws sso login, then try again", short(err))
 	}
 	now := a.now().UTC()
 	trigger := b.PauseAt

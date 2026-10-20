@@ -34,6 +34,14 @@ type fakeAWS struct {
 	rolePolicy string
 	policyErr  error
 	policyRole string
+	userEmail  map[string]string // IAM user -> email tag
+}
+
+func (f *fakeAWS) UserEmail(_ context.Context, _, user string) (string, error) {
+	if e, ok := f.userEmail[user]; ok {
+		return e, nil
+	}
+	return "", &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized to perform: iam:ListUserTags"}
 }
 
 func (f *fakeAWS) RolePolicy(_ context.Context, _, role string) (string, error) {
@@ -176,7 +184,7 @@ func TestSetupAsksBeforeReplacing(t *testing.T) {
 func TestSetupChoosesSignInProfile(t *testing.T) {
 	two := ssoConfig + "\n[profile sso2]\nsso_start_url = https://y\n"
 	code, out, _ := run(t, newFake(), two, "", "setup")
-	if code != cli.Error || !strings.Contains(out, "--sso-profile") {
+	if code != cli.Error || !strings.Contains(out, "--source-profile") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	code, out, path := run(t, newFake(), two, "nope\nsso\n", "setup")
@@ -201,8 +209,8 @@ func TestSetupNotSignedIn(t *testing.T) {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	f = newFake()
-	f.identity["sso"] = "arn:aws:iam::111122223333:user/alex"
-	if code, out, _ = run(t, f, ssoConfig, "", "setup"); code != cli.Error || !strings.Contains(out, "not with SSO") {
+	f.identity["sso"] = "arn:aws:iam::111122223333:root"
+	if code, out, _ = run(t, f, ssoConfig, "", "setup"); code != cli.Error || !strings.Contains(out, "use your IAM user's access key") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 }
@@ -328,6 +336,11 @@ func TestClaude(t *testing.T) {
 	if code, out := runClaudeCmd(t, ssoConfig, never); code != cli.Error || !strings.Contains(out, "run bedrock setup first") {
 		t.Fatalf("exit %d: %s", code, out)
 	}
+	keyCfg := keyConfig + "\n" + strings.Replace(wantBlock, "source_profile = sso", "source_profile = keys", 1)
+	if code, out := runClaudeCmd(t, keyCfg, never, "--no-test"); code != cli.OK || strings.Contains(out, "awsAuthRefresh") ||
+		!strings.Contains(out, `"AWS_PROFILE": "bedrock"`) {
+		t.Fatalf("access key profile: exit %d:\n%s", code, out)
+	}
 }
 
 const gatewayURL = "https://bedrock-web-search-abc.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
@@ -406,5 +419,85 @@ func TestDoctorWebSearch(t *testing.T) {
 	code, out, _ = run(t, f, setUp, "", "doctor")
 	if code != cli.Problem || !strings.Contains(out, "ok    uvx") || !strings.Contains(out, "FAIL  web search") || !strings.Contains(out, "paused") {
 		t.Fatalf("denied: exit %d\n%s", code, out)
+	}
+}
+
+const keyConfig = "[profile keys]\nregion = us-west-2\n"
+
+func iamFake() *fakeAWS {
+	f := newFake()
+	f.identity["keys"] = "arn:aws:iam::111122223333:user/devs/achen.dev"
+	f.userEmail = map[string]string{"achen.dev": email}
+	return f
+}
+
+func TestSetupIAMUser(t *testing.T) {
+	f := iamFake()
+	code, out, path := run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	if code != cli.OK {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	want := strings.Replace(wantBlock, "source_profile = sso", "source_profile = keys", 1)
+	if got := read(t, path); !strings.HasSuffix(got, want) {
+		t.Fatalf("config:\n%s", got)
+	}
+	if !strings.Contains(out, "ok    sign-in: IAM user achen.dev (profile keys)") {
+		t.Fatalf("output:\n%s", out)
+	}
+
+	// The access key may be only in the credentials file: no section in the config, region from the flag.
+	code, out, _ = run(t, iamFake(), "", "", "setup", "--sso-profile", "keys", "--region", "us-west-2")
+	if code != cli.OK {
+		t.Fatalf("credentials-only profile: exit %d\n%s", code, out)
+	}
+
+	// No region in the key profile: --default-region applies; the profile's own region wins over it.
+	code, out, path = run(t, iamFake(), "", "", "setup", "--source-profile", "keys", "--default-region", "us-east-1")
+	if code != cli.OK || !strings.Contains(read(t, path), "region = us-east-1\n") {
+		t.Fatalf("--default-region: exit %d\n%s", code, out)
+	}
+	code, out, path = run(t, iamFake(), keyConfig, "", "setup", "--source-profile", "keys", "--default-region", "us-east-1")
+	if code != cli.OK || !strings.HasSuffix(read(t, path), want) {
+		t.Fatalf("profile region over --default-region: exit %d\n%s", code, out)
+	}
+
+	// Not onboarded: the tags can't be read; --email works around it.
+	f = iamFake()
+	f.userEmail = nil
+	code, out, _ = run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	if code != cli.Error || !strings.Contains(out, "iam_user: achen.dev") {
+		t.Fatalf("no tags: exit %d\n%s", code, out)
+	}
+	code, out, path = run(t, f, keyConfig, "", "setup", "--source-profile", "keys", "--email", email)
+	if code != cli.OK || !strings.HasSuffix(read(t, path), want) {
+		t.Fatalf("--email: exit %d\n%s", code, out)
+	}
+
+	// Bad key: no SSO login hint.
+	f = iamFake()
+	delete(f.identity, "keys")
+	code, out, _ = run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	if code != cli.Error || !strings.Contains(out, "aws configure --profile keys") {
+		t.Fatalf("bad key: exit %d\n%s", code, out)
+	}
+}
+
+func TestDoctorIAMUser(t *testing.T) {
+	setUp := keyConfig + "\n" + strings.Replace(wantBlock, "source_profile = sso", "source_profile = keys", 1)
+	f := iamFake()
+	f.assumeErr = &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized"}
+	code, out, _ := run(t, f, setUp, "", "doctor")
+	if code != cli.Problem || !strings.Contains(out, "onboard achen@example.com with iam_user: achen.dev") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	f = iamFake()
+	delete(f.identity, "keys")
+	code, out, _ = run(t, f, setUp, "", "doctor")
+	if code != cli.Problem || !strings.Contains(out, "FAIL  sign-in") || !strings.Contains(out, "aws configure --profile keys") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	code, out, _ = run(t, iamFake(), setUp, "", "doctor")
+	if code != cli.OK {
+		t.Fatalf("exit %d\n%s", code, out)
 	}
 }

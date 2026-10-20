@@ -10,7 +10,7 @@ import (
 
 const sample = `# my config
 [default]
-login_session = arn:aws:iam::111122223333:user/x
+aws_access_key_id = AKIAEXAMPLE
 region = eu-west-1
 
 [profile sso]
@@ -34,7 +34,7 @@ s3 =
 
 func TestParse(t *testing.T) {
 	f := Parse(sample)
-	if got := f.SignInProfiles(); !reflect.DeepEqual(got, []string{"default", "sso"}) {
+	if got := f.SSOProfiles(); !reflect.DeepEqual(got, []string{"sso"}) {
 		t.Fatalf("sign-in profiles = %v", got)
 	}
 	if s := f.Profile("sso-session corp"); s != nil {
