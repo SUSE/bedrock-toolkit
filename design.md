@@ -493,10 +493,11 @@ account, so the bucket policy needs no change.
 | Field | Content |
 | --- | --- |
 | `month`, `taken_at`, `account` | Which month, when, which account |
-| `users[]` | `email`, `name`, `budget`, `role`, `limit_usd`, `pause_at_percent`, `trigger_usd`, `state`, and for a pause, `paused_at`, `paused_by` and `reason` |
+| `users[]` | `email`, `name`, `budget`, `role`, `product`, `limit_usd`, `pause_at_percent`, `trigger_usd`, `state`, and for a pause, `paused_at`, `paused_by` and `reason` |
 
-`bedrock-admin usage --month YYYY-MM` uses the snapshot for past limits and pause states. Without
-one, limits come from the file and pause state is unknown.
+`bedrock-admin usage --month YYYY-MM` uses the snapshot for past limits, pause states and products
+(the role's `product` tag). Without one, limits and products come from the file and pause state is
+unknown; a snapshot without `product` takes it from the file too.
 
 ### Who has set up
 
@@ -549,6 +550,10 @@ admins.
 | Past limits and pause states | The snapshots |
 
 The forecast for this month is the spend so far, scaled to the whole month.
+
+`--by product` groups tracked spend by each user's product (the file's for this month, the
+snapshot's for past months) instead of per user, so it works before `product` is a cost allocation
+tag. Untracked spend has no product and stays per caller.
 
 The CLI lists `s3://<bucket>/<prefix>/<export>/data/BILLING_PERIOD=YYYY-MM/*.parquet`, streams each
 file, reads only four columns, and adds up the cost per caller. No query engine is needed.

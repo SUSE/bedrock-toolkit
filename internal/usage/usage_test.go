@@ -252,7 +252,7 @@ func TestThisMonth(t *testing.T) {
 		t.Fatal("HasUntracked")
 	}
 	var out bytes.Buffer
-	r.Write(&out, Sections{true, true})
+	r.Write(&out, Sections{Tracked: true, Untracked: true})
 	for _, s := range []string{"2026-10 (to Oct 8, billing lags up to ~16 h)", "USERS", "FORECAST", "Tracked total", "$18.45",
 		"UNTRACKED (outside personal roles)", "usage-ci-bot", "Untracked total", "$7.60"} {
 		if !strings.Contains(out.String(), s) {
@@ -273,7 +273,7 @@ func TestNoUntracked(t *testing.T) {
 	r := Summarize("2026-10", "usage", []Line{{Principal: sts("bedrock-user-usage-a", "a@x.test"), Owner: "a@x.test", Cost: 1}},
 		[]User{{Email: "a@x.test", LimitUSD: 10, PauseKnown: true, Pause: pause.Status{State: pause.Armed}}}, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))
 	var out bytes.Buffer
-	r.Write(&out, Sections{true, true})
+	r.Write(&out, Sections{Tracked: true, Untracked: true})
 	if r.HasUntracked() || !strings.Contains(out.String(), "Everyone used their personal role. Nothing to follow up.") {
 		t.Fatal(out.String())
 	}
@@ -299,7 +299,7 @@ func TestOtherIDs(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	var out bytes.Buffer
-	r.Write(&out, Sections{true, true})
+	r.Write(&out, Sections{Tracked: true, Untracked: true})
 	if !strings.Contains(out.String(), "Other setups in this account (personal roles of other ids): $5.00") {
 		t.Fatal(out.String())
 	}
@@ -326,7 +326,7 @@ func TestPastMonthFromSnapshot(t *testing.T) {
 		t.Fatalf("c: %+v", c)
 	}
 	var out bytes.Buffer
-	r.Write(&out, Sections{true, true})
+	r.Write(&out, Sections{Tracked: true, Untracked: true})
 	if strings.Contains(out.String(), "FORECAST") || !strings.Contains(out.String(), "2026-09 (final)") {
 		t.Fatal(out.String())
 	}
@@ -353,7 +353,7 @@ func TestMonths(t *testing.T) {
 		t.Fatalf("sso: %+v", sso)
 	}
 	var out bytes.Buffer
-	m.Write(&out, Sections{true, true})
+	m.Write(&out, Sections{Tracked: true, Untracked: true})
 	for _, s := range []string{"2026-09", "2026-10", "TOTAL", "68.25", "Tracked total", "93.45", "Untracked total"} {
 		if !strings.Contains(out.String(), s) {
 			t.Errorf("missing %q in\n%s", s, out.String())
@@ -429,5 +429,55 @@ func TestReadWebSearch(t *testing.T) {
 	lines := readAll(t, DirSource{Dir: filepath.Dir(filepath.Dir(dir))}, "2026-10")
 	if len(lines) != 1 || lines[0].Model != WebSearchLabel {
 		t.Fatalf("%+v", lines)
+	}
+}
+
+func TestByProduct(t *testing.T) {
+	armed := pause.Status{State: pause.Armed}
+	us := []User{
+		{Email: "a@x.test", Product: "web", LimitUSD: 10, PauseKnown: true, Pause: armed},
+		{Email: "b@x.test", Product: "web", LimitUSD: 20, PauseKnown: true, Pause: armed},
+		{Email: "c@x.test", Product: "data", LimitUSD: 50, PauseKnown: true, Pause: armed},
+		{Email: "d@x.test", LimitUSD: 5},
+	}
+	lines := []Line{
+		{Principal: sts("bedrock-user-p-a", "a@x.test"), Owner: "a@x.test", Cost: 1},
+		{Principal: sts("bedrock-user-p-b", "b@x.test"), Owner: "b@x.test", Cost: 2},
+		{Principal: sts("bedrock-user-p-c", "c@x.test"), Owner: "c@x.test", Cost: 5},
+	}
+	now := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	r := Summarize("2026-10", "p", lines, us, now)
+	if len(r.Products) != 3 {
+		t.Fatalf("%+v", r.Products)
+	}
+	none, data, web := r.Products[0], r.Products[1], r.Products[2]
+	if none.Product != NoProduct || none.Users != 1 || none.SpentUSD != 0 {
+		t.Errorf("none: %+v", none)
+	}
+	if data.Product != "data" || data.Users != 1 || data.SpentUSD != 5 || data.UsedPercent != 10 {
+		t.Errorf("data: %+v", data)
+	}
+	if web.Product != "web" || web.Users != 2 || web.LimitUSD != 30 || web.SpentUSD != 3 || web.UsedPercent != 10 ||
+		web.ForecastUSD == nil || *web.ForecastUSD != 47 {
+		t.Errorf("web: %+v", web)
+	}
+	var out bytes.Buffer
+	r.Write(&out, Sections{Tracked: true, ByProduct: true})
+	for _, s := range []string{"PRODUCTS", "web", "data", "Tracked total", "$8.00"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("missing %q in\n%s", s, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "a@x.test") {
+		t.Errorf("--by product lists users:\n%s", out.String())
+	}
+
+	prev := Summarize("2026-09", "p", lines[:1], us, now)
+	m := Combine([]MonthReport{prev, r})
+	out.Reset()
+	m.Write(&out, Sections{Tracked: true, ByProduct: true})
+	if len(m.Products) != 3 || m.Products[2].Who != "web" || m.Products[2].ByMonth["2026-09"] != 1 || m.Products[2].TotalUSD != 4 ||
+		!strings.Contains(out.String(), "PRODUCTS") {
+		t.Fatalf("%+v\n%s", m.Products, out.String())
 	}
 }

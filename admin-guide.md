@@ -731,6 +731,7 @@ pause and they stay paused by the budget; run `unpause` again to turn that off f
 bedrock-admin usage                       # this month: users, then untracked callers
 bedrock-admin usage --month 2026-09       # a past month, with limits and pause state from its snapshot
 bedrock-admin usage --months 6            # the last 6 months, one column per month
+bedrock-admin usage --by product          # tracked spend per product tag instead of per user
 bedrock-admin usage achen@example.com     # one person: per day, per model, per way of calling
 bedrock-admin usage --untracked           # only spend outside personal roles
 bedrock-admin usage --tracked             # only spend in personal roles
@@ -738,6 +739,11 @@ bedrock-admin usage --json                # for scripts
 ```
 
 `usage` exits 2 when it finds spend outside personal roles, so a scheduled job can alert on it.
+
+`--by product` sums the users per `product` (the file's, or a user's own `product:`): users, limits,
+spend and forecast per product, also with `--months`. A user's product is the one in the file for
+this month and the one in the snapshot for past months. It doesn't need `product` activated as a
+cost allocation tag, and untracked spend has no product, so it stays per caller.
 
 Users can check their own spend and pause state with `bedrock usage`, and their allowed models with
 `bedrock models`: their personal role may read only its own budget, its own tags and its own

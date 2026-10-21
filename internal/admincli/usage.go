@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,6 +24,7 @@ type usageFlags struct {
 	months             int
 	monthsSet          bool
 	tracked, untracked bool
+	by                 string
 }
 
 func (a *App) usageCmd() *cobra.Command {
@@ -37,6 +39,7 @@ budget. Callers under $0.01 are left out of the list.
   bedrock-admin usage                      this month so far, with a forecast
   bedrock-admin usage --month 2026-09      a past month, with limits and pause state from its snapshot
   bedrock-admin usage --months 3           one column per month
+  bedrock-admin usage --by product         spend per product tag instead of per user
   bedrock-admin usage alice@acme.com       one person: per day, per model, per way of calling
 
 Exit code 2 when there is untracked spend.`,
@@ -55,6 +58,7 @@ Exit code 2 when there is untracked spend.`,
 	fl.IntVar(&f.months, "months", 0, "the last N months, this one included")
 	fl.BoolVar(&f.tracked, "tracked", false, "show only spend in personal roles")
 	fl.BoolVar(&f.untracked, "untracked", false, "show only spend outside personal roles")
+	fl.StringVar(&f.by, "by", "user", "group tracked spend by user or product")
 	return cmd
 }
 
@@ -87,6 +91,12 @@ func usageMonths(f usageFlags, thisMonth string) ([]string, error) {
 }
 
 func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
+	if f.by != "user" && f.by != "product" {
+		return fmt.Errorf("--by must be user or product (got %q)", f.by)
+	}
+	if email != "" && f.by == "product" {
+		return errors.New("<email> shows one person; leave out --by product")
+	}
 	if email != "" && f.months > 0 {
 		return errors.New("<email> shows one month; use it with --month, not --months")
 	}
@@ -96,7 +106,7 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 	if err != nil {
 		return err
 	}
-	sec := usage.Sections{Tracked: f.tracked || !f.untracked, Untracked: f.untracked || !f.tracked}
+	sec := usage.Sections{Tracked: f.tracked || !f.untracked, Untracked: f.untracked || !f.tracked, ByProduct: f.by == "product"}
 
 	cfg, err := a.load()
 	if err != nil {
@@ -205,7 +215,7 @@ func (a *App) liveUsers(ctx context.Context, cfg *config.Config, c *awsx.Clients
 			if pct == 0 {
 				pct = r.PauseAtPercent
 			}
-			out[i] = &usage.User{Email: r.Email, Role: r.RoleName, LimitUSD: o.Limit, TriggerUSD: o.Limit * float64(pct) / 100, Pause: o.Pause, PauseKnown: true}
+			out[i] = &usage.User{Email: r.Email, Role: r.RoleName, Product: r.Product, LimitUSD: o.Limit, TriggerUSD: o.Limit * float64(pct) / 100, Pause: o.Pause, PauseKnown: true}
 		}()
 	}
 	wg.Wait()
@@ -231,7 +241,7 @@ func pastUsers(ctx context.Context, cfg *config.Config, s3c usage.S3API, month s
 		}
 		var us []usage.User
 		for _, r := range cfg.Resolve() {
-			us = append(us, usage.User{Email: r.Email, Role: r.RoleName, LimitUSD: r.LimitUSD, TriggerUSD: r.LimitUSD * float64(r.PauseAtPercent) / 100})
+			us = append(us, usage.User{Email: r.Email, Role: r.RoleName, Product: r.Product, LimitUSD: r.LimitUSD, TriggerUSD: r.LimitUSD * float64(r.PauseAtPercent) / 100})
 		}
 		return us, "no snapshot; users and limits from " + cfgName(cfg) + ", pause state unknown", nil
 	}
@@ -244,7 +254,9 @@ func pastUsers(ctx context.Context, cfg *config.Config, s3c usage.S3API, month s
 	if err != nil {
 		return nil, "", fmt.Errorf("snapshot s3://%s/%s: %w", cfg.CostExport.Bucket, key, err)
 	}
-	return usage.UsersFromSnapshot(snap), "final; limits and pause state from the snapshot of " + snap.TakenAt.UTC().Format("Jan 2"), nil
+	us := usage.UsersFromSnapshot(snap)
+	fillProducts(us, cfg)
+	return us, "final; limits and pause state from the snapshot of " + snap.TakenAt.UTC().Format("Jan 2"), nil
 }
 
 func cfgName(cfg *config.Config) string {
@@ -252,4 +264,18 @@ func cfgName(cfg *config.Config) string {
 		return cfg.Path
 	}
 	return "bedrock.yaml"
+}
+
+// fillProducts gives users from a snapshot without products (taken before snapshots had them) the
+// product from the file.
+func fillProducts(us []usage.User, cfg *config.Config) {
+	byEmail := map[string]string{}
+	for _, r := range cfg.Resolve() {
+		byEmail[strings.ToLower(r.Email)] = r.Product
+	}
+	for i := range us {
+		if us[i].Product == "" {
+			us[i].Product = byEmail[strings.ToLower(us[i].Email)]
+		}
+	}
 }

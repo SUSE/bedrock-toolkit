@@ -33,6 +33,7 @@ type SnapshotUser struct {
 	Name           string    `json:"name"`
 	Budget         string    `json:"budget"`
 	Role           string    `json:"role"`
+	Product        string    `json:"product,omitempty"`
 	LimitUSD       float64   `json:"limit_usd"`
 	PauseAtPercent int       `json:"pause_at_percent"`
 	TriggerUSD     float64   `json:"trigger_usd"`
@@ -144,7 +145,7 @@ func (m *Manager) TakeSnapshot(ctx context.Context, month string) (Snapshot, []b
 		}
 		limit := limits[budget]
 		s.Users = append(s.Users, SnapshotUser{Email: t[policy.OwnerTag], Name: strings.TrimPrefix(budget, policy.BudgetName(m.ID, "")),
-			Budget: budget, Role: role, LimitUSD: limit, PauseAtPercent: pct, TriggerUSD: float64(int64(limit*float64(pct)+0.5)) / 100,
+			Budget: budget, Role: role, Product: t[policy.ProductTag], LimitUSD: limit, PauseAtPercent: pct, TriggerUSD: float64(int64(limit*float64(pct)+0.5)) / 100,
 			State: st.State, PausedAt: st.PausedAt, By: st.By, Reason: st.Reason})
 	}
 	return s, actions, tags, nil
