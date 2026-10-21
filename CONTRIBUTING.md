@@ -9,6 +9,7 @@ is in the [README](README.md).
 | --- | --- |
 | [`user-guide.md`](user-guide.md) | User setup, troubleshooting, what happens when you're paused |
 | [`admin-guide.md`](admin-guide.md) | Account setup, managing users, pauses, spend, cheat sheet |
+| [`central-admin-guide.md`](central-admin-guide.md) | The central report bucket and `bedrock-admin fleet` |
 | [`design.md`](design.md) | How and why it works: the model, each component, security, limits, testing, open items |
 | `cmd/bedrock-admin/` | Admin CLI |
 | `cmd/bedrock/` | User CLI |

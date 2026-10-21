@@ -84,7 +84,6 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user, and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
-| `bedrock-admin fleet` | For a central admin: creates the report bucket and shows every setup's report | [Central reporting](#central-reporting-optional) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
@@ -1085,29 +1084,9 @@ per account:
 
 ## Central reporting (optional)
 
-If several teams run their own setups, one central admin can collect a short report from each
-setup in one S3 bucket, to see how many teams and users are set up. It's off unless a setup's
-`bedrock.yaml` has a `report:` section. The central admin needs no access to the teams' accounts.
-
-**Central admin**, once, with a profile of the account that should hold the bucket:
-
-```bash
-bedrock-admin fleet init --bucket acme-bedrock-reports --profile central-admin
-bedrock-admin fleet report --bucket acme-bedrock-reports --profile central-admin
-```
-
-`fleet init` creates the bucket in the profile's region (or `--region`) and sets it up: public
-access blocked, objects owned by the bucket owner, versioning on, default encryption (SSE-S3) and a
-bucket policy. The policy lets every account of the profile's AWS organization write reports under
-its own account ID, and nothing else: setups can't read any report, not even their own, and can't
-write another account's. Finding the organization needs `organizations:DescribeOrganization`;
-without it, pass `--org-id o-...`, or `--accounts 111111111111,222222222222` without an
-organization. Versioning keeps every report; nothing expires. `fleet init` asks before changing
-anything; run it again to fix settings changed by hand. It then prints the `report:` section to send
-to the teams' admins.
-
-**Each team's admin** adds that section to `bedrock.yaml` (or answers the question in `configure`),
-then runs `apply`:
+If your organization has a central admin who follows several teams' setups, they give you a
+`report:` section. It's off unless `bedrock.yaml` has one. Add it (or pass `--report-bucket` and
+`--report-region` to `configure`), then run `apply`:
 
 ```yaml
 report:
@@ -1116,24 +1095,17 @@ report:
   include_emails: false    # true also sends each user's email, set up and paused
 ```
 
-The setup then sends its report on every `apply`, daily at 07:00 UTC from the monthly Lambda (a
-second schedule, `bedrock-daily-report-<id>`), and once more on `uninstall`, marked
-`uninstalled`. A failed report is only a warning. The report is
-`s3://<bucket>/<account>/<id>.json`: the id, region, `bedrock-admin` version, default limit and
-pause and alert percentages, `models:`, web search on or off, counts of onboarded, set up and paused
-users, and this month's total spend from the users' budgets. It holds no emails unless
-`include_emails: true`. Remove `report:` and run `apply` to stop it; `apply` removes the daily
-schedule.
+The setup then sends a short report on every `apply`, daily at 07:00 UTC from the monthly Lambda (a
+second schedule, `bedrock-daily-report-<id>`), and once more on `uninstall`, marked `uninstalled`.
+A failed report is only a warning. The report is `s3://<bucket>/<account>/<id>.json`: the id,
+region, `bedrock-admin` version, default limit and pause and alert percentages, `models:`, web
+search on or off, counts of onboarded, set up and paused users, and this month's total spend from
+the users' budgets. It holds no emails unless `include_emails: true`. Your setup can write only its
+own account's reports and can't read any. Remove `report:` and run `apply` to stop; `apply` removes
+the daily schedule.
 
-```
-ACCOUNT       ID       REGION     VERSION  ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
-111111111111  bedrock  us-east-1  v1.1.0   25         10      0       412.30       2026-10  3h ago    active
-222222222222  bedrock  eu-west-1  v1.1.0   12         3       1       57.10        2026-10  5h ago    active
-
-2 installed setups: 37 onboarded, 13 set up, 1 paused; $469.40 this month.
-```
-
-`fleet report --json` prints the full reports, with emails where sent.
+The central admin's side (`bedrock-admin fleet`) is in the
+[central admin guide](central-admin-guide.md).
 
 ## Emails
 

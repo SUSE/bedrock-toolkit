@@ -141,7 +141,7 @@ bedrock models                       # the models you may use
 | `unpause` | Restores a paused user's access |
 | `usage` | Spend per user, and spend outside personal roles. Exits 2 when it finds untracked spend |
 | `users` | Who is onboarded, who has run `bedrock setup`, and who is paused |
-| `fleet` | For a central admin: creates the report bucket and shows every setup's report |
+| `fleet` | For a central admin only: creates the report bucket and shows every setup's report; see the [central admin guide](central-admin-guide.md) |
 | `uninstall` | Removes the account setup. Refuses while users remain |
 
 `bedrock`, for users:
@@ -163,6 +163,7 @@ problem. Run `<command> --help` for the flags.
 | --- | --- |
 | A user who wants to use the Bedrock inference provider in code agents | [User guide](user-guide.md) |
 | The admin of an AWS account: you set up the account and manage users | [Admin guide](admin-guide.md) |
+| A central admin following many teams' setups through one report bucket | [Central admin guide](central-admin-guide.md) |
 | Reviewing how and why this solution works | [Design](design.md) |
 | Building, testing, or releasing the CLIs | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Running the end-to-end tests | [tests/e2e/README.md](tests/e2e/README.md) |

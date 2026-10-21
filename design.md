@@ -508,7 +508,7 @@ delay. Users in the file without a role show `not applied`.
 ### Central reports
 
 Optional, for one central admin following many setups, possibly in many accounts. The tool assumes
-no vendor: the central admin creates the bucket with `bedrock-admin fleet init` and gives the
+no vendor: the central admin ([central admin guide](central-admin-guide.md)) creates the bucket with `bedrock-admin fleet init` and gives the
 `report:` section to the setups' admins.
 
 - **Bucket** (`fleet init`, in the central admin's account): public access blocked,

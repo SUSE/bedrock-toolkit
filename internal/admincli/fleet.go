@@ -31,7 +31,7 @@ var (
 func (a *App) fleetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "fleet",
-		Short: "Central reporting: create the report bucket and read every setup's report",
+		Short: "For the central admin only: create the report bucket and read every setup's report",
 		Long: `fleet is for the central admin who collects reports from many setups (accounts and ids).
 
   bedrock-admin fleet init --bucket NAME     create the bucket other setups report to
