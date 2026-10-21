@@ -131,7 +131,15 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 
 	arn, err = a.AWS.Identity(ctx, profile)
 	if err != nil {
-		return append(out, cli.Check{Name: "personal role", Detail: short(err).Error(), Fix: "bedrock setup --yes"})
+		c := cli.Check{Name: "personal role", Detail: short(err).Error(), Fix: "bedrock setup --yes"}
+		// Your sign-in worked above, so a rejected token here comes from the profile's region:
+		// an opt-in region the account hasn't enabled.
+		if awsx.ErrorCode(err) == "InvalidClientTokenId" {
+			c.Detail = fmt.Sprintf("region %s rejects your credentials: it's an opt-in region this account hasn't enabled", region)
+			c.Fix = "run your bedrock setup command again with another region, e.g. --region us-east-1 --yes, " +
+				"or ask your admin to enable " + region
+		}
+		return append(out, c)
 	}
 	out = append(out, cli.Check{Name: "personal role", OK: true, Detail: arn})
 

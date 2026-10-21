@@ -172,7 +172,8 @@ region = us-west-2
   (one AWS account can hold several setups; you may be in more than one, with a role in each: use
   `--profile-name` to keep their profiles apart), and `--role-arn` when your role has a custom name.
   Outside a US or EU region the default models are `global.` ones, and `setup` prints a note: if your
-  admin allows only `us.` or `eu.` models, pass a matching `--region`.
+  admin allows only `us.` or `eu.` models, pass a matching `--region`. Opt-in regions (for example
+  `ap-east-1` or `ap-east-2`) work only when your admin's account has enabled them.
 - It keeps the previous file as `config.bak`. If a `bedrock` profile already exists, it shows the
   old and new block and asks before replacing it. `--yes` replaces it without asking.
 - If you have several SSO profiles, it asks which one you sign in with, or pass
@@ -470,6 +471,7 @@ the fix under it:
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. With an IAM user: ask them to onboard your email with `iam_user: <name>`. |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
+| `personal role` | `region <region> rejects your credentials: it's an opt-in region ...` | The account hasn't enabled that region. Run your setup command again with another region, e.g. `--region us-east-1 --yes`, or ask your admin to enable the region. |
 | `model <id>` | `AccessDeniedException ...`, and the fix starts with `PAUSED` | Your Bedrock access is paused: `doctor` read this from your budget. It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
 | `model <id>` | `AccessDeniedException ... explicit deny in an identity-based policy` | A policy other than the pause denies the call: send your admin the message. |
 | `model <id>` | `AccessDeniedException (AWS gave no reason)` | Your admin doesn't allow this model, or a policy denies it: ask your admin. If the model starts with `global.`, try a US or EU region: `bedrock setup --region us-east-1 --yes`, with the options your admin sent you. |

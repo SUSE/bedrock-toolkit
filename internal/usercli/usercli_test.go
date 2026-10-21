@@ -22,6 +22,7 @@ const email = "achen@example.com"
 
 type fakeAWS struct {
 	identity   map[string]string // profile -> ARN
+	idErr      map[string]error  // profile -> Identity error
 	assumeErr  error
 	invokeErrs map[string]error
 	invoked    []string
@@ -56,6 +57,9 @@ func (f *fakeAWS) Budget(_ context.Context, profile, account, role, budget strin
 }
 
 func (f *fakeAWS) Identity(_ context.Context, profile string) (string, error) {
+	if err, ok := f.idErr[profile]; ok {
+		return "", err
+	}
 	if a, ok := f.identity[profile]; ok {
 		return a, nil
 	}
@@ -233,6 +237,9 @@ func TestDoctorFailures(t *testing.T) {
 			f.assumeErr = &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized"}
 		},
 			[]string{"FAIL  permission-set access", "ask your admin to onboard achen@example.com"}},
+		{"opt-in region", setUp, func(f *fakeAWS) {
+			f.idErr = map[string]error{"bedrock": &smithy.GenericAPIError{Code: "InvalidClientTokenId", Message: "The security token included in the request is invalid"}}
+		}, []string{"FAIL  personal role: region us-west-2 rejects your credentials", "ask your admin to enable us-west-2"}},
 		{"paused", setUp, func(f *fakeAWS) {
 			f.invokeErrs = map[string]error{"us.anthropic.claude-haiku-5-5": &smithy.GenericAPIError{
 				Code: "AccessDeniedException", Message: "... with an explicit deny in an identity-based policy"}}

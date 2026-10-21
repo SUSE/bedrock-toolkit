@@ -317,7 +317,7 @@ bedrock-admin plan and bedrock-admin apply."
 ```yaml
 id: acmeprod                    # names and tags what apply creates; default bedrock
 account: "111122223333"         # in quotes
-region: us-west-2
+region: us-west-2               # an opt-in region (e.g. ap-east-1) must be enabled in the account first
 profile: bedrock-admin          # AWS profile; --profile and $AWS_PROFILE win over it
 product: genai-tools            # product tag on the personal roles; a user's product: overrides it
 
