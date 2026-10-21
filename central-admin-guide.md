@@ -32,7 +32,9 @@ account, and you choose who may write to it.
 
 ## What you need
 
-- `bedrock-admin` (the same binary the teams use). `fleet` commands need no `bedrock.yaml`.
+- `bedrock-admin` (the same binary the teams use). `fleet` commands need no `bedrock.yaml`; if you
+  are also a team admin, `-f bedrock.yaml` lends them the file's `profile:`, and its `region:` when
+  the profile has none.
 - A profile of the account that should hold the bucket (`--profile`, or `AWS_PROFILE`, or the
   default profile, as for every `bedrock-admin` command), with rights to create and configure an S3
   bucket (`s3:CreateBucket`, `s3:PutBucketPolicy`, `s3:PutBucketVersioning`,
@@ -48,7 +50,7 @@ account, and you choose who may write to it.
 bedrock-admin fleet init
 ```
 
-It creates `bedrock-reports-<account ID>` in the profile's region. `--bucket NAME` picks another
+It creates `bedrock-reports-<account ID>` in the profile's region (or the `-f` file's). `--bucket NAME` picks another
 name (S3 bucket names are global, so `fleet init` stops if the name is taken), and `--region`
 another region. After that, every `fleet` command finds the bucket by itself.
 

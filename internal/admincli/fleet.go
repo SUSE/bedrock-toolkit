@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	stypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/spf13/cobra"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
@@ -42,20 +43,39 @@ func (a *App) fleetCmd() *cobra.Command {
 Admins of the setups then add the report: section that fleet init prints to their bedrock.yaml and
 run bedrock-admin apply. They can write their own account's reports only; they can't read any.
 Neither command needs a bedrock.yaml; they use --profile (or AWS_PROFILE) of the central account.
+With -f, they use the file's profile, and its region when the profile has none.
 fleet init tags the bucket, so later both commands find it without --bucket or --region.`,
 	}
 	cmd.AddCommand(a.fleetInitCmd(), a.fleetReportCmd())
 	return cmd
 }
 
-// fleetClients connects to the central account; fleet commands don't read a bedrock.yaml. The
-// clients use us-east-1 when neither --region nor the profile gives a region; fleetBucket then
-// picks the bucket's own region.
+// fleetClients connects to the central account. Fleet commands need no bedrock.yaml, but one given
+// with -f supplies the profile and, when the profile has none, the region. The clients use
+// us-east-1 when nothing gives a region; fleetBucket then picks the bucket's own region.
 func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, error) {
-	if region == "" && a.profileRegion(ctx, nil) == "" {
+	if a.File != "" {
+		cfg, err := a.load()
+		if err != nil {
+			return nil, err
+		}
+		a.fleetCfg = cfg
+	}
+	if region == "" && a.fleetRegion(ctx) == "" {
 		region = "us-east-1"
 	}
-	return awsx.New(ctx, a.profile(nil), region, "")
+	return awsx.New(ctx, a.profile(a.fleetCfg), region, "")
+}
+
+// fleetRegion is the profile's region, else the region of the file given with -f.
+func (a *App) fleetRegion(ctx context.Context) string {
+	if r := a.profileRegion(ctx, a.fleetCfg); r != "" {
+		return r
+	}
+	if a.fleetCfg != nil {
+		return a.fleetCfg.Region
+	}
+	return ""
 }
 
 // reportBucket is a central report bucket and its region.
@@ -80,7 +100,7 @@ func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, er
 		found []reportBucket
 		first error
 	)
-	sem := make(chan struct{}, 16)
+	sem := make(chan struct{}, 8)
 	for _, b := range all {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -93,7 +113,7 @@ func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, er
 				}
 				b.Region = r
 			}
-			t, err := c.S3In(b.Region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(b.Name)})
+			t, err := bucketTagging(ctx, c, b)
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -113,6 +133,23 @@ func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, er
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
 	return found, nil
+}
+
+// bucketTagging reads a bucket's tags, retrying network errors such as a failed DNS lookup, which
+// the SDK doesn't retry and which many lookups at once can cause.
+func bucketTagging(ctx context.Context, c *awsx.Clients, b reportBucket) (*s3.GetBucketTaggingOutput, error) {
+	for attempt := 1; ; attempt++ {
+		t, err := c.S3In(b.Region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(b.Name)})
+		var apiErr smithy.APIError
+		if err == nil || errors.As(err, &apiErr) || attempt == 3 {
+			return t, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+		}
+	}
 }
 
 func hasTag(tags []stypes.Tag, key string) bool {
@@ -144,7 +181,7 @@ func pickReportBucket(found []reportBucket, account string) (reportBucket, error
 
 // fleetBucket resolves --bucket and --region: without --bucket it finds the tagged bucket, or, for
 // fleet init (create) when there is none, uses DefaultReportBucket; without --region it uses the
-// bucket's region, or, for a new bucket, the profile's. exists reports whether the bucket exists.
+// bucket's region, or, for a new bucket, fleetRegion. exists reports whether the bucket exists.
 func (a *App) fleetBucket(ctx context.Context, c *awsx.Clients, bucket, region string, create bool) (b reportBucket, exists bool, err error) {
 	if bucket == "" {
 		found, err := findReportBuckets(ctx, c)
@@ -176,7 +213,7 @@ func (a *App) fleetBucket(ctx context.Context, c *awsx.Clients, bucket, region s
 		return reportBucket{bucket, got}, true, nil
 	}
 	if region == "" {
-		region = a.profileRegion(ctx, nil)
+		region = a.fleetRegion(ctx)
 	}
 	if region == "" {
 		return b, false, errors.New("no region: the profile has none; pass --region")

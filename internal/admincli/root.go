@@ -29,6 +29,9 @@ type App struct {
 	Out, Err io.Writer
 	Now      func() time.Time
 	Version  string
+
+	// fleetCfg is the file given with -f to a fleet command, for its profile and region.
+	fleetCfg *config.Config
 }
 
 // New returns an App on the process's streams.
