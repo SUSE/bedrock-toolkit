@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bcmdataexports"
@@ -50,6 +52,24 @@ type Clients struct {
 // which throttles a plan or the Lambda reading many users' budgets.
 const RetryMaxAttempts = 10
 
+// newRetryer is the SDK's standard retryer with RetryMaxAttempts that also retries failed DNS
+// lookups. The SDK treats "no such host" as final, but resolvers fail transiently under many
+// lookups at once, or for a bucket created seconds ago.
+func newRetryer() aws.Retryer {
+	return retry.NewStandard(func(o *retry.StandardOptions) {
+		o.MaxAttempts = RetryMaxAttempts
+		o.Retryables = append([]retry.IsErrorRetryable{retry.IsErrorRetryableFunc(dnsNotFound)}, o.Retryables...)
+	})
+}
+
+func dnsNotFound(err error) aws.Ternary {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return aws.TrueTernary
+	}
+	return aws.UnknownTernary
+}
+
 // Load reads AWS credentials for profile ("" for the default chain) and region.
 func Load(ctx context.Context, profile, region string) (aws.Config, error) {
 	// A stalled connection otherwise blocks a call for minutes; with a timeout the SDK retries it.
@@ -57,7 +77,7 @@ func Load(ctx context.Context, profile, region string) (aws.Config, error) {
 		t.ResponseHeaderTimeout = 60 * time.Second
 	})
 	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpClient),
-		awsconfig.WithRetryMaxAttempts(RetryMaxAttempts)}
+		awsconfig.WithRetryer(newRetryer)}
 	if profile != "" {
 		opts = append(opts, awsconfig.WithSharedConfigProfile(profile))
 	}

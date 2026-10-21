@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	stypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/smithy-go"
 	"github.com/spf13/cobra"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
@@ -61,7 +60,10 @@ func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, e
 		}
 		a.fleetCfg = cfg
 	}
-	if region == "" && a.fleetRegion(ctx) == "" {
+	if region == "" {
+		region = a.fleetRegion(ctx)
+	}
+	if region == "" {
 		region = "us-east-1"
 	}
 	return awsx.New(ctx, a.profile(a.fleetCfg), region, "")
@@ -113,7 +115,7 @@ func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, er
 				}
 				b.Region = r
 			}
-			t, err := bucketTagging(ctx, c, b)
+			t, err := c.S3In(b.Region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(b.Name)})
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -133,23 +135,6 @@ func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, er
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
 	return found, nil
-}
-
-// bucketTagging reads a bucket's tags, retrying network errors such as a failed DNS lookup, which
-// the SDK doesn't retry and which many lookups at once can cause.
-func bucketTagging(ctx context.Context, c *awsx.Clients, b reportBucket) (*s3.GetBucketTaggingOutput, error) {
-	for attempt := 1; ; attempt++ {
-		t, err := c.S3In(b.Region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(b.Name)})
-		var apiErr smithy.APIError
-		if err == nil || errors.As(err, &apiErr) || attempt == 3 {
-			return t, err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
-		}
-	}
 }
 
 func hasTag(tags []stypes.Tag, key string) bool {
