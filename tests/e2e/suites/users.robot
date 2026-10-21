@@ -1,6 +1,6 @@
 *** Settings ***
 Documentation       Personal roles, budgets and pause actions: onboarding, changes in place, offboarding,
-...                 manual pause and unpause, and the monthly Lambda. The run's own setup (id e2e<hex>).
+...                 manual pause and unpause, users, and the monthly Lambda. The run's own setup (id e2e<hex>).
 Resource            ../resources/common.resource
 Suite Setup         Start AWS Run
 Suite Teardown      Tear Down Run
@@ -105,6 +105,19 @@ Pause By Hand
     Deny Policy Should Be Attached    ${role}
     Role Tag Should Be    ${role}    bedrock:pause-reason    e2e test
     Pause State Should Be    a    paused-by-hand
+
+Users Shows Pause State And That Nobody Has Set Up
+    [Documentation]    Nobody in this suite uses a personal role, so every role shows "never".
+    ${u}=    Admin    users    --json
+    ${a}=    User Email    a
+    ${b}=    User Email    b
+    ${rows}=    Evaluate    {r["email"]: r for r in $u["users"]}
+    Should Be Equal    ${rows}[${a}][pause]    paused-by-hand
+    Should Be Equal    ${rows}[${b}][pause]    armed
+    Should Be Equal    ${rows}[${a}][set_up]    never
+    Should Be Equal As Integers    ${u}[totals][onboarded]    ${{len($u["users"])}}
+    Should Be Equal As Integers    ${u}[totals][set_up]    0
+    Should Be Equal As Integers    ${u}[totals][paused]    1
 
 Apply Leaves A Manual Pause
     Apply

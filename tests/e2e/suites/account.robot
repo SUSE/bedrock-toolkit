@@ -1,6 +1,7 @@
 *** Settings ***
 Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
-...                 doctor, models, export, a second setup in the same account, and uninstall. The run's setup has
+...                 doctor, models, export, central reporting (fleet init, apply, the daily Lambda report,
+...                 fleet report), a second setup in the same account, and uninstall. The run's setup has
 ...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
 Resource            ../resources/common.resource
 Suite Setup         Start Account Run
@@ -127,6 +128,59 @@ Export Then Plan Shows No Changes
     ${p}=    Admin    plan    --json    config=${f}    rc=any
     Plan Should Have No Changes    ${p}
 
+Fleet Init Creates The Central Report Bucket
+    [Documentation]    --accounts, so the run needs no AWS Organizations permission.
+    Admin    fleet    init    --bucket    ${N}[report_bucket]    --region    ${REGION}    --accounts    ${ACCOUNT}
+    ...    --yes    config=none
+    ${out}=    Admin    fleet    init    --bucket    ${N}[report_bucket]    --region    ${REGION}
+    ...    --accounts    ${ACCOUNT}    --dry-run    config=none
+    Should Contain    ${out}    No changes
+
+Fleet Init Refuses The Setup's Cost Export Bucket
+    ${r}=    Admin    fleet    init    --bucket    ${N}[bucket]    --region    ${REGION}    --accounts    ${ACCOUNT}
+    ...    --dry-run    config=none    rc=any    output=result
+    Should Not Be Equal As Integers    ${r.rc}    0
+
+Apply Sends The Central Report
+    Set Config    report.bucket    ${N}[report_bucket]
+    Set Config    report.region    ${REGION}
+    ${r}=    Apply
+    ${report}=    Central Report
+    Should Be Equal    ${report}[status]    active
+    Should Be Equal    ${report}[source]    apply
+    Should Be Equal    ${report}[id]    ${ID}
+    Should Not Contain    ${report}    people
+    ${exists}=    Report Schedule Exists
+    Should Be True    ${exists}
+    Plan Should Show No Changes
+
+The Lambda Sends The Daily Report
+    Invoke Report Lambda
+    ${report}=    Central Report
+    Should Be Equal    ${report}[source]    lambda
+    Should Be Equal    ${report}[status]    active
+
+Fleet Report Shows The Setup
+    ${f}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --json
+    ...    config=none
+    ${ids}=    Evaluate    [r["id"] for r in $f["reports"] if r["account"] == $ACCOUNT]
+    Should Contain    ${ids}    ${ID}
+    Should Not Contain    ${f}    problems
+
+Export Keeps The Report Settings
+    ${yaml}=    Admin    export    --id    ${ID}    --region    ${REGION}    --product    ${PRODUCT}    config=none
+    Should Contain    ${yaml}    ${N}[report_bucket]
+
+Turning The Report Off Removes The Schedule
+    Unset Config    report
+    Apply
+    ${exists}=    Report Schedule Exists
+    Should Not Be True    ${exists}
+    Plan Should Show No Changes
+    Set Config    report.bucket    ${N}[report_bucket]
+    Set Config    report.region    ${REGION}
+    Apply
+
 Roles Without An Id Are Left Alone
     ${role}=    Create Unmanaged Role    y
     ${p}=    Plan
@@ -195,6 +249,11 @@ Uninstall Keeps The Bucket
     Role Should Not Exist    ${N}[budget_actions_role]
     Cost Export Should Not Exist
     Bucket Should Exist
+    ${exists}=    Report Schedule Exists
+    Should Not Be True    ${exists}
+    ${report}=    Central Report
+    Should Be Equal    ${report}[status]    uninstalled
+    Should Be Equal    ${report}[source]    uninstall
 
 Uninstall With Delete Data Removes The Bucket
     Admin    uninstall    --yes    --delete-data
@@ -210,3 +269,5 @@ Start Account Run
 Tear Down If Set Up
     ${exists}=    Bucket Exists
     IF    ${exists}    Tear Down Run
+    ${keep}=    Keep Setup
+    IF    not ${keep}    Delete Report Bucket

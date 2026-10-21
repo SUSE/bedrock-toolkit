@@ -102,6 +102,9 @@ def setup_names(account, id_):
         "web_search_gateway": f"bedrock-web-search-{id_}",
         "export": f"bedrock-cur-{id_}",
         "bucket": f"bedrock-cur-{account}-{id_}",
+        "report_schedule": f"bedrock-daily-report-{id_}",
+        # The central report bucket the account suite creates with fleet init (any name works).
+        "report_bucket": f"bedrock-reports-{account}-{id_}",
     }
 
 
@@ -826,6 +829,57 @@ class BedrockE2E:
         if r.get("FunctionError"):
             raise Failure(f"Lambda failed: {body}")
         return json.loads(body)
+
+    def invoke_report_lambda(self):
+        """Invokes the setup's Lambda with the daily report action."""
+        r = self._lambda().invoke(FunctionName=self.names()["lambda"], Payload=b'{"action":"report"}')
+        body = r["Payload"].read().decode()
+        if r.get("FunctionError"):
+            raise Failure(f"Lambda failed: {body}")
+
+    # ---------------------------------------------------------------- central reports
+
+    def central_report(self, id_=None):
+        """The setup's report object in the central report bucket, decoded."""
+        b = self.names(id_)["report_bucket"]
+        s3 = self._session("admin").client("s3", region_name=self._settings()["REGION"])
+        try:
+            body = s3.get_object(Bucket=b, Key=f"{self.account}/{id_ or self.cfg['id']}.json")["Body"].read()
+        except ClientError as e:
+            raise Failure(f"no report in s3://{b}: {e.response['Error']['Code']}")
+        r = json.loads(body)
+        logger.info(f"report: {r}")
+        return r
+
+    def report_schedule_exists(self, id_=None):
+        try:
+            self._session("admin").client("scheduler").get_schedule(Name=self.names(id_)["report_schedule"])
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ResourceNotFoundException":
+                return False
+            raise
+
+    def report_bucket_exists(self, id_=None):
+        try:
+            self._session("admin").client("s3").head_bucket(Bucket=self.names(id_)["report_bucket"])
+            return True
+        except ClientError:
+            return False
+
+    def delete_report_bucket(self, id_=None):
+        """Deletes the central report bucket with every object version (fleet init turns versioning on)."""
+        b = self.names(id_)["report_bucket"]
+        if not self.report_bucket_exists(id_):
+            return
+        s3 = self._session("admin").client("s3", region_name=self._settings()["REGION"])
+        for page in s3.get_paginator("list_object_versions").paginate(Bucket=b):
+            objs = [{"Key": v["Key"], "VersionId": v["VersionId"]}
+                    for v in page.get("Versions", []) + page.get("DeleteMarkers", [])]
+            if objs:
+                s3.delete_objects(Bucket=b, Delete={"Objects": objs})
+        s3.delete_bucket(Bucket=b)
+        logger.info(f"deleted s3://{b}", also_console=True)
 
     def lambda_snapshot_should_exist(self, result):
         """The snapshot in the Lambda result was saved where the Lambda's settings say."""
