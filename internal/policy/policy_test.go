@@ -161,3 +161,20 @@ func TestLambdaPermissionsReport(t *testing.T) {
 		t.Fatalf("report statement:\n%s", on)
 	}
 }
+
+func TestReportBucketPolicy(t *testing.T) {
+	org := ReportBucketPolicy("central", "o-abcdefghij", nil)
+	for _, want := range []string{`"aws:PrincipalOrgID":"o-abcdefghij"`, `"arn:aws:s3:::central/${aws:PrincipalAccount}/*"`,
+		`"aws:SecureTransport":"false"`, `"Principal":"*"`} {
+		if !strings.Contains(org, want) {
+			t.Errorf("org policy lacks %s:\n%s", want, org)
+		}
+	}
+	if strings.Contains(org, "GetObject") || strings.Contains(org, "ListBucket") {
+		t.Errorf("org policy lets setups read:\n%s", org)
+	}
+	acc := ReportBucketPolicy("central", "", []string{"111111111111", "222222222222"})
+	if !strings.Contains(acc, `"AWS":["arn:aws:iam::111111111111:root","arn:aws:iam::222222222222:root"]`) || strings.Contains(acc, "PrincipalOrgID") {
+		t.Errorf("accounts policy:\n%s", acc)
+	}
+}

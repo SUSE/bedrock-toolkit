@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
 )
@@ -79,5 +80,56 @@ func TestSend(t *testing.T) {
 	var back Report
 	if err := json.Unmarshal([]byte(p.body), &back); err != nil || back.Status != StatusUninstalled {
 		t.Fatalf("%v %+v", err, back)
+	}
+}
+
+type store map[string][]byte
+
+func (s store) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+	b, _ := io.ReadAll(in.Body)
+	s[aws.ToString(in.Key)] = b
+	return &s3.PutObjectOutput{}, nil
+}
+
+func (s store) ListObjectsV2(_ context.Context, _ *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	out := &s3.ListObjectsV2Output{IsTruncated: aws.Bool(false)}
+	for k := range s {
+		out.Contents = append(out.Contents, s3types.Object{Key: aws.String(k)})
+	}
+	return out, nil
+}
+
+func (s store) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(string(s[aws.ToString(in.Key)])))}, nil
+}
+
+func TestRead(t *testing.T) {
+	s := store{}
+	now := time.Date(2025, 10, 21, 7, 0, 0, 0, time.UTC)
+	for _, r := range []Report{
+		Build(Setup{ID: "b"}, "222222222222", StatusActive, SourceLambda, nil, now),
+		Build(Setup{ID: "a"}, "222222222222", StatusUninstalled, SourceUninstall, nil, now),
+		Build(Setup{ID: "z"}, "111111111111", StatusActive, SourceApply, nil, now),
+	} {
+		if err := Send(context.Background(), s, "central", r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s["333333333333/x.json"] = []byte(`{"account":"111111111111","id":"z"}`)
+	s["333333333333/y.json"] = []byte(`not json`)
+	s["README.txt"] = []byte("skip")
+	got, problems, err := Read(context.Background(), s, "central")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, r := range got {
+		keys = append(keys, Key(r.Account, r.ID))
+	}
+	if strings.Join(keys, " ") != "111111111111/z.json 222222222222/a.json 222222222222/b.json" {
+		t.Errorf("reports %v", keys)
+	}
+	if len(problems) != 2 {
+		t.Errorf("problems %v", problems)
 	}
 }

@@ -573,3 +573,25 @@ func covers(patterns []string, want string) bool {
 	}
 	return false
 }
+
+// ReportBucketPolicy lets the accounts of orgID, or the listed accounts, write their own reports
+// (<bucket>/<their account>/...) to the central report bucket, and nothing else; it also denies
+// requests without TLS. Reading stays with the bucket's own account.
+func ReportBucketPolicy(bucket, orgID string, accounts []string) string {
+	write := stmt{"Sid": "SetupsWriteTheirOwnReport", "Effect": "Allow", "Action": "s3:PutObject",
+		"Resource": fmt.Sprintf("arn:aws:s3:::%s/${aws:PrincipalAccount}/*", bucket)}
+	if orgID != "" {
+		write["Principal"] = "*"
+		write["Condition"] = doc{"StringEquals": doc{"aws:PrincipalOrgID": orgID}}
+	} else {
+		arns := make([]string, len(accounts))
+		for i, a := range accounts {
+			arns[i] = "arn:aws:iam::" + a + ":root"
+		}
+		write["Principal"] = doc{"AWS": arns}
+	}
+	return document(write,
+		stmt{"Sid": "DenyInsecureTransport", "Effect": "Deny", "Principal": "*", "Action": "s3:*",
+			"Resource":  []string{"arn:aws:s3:::" + bucket, "arn:aws:s3:::" + bucket + "/*"},
+			"Condition": doc{"Bool": doc{"aws:SecureTransport": "false"}}})
+}

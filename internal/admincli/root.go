@@ -48,6 +48,7 @@ monthly limit and pause, all from one file, bedrock.yaml.
   bedrock-admin apply     make the account and the users match the file
   bedrock-admin usage     where the Bedrock money went
   bedrock-admin users     who is onboarded, set up and paused
+  bedrock-admin fleet     central reporting across setups (central admin)
 
 Config file: -f, then $BEDROCK_ADMIN_CONFIG, then ./bedrock.yaml, then ~/.config/bedrock-admin/bedrock.yaml.
 
@@ -66,7 +67,7 @@ usage found untracked spend).`,
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
 	root.AddCommand(a.planCmd(), a.applyCmd(), a.exportCmd(), a.configureCmd(), a.doctorCmd(), a.uninstallCmd(),
-		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.modelsCmd())
+		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.modelsCmd(), a.fleetCmd())
 	return root
 }
 

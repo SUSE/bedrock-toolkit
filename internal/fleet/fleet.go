@@ -272,3 +272,55 @@ func Send(ctx context.Context, p Putter, bucket string, r Report) error {
 	}
 	return nil
 }
+
+// Reader lists and reads the reports in the central bucket.
+type Reader interface {
+	ListObjectsV2(context.Context, *s3.ListObjectsV2Input, ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+}
+
+// Read returns the latest report of every setup in the bucket, sorted by account and id. Objects
+// that aren't reports are skipped and returned as problems.
+func Read(ctx context.Context, r Reader, bucket string) ([]Report, []string, error) {
+	var out []Report
+	var problems []string
+	var token *string
+	for {
+		l, err := r.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), ContinuationToken: token})
+		if err != nil {
+			return nil, nil, fmt.Errorf("listing s3://%s: %w", bucket, err)
+		}
+		for _, o := range l.Contents {
+			key := aws.ToString(o.Key)
+			if !strings.HasSuffix(key, ".json") {
+				continue
+			}
+			g, err := r.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+			if err != nil {
+				return nil, nil, fmt.Errorf("reading s3://%s/%s: %w", bucket, key, err)
+			}
+			var rep Report
+			err = json.NewDecoder(g.Body).Decode(&rep)
+			_ = g.Body.Close()
+			switch {
+			case err != nil:
+				problems = append(problems, fmt.Sprintf("%s: not a report: %v", key, err))
+			case Key(rep.Account, rep.ID) != key:
+				problems = append(problems, fmt.Sprintf("%s: says it is account %s, id %s", key, rep.Account, rep.ID))
+			default:
+				out = append(out, rep)
+			}
+		}
+		if !aws.ToBool(l.IsTruncated) {
+			break
+		}
+		token = l.NextContinuationToken
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Account != out[j].Account {
+			return out[i].Account < out[j].Account
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out, problems, nil
+}
