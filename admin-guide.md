@@ -992,8 +992,8 @@ bedrock-admin uninstall          # add --delete-data to also delete the cost exp
 <details>
 <summary>Details</summary>
 
-`uninstall` removes this id's schedule, Lambda, roles, `bedrock-deny-<id>`, web search gateway and
-cost export. Other setups in the account are left alone. It asks first; without a terminal it needs `--yes`.
+`uninstall` removes this id's schedules, Lambda, roles, `bedrock-deny-<id>`, web search gateway and
+cost export, and sends a last central report marked `uninstalled` when `report:` is set. Other setups in the account are left alone. It asks first; without a terminal it needs `--yes`.
 
 It refuses while personal roles remain:
 
@@ -1100,7 +1100,8 @@ bedrock-admin fleet report --bucket acme-bedrock-reports --profile central-admin
 access blocked, objects owned by the bucket owner, versioning on, default encryption (SSE-S3) and a
 bucket policy. The policy lets every account of the profile's AWS organization write reports under
 its own account ID, and nothing else: setups can't read any report, not even their own, and can't
-write another account's. Use `--org-id`, or `--accounts 111111111111,222222222222` without an
+write another account's. Finding the organization needs `organizations:DescribeOrganization`;
+without it, pass `--org-id o-...`, or `--accounts 111111111111,222222222222` without an
 organization. Versioning keeps every report; nothing expires. `fleet init` asks before changing
 anything; run it again to fix settings changed by hand. It then prints the `report:` section to send
 to the teams' admins.

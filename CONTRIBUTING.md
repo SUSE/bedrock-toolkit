@@ -13,7 +13,7 @@ is in the [README](README.md).
 | `cmd/bedrock-admin/` | Admin CLI |
 | `cmd/bedrock/` | User CLI |
 | `cmd/monthly-unpause/` | The monthly Lambda (`provided.al2023`), embedded in `bedrock-admin` by `make build` and releases (not `go install`) |
-| `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), the user CLI |
+| `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), fleet (`users` and central reports), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |
 | `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
