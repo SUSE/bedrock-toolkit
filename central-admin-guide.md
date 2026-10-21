@@ -33,7 +33,8 @@ choose them.
 ## What you need
 
 - `bedrock-admin` (the same binary the teams use). `fleet` commands need no `bedrock.yaml`.
-- A profile of the account that should hold the bucket, with rights to create and configure an S3
+- A profile of the account that should hold the bucket (`--profile`, or `AWS_PROFILE`, or the
+  default profile, as for every `bedrock-admin` command), with rights to create and configure an S3
   bucket (`s3:CreateBucket`, `s3:PutBucketPolicy`, `s3:PutBucketVersioning`,
   `s3:PutEncryptionConfiguration`, `s3:PutBucketOwnershipControls`, `s3:PutBucketPublicAccessBlock`,
   `s3:PutBucketTagging` and the matching reads), to list and read objects, and
@@ -44,8 +45,12 @@ choose them.
 ## 1. Create the report bucket
 
 ```bash
-bedrock-admin fleet init --bucket acme-bedrock-reports --region us-east-1 --profile central-admin
+bedrock-admin fleet init --bucket acme-bedrock-reports
 ```
+
+Pick a name: S3 bucket names are global, so it can't be chosen for you. The bucket is created in
+the profile's region; add `--region` for another one. This is the only time you need either:
+afterwards every `fleet` command finds the bucket by itself.
 
 It shows what it will do and asks first (`--yes` skips the question, `--dry-run` only shows):
 
@@ -79,7 +84,7 @@ Admins of the setups add this to their bedrock.yaml, then run bedrock-admin appl
 - The bucket policy allows `s3:PutObject` on `<bucket>/${aws:PrincipalAccount}/*`, to principals of
   the organization (`aws:PrincipalOrgID`) or of the listed accounts, and denies any request without
   TLS. Nothing else is allowed to other accounts.
-- `--region` is for a new bucket (default: the profile's); an existing bucket's own region is used.
+- An existing bucket's own region is always used; `--region` matters only when creating one.
 - With an existing bucket, `fleet init` checks it is in your account, and fixes settings, the tag
   or the policy changed by hand. Run it again any time; with nothing to fix it shows `No changes.`
 - It refuses a setup's own cost export bucket (tagged `bedrock-admin:id`): keep reports apart.
@@ -105,7 +110,7 @@ report:
 ## 3. Read the reports
 
 ```bash
-bedrock-admin fleet report --profile central-admin
+bedrock-admin fleet report
 ```
 
 Without `--bucket`, `fleet report` (and `fleet init`) finds the bucket `fleet init` tagged in the
@@ -172,7 +177,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 
 | Task | Command |
 | --- | --- |
-| Create the bucket | `bedrock-admin fleet init --bucket NAME --region REGION` |
+| Create the bucket | `bedrock-admin fleet init --bucket NAME` (`--region` for another region than the profile's) |
 | Check or fix it | `bedrock-admin fleet init` |
 | Only some accounts may report | `bedrock-admin fleet init --accounts 111111111111,222222222222` |
 | See what `fleet init` would change | `bedrock-admin fleet init --dry-run` |
