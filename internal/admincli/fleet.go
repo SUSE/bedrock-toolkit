@@ -52,11 +52,10 @@ fleet init tags the bucket, so later both commands find it without --bucket or -
 // clients use us-east-1 when neither --region nor the profile gives a region; fleetBucket then
 // picks the bucket's own region.
 func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, error) {
-	c, err := awsx.New(ctx, a.profile(nil), region, "")
-	if err != nil || c.Region != "" {
-		return c, err
+	if region == "" && a.profileRegion(ctx, nil) == "" {
+		region = "us-east-1"
 	}
-	return awsx.New(ctx, a.profile(nil), "us-east-1", "")
+	return awsx.New(ctx, a.profile(nil), region, "")
 }
 
 // reportBucket is a central report bucket and its region.
