@@ -12,7 +12,7 @@ up, see the [admin guide](admin-guide.md). Users follow the [user guide](user-gu
 5. [Personal roles](#5-personal-roles)
 6. [Budgets and the pause](#6-budgets-and-the-pause)
 7. [Pause states and limit changes](#7-pause-states-and-limit-changes)
-8. [The monthly Lambda and snapshots](#8-the-monthly-lambda-and-snapshots)
+8. [The monthly Lambda, snapshots and central reports](#8-the-monthly-lambda-snapshots-and-central-reports)
 9. [Usage and untracked spend](#9-usage-and-untracked-spend)
 10. [The `id`: several setups in one account](#10-the-id-several-setups-in-one-account)
 11. [Security model](#11-security-model)
@@ -136,6 +136,11 @@ web_search:                     # optional: Step 1.8
   enabled: false                # true needs region us-east-1, eu-west-1 or ap-northeast-1
   exclude_domains: [example.com]
 
+report:                         # optional: central reporting, see section 8
+  bucket: acme-bedrock-reports
+  region: us-east-1             # the bucket's region
+  include_emails: false
+
 users:
   - email: achen@example.com
   - email: bkim@example.com
@@ -182,7 +187,7 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
 | 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
 | 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/` and on IAM users tagged `bedrock-admin:id=<id>`. |
-| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st) | Re-arms every pause of the id's users each month, after saving a snapshot. See [section 8](#8-the-monthly-lambda-and-snapshots). |
+| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st); with `report:`, a daily report schedule | Re-arms every pause of the id's users each month, after saving a snapshot; sends the central report. See [section 8](#8-the-monthly-lambda-snapshots-and-central-reports). |
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
 | 1.7 | Model calls outside personal roles are blocked | See below |
@@ -460,7 +465,7 @@ pause.
   without `--yes`.
 - Removing a user and adding them back creates a new, armed action. Removals need `--yes`.
 
-## 8. The monthly Lambda and snapshots
+## 8. The monthly Lambda, snapshots and central reports
 
 A Go Lambda, `cmd/monthly-unpause`, runs at 06:00 UTC on the 1st of each month
 (EventBridge Scheduler, `cron(0 6 1 * ? *)`). For every pause action on a `bedrock-*` budget in
@@ -492,6 +497,42 @@ account, so the bucket policy needs no change.
 
 `bedrock-admin usage --month YYYY-MM` uses the snapshot for past limits and pause states. Without
 one, limits come from the file and pause state is unknown.
+
+### Who has set up
+
+`bedrock-admin users` (`internal/fleet.Collect`) lists the id's onboarded users (personal roles with a
+pause action) with their pause state and the IAM `RoleLastUsed` date of each role. `bedrock setup`
+uses the role, so a date means the person has set up; AWS updates it with up to about 4 hours of
+delay. Users in the file without a role show `not applied`.
+
+### Central reports
+
+Optional, for one central admin following many setups, possibly in many accounts. The tool assumes
+no vendor: the central admin creates the bucket with `bedrock-admin fleet init` and gives the
+`report:` section to the setups' admins.
+
+- **Bucket** (`fleet init`, in the central admin's account): public access blocked,
+  `BucketOwnerEnforced`, versioning on, SSE-S3, no lifecycle (reports are kept). The bucket policy
+  allows `s3:PutObject` on `arn:aws:s3:::<bucket>/${aws:PrincipalAccount}/*` to principals of one
+  organization (`aws:PrincipalOrgID`, default: the caller's, read with `DescribeOrganization`) or to
+  listed accounts, and denies requests without TLS. Setups can't list or read, and can't write
+  another account's prefix. `fleet init` refuses a bucket tagged `bedrock-admin:id` (a setup's cost
+  export bucket).
+- **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
+  region, `bedrock-admin` version, status (`active` or `uninstalled`), source (`apply`, `lambda` or
+  `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts
+  (onboarded, set up, paused, with an IAM user), the month and the sum of the id's budgets' actual
+  spend. With `include_emails: true`, also each user's email, kind, set up and paused.
+- **Senders**: `apply` after a run with no failures, and `uninstall` (status `uninstalled`), with
+  the admin's credentials; a failure is a warning. The Lambda, invoked daily at 07:00 UTC by a
+  second schedule `bedrock-daily-report-<id>` with input `{"action":"report"}`. `apply` passes it
+  the setup part as the `REPORT_SETUP` environment variable (`fleet.Setup` as JSON) and grants its
+  role `s3:PutObject` on `<bucket>/<account>/*`, plus `iam:GetRole` on the id's personal roles. With
+  `report:` removed, `apply` removes the variable, the permission and the schedule.
+- **Reading**: `fleet report` lists the bucket and shows the latest report of each setup; it skips
+  objects whose content doesn't match their key.
+- The report's `region` is in the file so neither the CLI nor the Lambda needs to read the bucket's
+  location across accounts.
 
 ## 9. Usage and untracked spend
 
@@ -592,7 +633,10 @@ sets.
 | Web search gateway role | The gateway may call only the Web Search tool | Who may call the gateway: that is the personal roles' `InvokeGateway` right on their setup's gateway |
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
-- `bedrock-admin` needs only account-level admin rights. It never touches AWS Organizations.
+- `bedrock-admin` needs only account-level admin rights. It never changes AWS Organizations;
+  `fleet init` only reads the caller's organization ID.
+- Central reports leave the account only when `report:` is set, go only to that bucket, and hold
+  emails only with `include_emails: true`.
 - `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles
   and the IAM users tagged `bedrock-admin:id=<id>`.
 - The cost export bucket is private and writable only by Data Exports.

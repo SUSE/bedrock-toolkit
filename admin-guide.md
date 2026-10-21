@@ -21,6 +21,7 @@ and manage users with `bedrock-admin`, from one file, `bedrock.yaml`.
 - [11. Remove everything](#11-remove-everything)
 - [The `id`: several setups in one account](#the-id-several-setups-in-one-account)
 - [Several accounts](#several-accounts)
+- [Central reporting (optional)](#central-reporting-optional)
 - [Emails](#emails)
 - [Things to know](#things-to-know)
 - [Run the tests](#run-the-tests)
@@ -82,6 +83,8 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user, and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
+| `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
+| `bedrock-admin fleet` | For a central admin: creates the report bucket and shows every setup's report | [Central reporting](#central-reporting-optional) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
@@ -376,6 +379,8 @@ users:                          # or: users: !include users.yaml
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
 | `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
 | `cost_export.snapshot_prefix` | Where the Lambda writes snapshots in the bucket. Default `bedrock-admin/snapshots`. |
+| `report.bucket`, `report.region` | Optional. The central report bucket and its region, from your central admin; see [Central reporting](#central-reporting-optional). Both or neither. |
+| `report.include_emails` | Default false. True also sends each user's email, set up and paused. |
 
 `!include` works anywhere in the file. Duplicate emails or names are rejected. Every problem in the
 file is reported at once.
@@ -842,6 +847,27 @@ change slightly. Snapshots are not deleted by `uninstall` unless you pass `--del
 
 </details>
 
+### Who has set up
+
+```bash
+bedrock-admin users          # every user: kind, set up (date or never), pause state
+bedrock-admin users --json   # for scripts
+```
+
+`users` shows who has run `bedrock setup` on their machine. "Set up" is the day the person's
+personal role was last used; `bedrock setup` uses it, so `never` means they haven't set up yet.
+AWS updates this date with a delay of up to about 4 hours. Users in the file that `apply` hasn't
+created yet show `not applied`.
+
+```
+EMAIL              KIND      SET UP      PAUSE
+achen@example.com  sso       2026-10-21  armed
+bkim@example.com   sso       never       armed
+ci@example.com     iam-user  2026-10-02  paused
+
+3 onboarded, 2 set up, 1 paused (1 with an IAM user).
+```
+
 ## 8. Check production
 
 ```bash
@@ -1057,6 +1083,57 @@ per account:
 `bedrock doctor --profile-name bedrock-harvester`, and the same flag for `claude` and `usage`, or
 `AWS_PROFILE=bedrock-harvester` for Claude Code and other tools.
 
+## Central reporting (optional)
+
+If several teams run their own setups, one central admin can collect a short report from each
+setup in one S3 bucket, to see how many teams and users are set up. It's off unless a setup's
+`bedrock.yaml` has a `report:` section. The central admin needs no access to the teams' accounts.
+
+**Central admin**, once, with a profile of the account that should hold the bucket:
+
+```bash
+bedrock-admin fleet init --bucket acme-bedrock-reports --profile central-admin
+bedrock-admin fleet report --bucket acme-bedrock-reports --profile central-admin
+```
+
+`fleet init` creates the bucket in the profile's region (or `--region`) and sets it up: public
+access blocked, objects owned by the bucket owner, versioning on, default encryption (SSE-S3) and a
+bucket policy. The policy lets every account of the profile's AWS organization write reports under
+its own account ID, and nothing else: setups can't read any report, not even their own, and can't
+write another account's. Use `--org-id`, or `--accounts 111111111111,222222222222` without an
+organization. Versioning keeps every report; nothing expires. `fleet init` asks before changing
+anything; run it again to fix settings changed by hand. It then prints the `report:` section to send
+to the teams' admins.
+
+**Each team's admin** adds that section to `bedrock.yaml` (or answers the question in `configure`),
+then runs `apply`:
+
+```yaml
+report:
+  bucket: acme-bedrock-reports
+  region: us-east-1        # the bucket's region
+  include_emails: false    # true also sends each user's email, set up and paused
+```
+
+The setup then sends its report on every `apply`, daily at 07:00 UTC from the monthly Lambda (a
+second schedule, `bedrock-daily-report-<id>`), and once more on `uninstall`, marked
+`uninstalled`. A failed report is only a warning. The report is
+`s3://<bucket>/<account>/<id>.json`: the id, region, `bedrock-admin` version, default limit and
+pause and alert percentages, `models:`, web search on or off, counts of onboarded, set up and paused
+users, and this month's total spend from the users' budgets. It holds no emails unless
+`include_emails: true`. Remove `report:` and run `apply` to stop it; `apply` removes the daily
+schedule.
+
+```
+ACCOUNT       ID       REGION     VERSION  ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
+111111111111  bedrock  us-east-1  v1.1.0   25         10      0       412.30       2026-10  3h ago    active
+222222222222  bedrock  eu-west-1  v1.1.0   12         3       1       57.10        2026-10  5h ago    active
+
+2 installed setups: 37 onboarded, 13 set up, 1 paused; $469.40 this month.
+```
+
+`fleet report --json` prints the full reports, with emails where sent.
+
 ## Emails
 
 Only AWS Budgets sends email, from `budgets@costalerts.amazonaws.com`, with fixed wording:
@@ -1101,6 +1178,8 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Unblock a paused user for the month | `bedrock-admin unpause <email> --reason "..."` |
 | Block a user now | `bedrock-admin pause <email> --reason "..."` |
 | See spend | `bedrock-admin usage` |
+| See who has set up | `bedrock-admin users` |
+| Report to a central bucket | Add `report:` to `bedrock.yaml`, then `apply` |
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |
 | Check my setup | `bedrock-admin doctor` |
 | Remove everything | `users: []`, `bedrock-admin apply --yes`, then `bedrock-admin uninstall` |

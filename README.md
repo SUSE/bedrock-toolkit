@@ -26,7 +26,9 @@ reach it. Admins manage everyone from one file; users set up their machine with 
   They still call models only through their personal role, with the same budget and pause.
 - **One file, plan and apply**: `bedrock.yaml` lists the settings and the users. `plan` shows what
   differs from the account, `apply` makes them match, and `export` writes the file back from the account.
-- **Usage reports**: spend per user, and spend that bypasses personal roles.
+- **Usage reports**: spend per user, and spend that bypasses personal roles, and who has set up.
+- **Central reporting** (optional): each setup can send a short report (user counts, spend, settings)
+  to one S3 bucket that a central admin owns, to follow many teams' setups.
 - **Several setups**: each `bedrock.yaml` has an `id` (default `bedrock`) that every AWS name carries,
   so several setups, each with its own users, budgets and models, can share one AWS account, and
   one admin can run setups in several accounts.
@@ -138,6 +140,8 @@ bedrock models                       # the models you may use
 | `pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place |
 | `unpause` | Restores a paused user's access |
 | `usage` | Spend per user, and spend outside personal roles. Exits 2 when it finds untracked spend |
+| `users` | Who is onboarded, who has run `bedrock setup`, and who is paused |
+| `fleet` | For a central admin: creates the report bucket and shows every setup's report |
 | `uninstall` | Removes the account setup. Refuses while users remain |
 
 `bedrock`, for users:
