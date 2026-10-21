@@ -20,6 +20,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
 	"github.com/SUSE/bedrock-toolkit/internal/websearch"
 )
@@ -137,10 +138,19 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	if len(models) == 0 {
 		models = config.BaselineModels(region)
 	}
+	var p *pauseInfo
 	for _, m := range models {
 		c := cli.Check{Name: "model " + m, OK: true, Detail: "test call works"}
 		if err := a.AWS.Invoke(ctx, profile, region, m); err != nil {
-			c.OK, c.Detail, c.Fix = false, short(err).Error(), modelFix(err, region, m)
+			if p == nil && awsx.IsAccessDenied(err) {
+				pi := a.pauseInfo(ctx, profile)
+				p = &pi
+			}
+			c.OK, c.Detail = false, short(err).Error()
+			if awsx.IsAccessDenied(err) && awsx.ErrorMessage(err) == "" {
+				c.Detail = awsx.ErrorCode(err) + " (AWS gave no reason)"
+			}
+			c.Fix = modelFix(err, region, m, deref(p))
 		}
 		out = append(out, c)
 	}
@@ -178,10 +188,38 @@ func webSearchFix(err error) string {
 	return "ask your admin to run bedrock-admin doctor"
 }
 
+// pauseInfo is what doctor found out about the pause: unknown when the budget couldn't be read,
+// else whether the role is paused and, if so, how the user gets access back.
+type pauseInfo struct {
+	known, paused bool
+	detail        string
+}
+
+// pauseInfo reads the role's pause state from its budget, as bedrock usage does.
+func (a *App) pauseInfo(ctx context.Context, profile string) pauseInfo {
+	account, role, budget, err := ownBudget(profile)
+	if err != nil {
+		return pauseInfo{}
+	}
+	b, err := a.AWS.Budget(ctx, profile, account, role, budget)
+	if err != nil {
+		return pauseInfo{}
+	}
+	switch b.Pause.State {
+	case pause.Paused, pause.PausedByHand:
+		_, d := userState(b.Pause, a.now().UTC())
+		return pauseInfo{known: true, paused: true, detail: d}
+	case pause.Armed, pause.NoAction, pause.Off:
+		return pauseInfo{known: true}
+	}
+	return pauseInfo{}
+}
+
 // modelFix explains a failed test call. A denied call's message tells why: an explicit deny in an
-// identity-based policy is the pause, no allowing policy means the admin doesn't allow the model, and
-// an organization policy blocks it for everyone. Without a message, the model decides.
-func modelFix(err error, region, model string) string {
+// identity-based policy is usually the pause, no allowing policy means the admin doesn't allow the
+// model, and an organization policy blocks it for everyone. Bedrock often sends no message; then
+// the pause state read from the budget, and the model, decide.
+func modelFix(err error, region, model string, p pauseInfo) string {
 	if !awsx.IsAccessDenied(err) {
 		if awsx.ErrorCode(err) == "ValidationException" || awsx.IsNotFound(err) {
 			return "this model is not offered in " + region + ": use another model, or ask your admin for the right region"
@@ -190,14 +228,20 @@ func modelFix(err error, region, model string) string {
 	}
 	msg := awsx.ErrorMessage(err)
 	switch {
-	case strings.Contains(msg, "explicit deny in an identity-based policy"):
-		return paused
 	case strings.Contains(msg, "service control policy") || strings.Contains(msg, "resource control policy"):
 		return "your organization blocks this call: ask your admin"
 	case !policy.AllowedModel(model):
 		return "your role may only call " + policy.AllowedModelsText + ": ask your admin if you need this one"
+	case p.paused:
+		return p.detail
 	case strings.Contains(msg, "no identity-based policy allows"):
 		return "your admin doesn't allow this model: ask them which models you may use" + regionHint(region)
+	case strings.Contains(msg, "explicit deny in an identity-based policy") && p.known:
+		return "you are not paused, but a policy denies this call: send your admin this message"
+	case strings.Contains(msg, "explicit deny in an identity-based policy"):
+		return paused
+	case p.known:
+		return "you are not paused: your admin doesn't allow this model, or a policy denies it: ask your admin" + regionHint(region)
 	}
 	return "your Bedrock access is paused (monthly budget used up, or paused by your admin), or your admin " +
 		"doesn't allow this model: ask your admin" + regionHint(region)
@@ -346,4 +390,11 @@ func (sdkAWS) WebSearch(ctx context.Context, profile, region, url string, search
 		return fmt.Errorf("the gateway doesn't offer %s", websearch.ToolName)
 	}
 	return nil
+}
+
+func deref(p *pauseInfo) pauseInfo {
+	if p == nil {
+		return pauseInfo{}
+	}
+	return *p
 }

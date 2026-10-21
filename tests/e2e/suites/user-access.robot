@@ -80,7 +80,7 @@ A Manual Pause Denies Calls And Unpause Restores Them
     Wait Until Keyword Succeeds    3 min    10 s    Model Call Should Be Denied    ${PROFILE}    explicit=True
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json    rc=2
     ${fixes}=    Evaluate    " ".join(c.get("fix", "") for c in $d["checks"] if not c["ok"])
-    Should Contain    ${fixes}    paused
+    Should Contain    ${fixes}    paused    ignore_case=True
     ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --json
     Should Be Equal    ${u["state"]}    paused
     Should Contain    ${u["detail"]}    e2e user-access

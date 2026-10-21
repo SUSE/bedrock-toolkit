@@ -14,6 +14,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
 	"github.com/SUSE/bedrock-toolkit/internal/websearch"
 )
 
@@ -236,6 +237,14 @@ func TestDoctorFailures(t *testing.T) {
 			f.invokeErrs = map[string]error{"us.anthropic.claude-haiku-5-5": &smithy.GenericAPIError{
 				Code: "AccessDeniedException", Message: "... with an explicit deny in an identity-based policy"}}
 		}, []string{"FAIL  model us.anthropic.claude-haiku-5-5", "paused"}},
+		{"denied, budget says paused", setUp, func(f *fakeAWS) {
+			f.invokeErrs = map[string]error{"us.anthropic.claude-haiku-5-5": &smithy.GenericAPIError{Code: "AccessDeniedException"}}
+			f.budget = Budget{Pause: pause.Status{State: pause.PausedByHand, By: "admin@example.com"}}
+		}, []string{"AccessDeniedException (AWS gave no reason)", "fix: PAUSED by your admin (admin@example.com)"}},
+		{"denied, budget says not paused", setUp, func(f *fakeAWS) {
+			f.invokeErrs = map[string]error{"us.anthropic.claude-haiku-5-5": &smithy.GenericAPIError{Code: "AccessDeniedException"}}
+			f.budget = Budget{Pause: pause.Status{State: pause.Armed}}
+		}, []string{"AccessDeniedException (AWS gave no reason)", "fix: you are not paused"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
