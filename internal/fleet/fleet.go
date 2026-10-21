@@ -1,0 +1,274 @@
+// Package fleet reads how far a setup's users got (onboarded, set up, paused) and builds and sends
+// the optional central report.
+package fleet
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/budgets"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
+)
+
+// Kinds of user.
+const (
+	KindSSO     = "sso"
+	KindIAMUser = "iam-user"
+)
+
+// User is one onboarded user as the account sees it: a personal role with a pause action.
+type User struct {
+	Email    string      `json:"email"`
+	Role     string      `json:"role"`
+	Budget   string      `json:"budget"`
+	Kind     string      `json:"kind"`
+	IAMUsers []string    `json:"iam_users,omitempty"`
+	LastUsed time.Time   `json:"last_used,omitzero"`
+	State    pause.State `json:"state"`
+	LimitUSD float64     `json:"limit_usd"`
+	SpendUSD float64     `json:"spend_usd"`
+}
+
+// SetUp reports whether the user's personal role has been used: bedrock setup uses it, so a used
+// role means the user set up their machine.
+func (u User) SetUp() bool { return !u.LastUsed.IsZero() }
+
+// Paused reports whether the user can't call models now.
+func (u User) Paused() bool { return u.State == pause.Paused || u.State == pause.PausedByHand }
+
+// RoleGetter reads a role (for RoleLastUsed).
+type RoleGetter interface {
+	GetRole(context.Context, *iam.GetRoleInput, ...func(*iam.Options)) (*iam.GetRoleOutput, error)
+}
+
+const concurrency = 5
+
+// Collect reads every onboarded user of the manager's id, sorted by email.
+func Collect(ctx context.Context, m *pause.Manager, roles RoleGetter) ([]User, error) {
+	snap, actions, _, err := m.TakeSnapshot(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	iamUsers := map[string][]string{}
+	for _, a := range actions {
+		if a.Definition != nil && a.Definition.IamActionDefinition != nil {
+			iamUsers[aws.ToString(a.BudgetName)] = a.Definition.IamActionDefinition.Users
+		}
+	}
+	spend, err := budgetSpend(ctx, m)
+	if err != nil {
+		return nil, fmt.Errorf("listing budgets: %w", err)
+	}
+	out := make([]User, len(snap.Users))
+	errs := make([]error, len(snap.Users))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, s := range snap.Users {
+		u := User{Email: s.Email, Role: s.Role, Budget: s.Budget, Kind: KindSSO, IAMUsers: iamUsers[s.Budget],
+			State: s.State, LimitUSD: s.LimitUSD, SpendUSD: spend[s.Budget]}
+		if len(u.IAMUsers) > 0 {
+			u.Kind = KindIAMUser
+		}
+		out[i] = u
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			r, err := roles.GetRole(ctx, &iam.GetRoleInput{RoleName: aws.String(u.Role)})
+			if err != nil {
+				errs[i] = fmt.Errorf("reading role %s: %w", u.Role, err)
+				return
+			}
+			if r.Role != nil && r.Role.RoleLastUsed != nil && r.Role.RoleLastUsed.LastUsedDate != nil {
+				out[i].LastUsed = r.Role.RoleLastUsed.LastUsedDate.UTC()
+			}
+		}()
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Email < out[j].Email })
+	return out, nil
+}
+
+// budgetSpend is this month's actual spend of every budget of the id.
+func budgetSpend(ctx context.Context, m *pause.Manager) (map[string]float64, error) {
+	out := map[string]float64{}
+	prefix := policy.BudgetName(m.ID, "")
+	var token *string
+	for {
+		r, err := m.Budgets.DescribeBudgets(ctx, &budgets.DescribeBudgetsInput{AccountId: aws.String(m.Account), NextToken: token})
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range r.Budgets {
+			name := aws.ToString(b.BudgetName)
+			if strings.HasPrefix(name, prefix) && b.CalculatedSpend != nil && b.CalculatedSpend.ActualSpend != nil {
+				v, _ := strconv.ParseFloat(aws.ToString(b.CalculatedSpend.ActualSpend.Amount), 64)
+				out[name] = v
+			}
+		}
+		if r.NextToken == nil {
+			return out, nil
+		}
+		token = r.NextToken
+	}
+}
+
+// Counts summarizes users.
+type Counts struct {
+	Onboarded int `json:"onboarded"`
+	SetUp     int `json:"set_up"`
+	Paused    int `json:"paused"`
+	IAMUsers  int `json:"iam_users"`
+}
+
+// Count sums users up.
+func Count(us []User) Counts {
+	c := Counts{Onboarded: len(us)}
+	for _, u := range us {
+		if u.SetUp() {
+			c.SetUp++
+		}
+		if u.Paused() {
+			c.Paused++
+		}
+		if u.Kind == KindIAMUser {
+			c.IAMUsers++
+		}
+	}
+	return c
+}
+
+// Text is the one-line summary.
+func (c Counts) Text() string {
+	s := fmt.Sprintf("%d onboarded, %d set up, %d paused", c.Onboarded, c.SetUp, c.Paused)
+	if c.IAMUsers > 0 {
+		s += fmt.Sprintf(" (%d with an IAM user)", c.IAMUsers)
+	}
+	return s
+}
+
+// Report statuses and sources.
+const (
+	StatusActive      = "active"
+	StatusUninstalled = "uninstalled"
+	SourceApply       = "apply"
+	SourceLambda      = "lambda"
+	SourceUninstall   = "uninstall"
+)
+
+// SchemaVersion is the report format version.
+const SchemaVersion = 1
+
+// Defaults are the setup's defaults for new users.
+type Defaults struct {
+	LimitUSD       float64 `json:"limit_usd"`
+	PauseAtPercent int     `json:"pause_at_percent"`
+	AlertAtPercent []int   `json:"alert_at_percent"`
+}
+
+// Setup is the part of a report that comes from bedrock.yaml. apply passes it to the Lambda.
+type Setup struct {
+	ID            string   `json:"id"`
+	Region        string   `json:"region"`
+	Version       string   `json:"version"`
+	Defaults      Defaults `json:"defaults"`
+	Models        []string `json:"models,omitempty"`
+	WebSearch     bool     `json:"web_search"`
+	Bucket        string   `json:"bucket"`
+	BucketRegion  string   `json:"bucket_region"`
+	IncludeEmails bool     `json:"include_emails,omitempty"`
+}
+
+// SetupFrom builds the setup part from the config.
+func SetupFrom(cfg *config.Config, version string) Setup {
+	d := cfg.ResolveUser(config.User{})
+	return Setup{ID: cfg.ID, Region: cfg.Region, Version: version,
+		Defaults: Defaults{LimitUSD: d.LimitUSD, PauseAtPercent: d.PauseAtPercent, AlertAtPercent: d.AlertAtPercent},
+		Models:   cfg.Models, WebSearch: cfg.WebSearch.Enabled, Bucket: cfg.Report.Bucket, BucketRegion: cfg.Report.Region,
+		IncludeEmails: cfg.Report.IncludeEmails}
+}
+
+// Person is one user in a report with include_emails.
+type Person struct {
+	Email  string `json:"email"`
+	Kind   string `json:"kind"`
+	SetUp  bool   `json:"set_up"`
+	Paused bool   `json:"paused"`
+}
+
+// Report is what a setup sends to the central bucket.
+type Report struct {
+	Schema     int       `json:"schema"`
+	Account    string    `json:"account"`
+	ID         string    `json:"id"`
+	Region     string    `json:"region"`
+	Version    string    `json:"version"`
+	Status     string    `json:"status"`
+	Source     string    `json:"source"`
+	ReportedAt time.Time `json:"reported_at"`
+	Defaults   Defaults  `json:"defaults"`
+	// Models is models: of bedrock.yaml; empty means any Claude model.
+	Models    []string `json:"models,omitempty"`
+	WebSearch bool     `json:"web_search"`
+	Users     Counts   `json:"users"`
+	// Month and SpendUSD: the sum of the users' budgets' actual spend this month (lags up to a day).
+	Month    string   `json:"month"`
+	SpendUSD float64  `json:"spend_usd"`
+	People   []Person `json:"people,omitempty"`
+}
+
+// Build makes a report.
+func Build(s Setup, account, status, source string, us []User, now time.Time) Report {
+	r := Report{Schema: SchemaVersion, Account: account, ID: s.ID, Region: s.Region, Version: s.Version, Status: status,
+		Source: source, ReportedAt: now.UTC().Truncate(time.Second), Defaults: s.Defaults, Models: s.Models,
+		WebSearch: s.WebSearch, Users: Count(us), Month: now.UTC().Format("2006-01")}
+	for _, u := range us {
+		r.SpendUSD += u.SpendUSD
+		if s.IncludeEmails {
+			r.People = append(r.People, Person{Email: u.Email, Kind: u.Kind, SetUp: u.SetUp(), Paused: u.Paused()})
+		}
+	}
+	r.SpendUSD = float64(int64(r.SpendUSD*100+0.5)) / 100
+	return r
+}
+
+// Key is the object key of a setup's report.
+func Key(account, id string) string { return account + "/" + id + ".json" }
+
+// Putter writes an object.
+type Putter interface {
+	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+}
+
+// Send writes the report to the bucket.
+func Send(ctx context.Context, p Putter, bucket string, r Report) error {
+	b, err := json.MarshalIndent(r, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = p.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(Key(r.Account, r.ID)),
+		Body: bytes.NewReader(b), ContentType: aws.String("application/json")})
+	if err != nil {
+		return fmt.Errorf("writing s3://%s/%s: %w", bucket, Key(r.Account, r.ID), err)
+	}
+	return nil
+}

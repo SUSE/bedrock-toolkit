@@ -47,6 +47,7 @@ type Config struct {
 	CostExport       CostExport       `yaml:"cost_export" json:"cost_export"`
 	BlockDirectCalls BlockDirectCalls `yaml:"block_direct_calls" json:"block_direct_calls"`
 	WebSearch        WebSearch        `yaml:"web_search,omitempty" json:"web_search,omitempty"`
+	Report           Report           `yaml:"report,omitempty" json:"report,omitempty"`
 	Users            []User           `yaml:"users" json:"users"`
 
 	// Path is the file the config was read from ("" when built in memory).
@@ -81,6 +82,19 @@ type WebSearch struct {
 	// ExcludeDomains are left out of every search result.
 	ExcludeDomains []string `yaml:"exclude_domains,omitempty" json:"exclude_domains,omitempty"`
 }
+
+// Report turns on central reporting: a summary of this setup is written to a bucket that a central
+// admin owns (see bedrock-admin fleet). Off when Bucket is empty.
+type Report struct {
+	Bucket string `yaml:"bucket,omitempty" json:"bucket,omitempty"`
+	// Region of the bucket.
+	Region string `yaml:"region,omitempty" json:"region,omitempty"`
+	// IncludeEmails adds each user's email, kind, set-up and pause state; without it, counts only.
+	IncludeEmails bool `yaml:"include_emails,omitempty" json:"include_emails,omitempty"`
+}
+
+// Enabled reports whether central reporting is on.
+func (r Report) Enabled() bool { return r.Bucket != "" }
 
 // WebSearchRegions are the regions where AgentCore Web Search is available.
 var WebSearchRegions = []string{"us-east-1", "eu-west-1", "ap-northeast-1"}
@@ -358,6 +372,16 @@ func (c *Config) Validate() error {
 	}
 	if len(c.WebSearch.ExcludeDomains) > 100 {
 		add("web_search.exclude_domains: at most 100 domains (got %d)", len(c.WebSearch.ExcludeDomains))
+	}
+	if c.Report.Enabled() {
+		if !bucketRe.MatchString(c.Report.Bucket) {
+			add("report.bucket: not a valid S3 bucket name (got %q)", c.Report.Bucket)
+		}
+		if !regionRe.MatchString(c.Report.Region) {
+			add("report.region: the region of report.bucket is required (got %q)", c.Report.Region)
+		}
+	} else if c.Report.Region != "" || c.Report.IncludeEmails {
+		add("report: bucket is required when region or include_emails is set")
 	}
 	seenDomain := map[string]bool{}
 	for i, d := range c.WebSearch.ExcludeDomains {
