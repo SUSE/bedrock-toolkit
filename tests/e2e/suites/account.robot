@@ -136,6 +136,13 @@ Fleet Init Creates The Central Report Bucket
     ...    --accounts    ${ACCOUNT}    --dry-run    config=none
     Should Contain    ${out}    No changes
 
+Fleet Finds The Tagged Bucket Without --bucket
+    [Documentation]    Another run's report bucket in the same account makes the choice ambiguous; then
+    ...    the error must list this one.
+    ${r}=    Admin    fleet    init    --accounts    ${ACCOUNT}    --dry-run    config=none    rc=any    output=result
+    Should Contain    ${r.stdout}${r.stderr}    ${N}[report_bucket]
+    IF    ${r.rc} == 0    Should Contain    ${r.stdout}    No changes
+
 Fleet Init Refuses The Setup's Cost Export Bucket
     ${r}=    Admin    fleet    init    --bucket    ${N}[bucket]    --region    ${REGION}    --accounts    ${ACCOUNT}
     ...    --dry-run    config=none    rc=any    output=result

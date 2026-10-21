@@ -517,7 +517,9 @@ no vendor: the central admin ([central admin guide](central-admin-guide.md)) cre
   organization (`aws:PrincipalOrgID`, default: the caller's, read with `DescribeOrganization`) or to
   listed accounts, and denies requests without TLS. Setups can't list or read, and can't write
   another account's prefix. `fleet init` refuses a bucket tagged `bedrock-admin:id` (a setup's cost
-  export bucket).
+  export bucket), and tags its bucket `bedrock-admin:report-bucket`: without `--bucket`, `fleet init`
+  and `fleet report` list the account's buckets (`ListBuckets`, `GetBucketTagging`) and use the one
+  tagged bucket, in its own region; with none or several they ask for `--bucket`.
 - **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
   region, `bedrock-admin` version, status (`active` or `uninstalled`), source (`apply`, `lambda` or
   `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts

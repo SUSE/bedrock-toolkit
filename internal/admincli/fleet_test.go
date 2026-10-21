@@ -34,7 +34,18 @@ func TestFleetInitFlags(t *testing.T) {
 	if code, _, errs := run(t, "fleet", "init", "--bucket", "b", "--accounts", "12"); code == 0 || !strings.Contains(errs, "12-digit") {
 		t.Errorf("bad account: %d %s", code, errs)
 	}
-	if code, _, errs := run(t, "fleet", "report"); code == 0 || !strings.Contains(errs, "bucket") {
-		t.Errorf("no bucket: %d %s", code, errs)
+}
+
+func TestPickReportBucket(t *testing.T) {
+	if _, err := pickReportBucket(nil, "111111111111"); err == nil || !strings.Contains(err.Error(), "no report bucket in account 111111111111") {
+		t.Errorf("none: %v", err)
+	}
+	b, err := pickReportBucket([]reportBucket{{"r", "eu-west-1"}}, "111111111111")
+	if err != nil || b != (reportBucket{"r", "eu-west-1"}) {
+		t.Errorf("one: %v %v", b, err)
+	}
+	_, err = pickReportBucket([]reportBucket{{"a", "us-east-1"}, {"b", "eu-west-1"}}, "111111111111")
+	if err == nil || !strings.Contains(err.Error(), "a (us-east-1), b (eu-west-1); pass --bucket") {
+		t.Errorf("two: %v", err)
 	}
 }

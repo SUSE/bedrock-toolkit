@@ -33,10 +33,12 @@ const (
 	OwnerTag                 = "owner"
 	ProductTag               = "product"
 	IDTag                    = "bedrock-admin:id"
-	CostAllocationOwnerTag   = "iamPrincipal/owner"
-	WebSearchPolicy          = "web-search"
-	WebSearchTarget          = "web-search"
-	WebSearchConnector       = "web-search"
+	// ReportBucketTag marks the central report bucket made by fleet init, so fleet finds it.
+	ReportBucketTag        = "bedrock-admin:report-bucket"
+	CostAllocationOwnerTag = "iamPrincipal/owner"
+	WebSearchPolicy        = "web-search"
+	WebSearchTarget        = "web-search"
+	WebSearchConnector     = "web-search"
 	// WebSearchConnectorVersion is the tested AgentCore Web Search connector version.
 	WebSearchConnectorVersion = "1.2.0"
 )

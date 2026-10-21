@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -34,27 +36,146 @@ func (a *App) fleetCmd() *cobra.Command {
 		Short: "For the central admin only: create the report bucket and read every setup's report",
 		Long: `fleet is for the central admin who collects reports from many setups (accounts and ids).
 
-  bedrock-admin fleet init --bucket NAME     create the bucket other setups report to
-  bedrock-admin fleet report --bucket NAME   show the latest report of every setup
+  bedrock-admin fleet init --bucket NAME --region REGION   create the bucket other setups report to
+  bedrock-admin fleet report                               show the latest report of every setup
 
 Admins of the setups then add the report: section that fleet init prints to their bedrock.yaml and
 run bedrock-admin apply. They can write their own account's reports only; they can't read any.
-Neither command needs a bedrock.yaml; they use --profile (or AWS_PROFILE) of the central account.`,
+Neither command needs a bedrock.yaml; they use --profile (or AWS_PROFILE) of the central account.
+fleet init tags the bucket, so later both commands find it without --bucket or --region.`,
 	}
 	cmd.AddCommand(a.fleetInitCmd(), a.fleetReportCmd())
 	return cmd
 }
 
-// fleetClients connects to the central account; fleet commands don't read a bedrock.yaml.
+// fleetClients connects to the central account; fleet commands don't read a bedrock.yaml. The
+// clients use us-east-1 when neither --region nor the profile gives a region; fleetBucket then
+// picks the bucket's own region.
 func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, error) {
 	c, err := awsx.New(ctx, a.profile(nil), region, "")
-	if err != nil {
-		return nil, err
+	if err != nil || c.Region != "" {
+		return c, err
 	}
-	if c.Region == "" {
-		return nil, errors.New("no region: the profile has none; pass --region")
+	return awsx.New(ctx, a.profile(nil), "us-east-1", "")
+}
+
+// reportBucket is a central report bucket and its region.
+type reportBucket struct{ Name, Region string }
+
+// findReportBuckets lists the account's buckets that fleet init tagged as report buckets.
+func findReportBuckets(ctx context.Context, c *awsx.Clients) ([]reportBucket, error) {
+	var all []reportBucket
+	pg := s3.NewListBucketsPaginator(c.S3, &s3.ListBucketsInput{MaxBuckets: aws.Int32(1000)})
+	for pg.HasMorePages() {
+		page, err := pg.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing the account's buckets: %w", err)
+		}
+		for _, b := range page.Buckets {
+			all = append(all, reportBucket{aws.ToString(b.Name), aws.ToString(b.BucketRegion)})
+		}
 	}
-	return c, nil
+	var (
+		mu    sync.Mutex
+		wg    sync.WaitGroup
+		found []reportBucket
+		first error
+	)
+	sem := make(chan struct{}, 16)
+	for _, b := range all {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(b reportBucket) {
+			defer func() { <-sem; wg.Done() }()
+			if b.Region == "" {
+				r, ok, err := c.BucketRegion(ctx, b.Name)
+				if err != nil || !ok {
+					return
+				}
+				b.Region = r
+			}
+			t, err := c.S3In(b.Region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(b.Name)})
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case awsx.IsNotFound(err) || awsx.IsAccessDenied(err):
+			case err != nil:
+				if first == nil {
+					first = fmt.Errorf("reading the tags of %s: %w", b.Name, err)
+				}
+			case hasTag(t.TagSet, policy.ReportBucketTag):
+				found = append(found, b)
+			}
+		}(b)
+	}
+	wg.Wait()
+	if first != nil {
+		return nil, first
+	}
+	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+	return found, nil
+}
+
+func hasTag(tags []stypes.Tag, key string) bool {
+	for _, t := range tags {
+		if aws.ToString(t.Key) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// pickReportBucket chooses the bucket when --bucket isn't given.
+func pickReportBucket(found []reportBucket, account string) (reportBucket, error) {
+	switch len(found) {
+	case 1:
+		return found[0], nil
+	case 0:
+		return reportBucket{}, fmt.Errorf("no report bucket in account %s: create one with fleet init --bucket NAME --region REGION, or pass --bucket", account)
+	}
+	var names []string
+	for _, b := range found {
+		names = append(names, b.Name+" ("+b.Region+")")
+	}
+	return reportBucket{}, fmt.Errorf("account %s has %d report buckets: %s; pass --bucket", account, len(found), strings.Join(names, ", "))
+}
+
+// fleetBucket resolves --bucket and --region: without --bucket it finds the tagged bucket;
+// without --region it uses the bucket's region, or, for a new bucket, the profile's.
+// exists reports whether the bucket exists.
+func (a *App) fleetBucket(ctx context.Context, c *awsx.Clients, bucket, region string) (b reportBucket, exists bool, err error) {
+	if bucket == "" {
+		found, err := findReportBuckets(ctx, c)
+		if err != nil {
+			return b, false, err
+		}
+		if b, err = pickReportBucket(found, c.Account); err != nil {
+			return b, false, err
+		}
+		if region != "" && region != b.Region {
+			return b, false, fmt.Errorf("bucket %s is in %s, not %s", b.Name, b.Region, region)
+		}
+		a.info("Using report bucket %s in %s.\n", b.Name, b.Region)
+		return b, true, nil
+	}
+	got, exists, err := c.BucketRegion(ctx, bucket)
+	switch {
+	case awsx.IsAccessDenied(err):
+		return b, false, fmt.Errorf("bucket %s belongs to another account; pick another name", bucket)
+	case err != nil:
+		return b, false, fmt.Errorf("reading bucket %s: %w", bucket, err)
+	case exists && region != "" && got != region:
+		return b, false, fmt.Errorf("bucket %s is in %s; pass --region %s", bucket, got, got)
+	case exists:
+		return reportBucket{bucket, got}, true, nil
+	}
+	if region == "" {
+		region = a.profileRegion(ctx, nil)
+	}
+	if region == "" {
+		return b, false, errors.New("no region: the profile has none; pass --region")
+	}
+	return reportBucket{bucket, region}, false, nil
 }
 
 func (a *App) fleetInitCmd() *cobra.Command {
@@ -69,7 +190,8 @@ default encryption (SSE-S3) and a bucket policy. The policy lets each account of
 organization (or of --accounts) write reports under its own account ID only, and nobody else
 read them. Nothing expires: delete old versions yourself if you want to.
 
---org-id defaults to the profile's organization. It asks before changing anything unless --yes
+It tags the bucket bedrock-admin:report-bucket, so without --bucket fleet init and fleet report
+find it (when the account has exactly one). --org-id defaults to the profile's organization. It asks before changing anything unless --yes
 is given; --dry-run only shows what it would do.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -89,6 +211,10 @@ is given; --dry-run only shows what it would do.`,
 			if err != nil {
 				return err
 			}
+			rb, exists, err := a.fleetBucket(ctx, c, bucket, region)
+			if err != nil {
+				return err
+			}
 			if orgID == "" && len(accounts) == 0 {
 				o, err := organizations.NewFromConfig(c.Cfg).DescribeOrganization(ctx, &organizations.DescribeOrganizationInput{})
 				if err != nil {
@@ -96,7 +222,7 @@ is given; --dry-run only shows what it would do.`,
 				}
 				orgID = aws.ToString(o.Organization.Id)
 			}
-			items, err := reportBucketItems(ctx, c, bucket, policy.ReportBucketPolicy(bucket, orgID, accounts))
+			items, err := reportBucketItems(ctx, c, rb, exists, policy.ReportBucketPolicy(rb.Name, orgID, accounts))
 			if err != nil {
 				return err
 			}
@@ -104,7 +230,7 @@ is given; --dry-run only shows what it would do.`,
 			if len(accounts) > 0 {
 				who = "accounts " + strings.Join(accounts, ", ")
 			}
-			p := &plan.Plan{Header: fmt.Sprintf("Central report bucket s3://%s in %s (account %s), written by %s", bucket, c.Region, c.Account, who),
+			p := &plan.Plan{Header: fmt.Sprintf("Central report bucket s3://%s in %s (account %s), written by %s", rb.Name, rb.Region, c.Account, who),
 				Items: items}
 			if a.JSON {
 				if err := plan.RenderJSON(a.Out, p); err != nil {
@@ -142,34 +268,26 @@ is given; --dry-run only shows what it would do.`,
 			}
 			a.info("\nAdmins of the setups add this to their bedrock.yaml, then run bedrock-admin apply:\n\n"+
 				"  report:\n    bucket: %s\n    region: %s\n\n"+
-				"(add include_emails: true under it to also send users' emails)\n", bucket, c.Region)
+				"(add include_emails: true under it to also send users' emails)\n", rb.Name, rb.Region)
 			return nil
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (required)")
-	fl.StringVar(&region, "region", "", "region of the bucket (default: the profile's)")
+	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged)")
+	fl.StringVar(&region, "region", "", "region of a new bucket (default: the profile's; an existing bucket's own)")
 	fl.StringVar(&orgID, "org-id", "", "AWS organization whose accounts may report (default: the profile's)")
 	fl.StringSliceVar(&accounts, "accounts", nil, "account IDs that may report, instead of an organization")
-	_ = cmd.MarkFlagRequired("bucket")
 	return cmd
 }
 
 // reportBucketItems returns the plan for the central report bucket.
-func reportBucketItems(ctx context.Context, c *awsx.Clients, bucket, pol string) ([]*plan.Item, error) {
+func reportBucketItems(ctx context.Context, c *awsx.Clients, rb reportBucket, exists bool, pol string) ([]*plan.Item, error) {
+	bucket, region := rb.Name, rb.Region
 	b := &plan.Item{Section: "account", Target: "bucket " + bucket, Op: plan.OK}
 	s := &plan.Item{Section: "account", Target: "settings of " + bucket, Op: plan.OK}
 	pi := &plan.Item{Section: "account", Target: "policy of " + bucket, Op: plan.OK}
-	s3c := c.S3In(c.Region)
-	region, exists, err := c.BucketRegion(ctx, bucket)
-	switch {
-	case awsx.IsAccessDenied(err):
-		return nil, fmt.Errorf("bucket %s belongs to another account; pick another name", bucket)
-	case err != nil:
-		return nil, fmt.Errorf("reading bucket %s: %w", bucket, err)
-	case exists && region != c.Region:
-		return nil, fmt.Errorf("bucket %s is in %s; pass --region %s", bucket, region, region)
-	}
+	s3c := c.S3In(region)
+	tagged := false
 	if exists {
 		if _, err := s3c.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket), ExpectedBucketOwner: aws.String(c.Account)}); err != nil {
 			return nil, fmt.Errorf("bucket %s isn't in account %s; pick another name: %w", bucket, c.Account, err)
@@ -184,22 +302,25 @@ func reportBucketItems(ctx context.Context, c *awsx.Clients, bucket, pol string)
 					return nil, fmt.Errorf("bucket %s belongs to setup %s (its cost export); pick another name", bucket, aws.ToString(tag.Value))
 				}
 			}
+			tagged = hasTag(t.TagSet, policy.ReportBucketTag)
 		}
 	}
 	if !exists {
-		b.Op, b.Details = plan.Create, []string{"create in " + c.Region}
+		b.Op, b.Details = plan.Create, []string{"create in " + region}
 		b.Apply = func(ctx context.Context) error {
 			in := &s3.CreateBucketInput{Bucket: aws.String(bucket), ObjectOwnership: stypes.ObjectOwnershipBucketOwnerEnforced}
-			if c.Region != "us-east-1" {
-				in.CreateBucketConfiguration = &stypes.CreateBucketConfiguration{LocationConstraint: stypes.BucketLocationConstraint(c.Region)}
+			if region != "us-east-1" {
+				in.CreateBucketConfiguration = &stypes.CreateBucketConfiguration{LocationConstraint: stypes.BucketLocationConstraint(region)}
 			}
 			if _, err := s3c.CreateBucket(ctx, in); err != nil {
 				return fmt.Errorf("creating bucket %s: %w", bucket, err)
 			}
 			return nil
 		}
-		s.Op, s.Details = plan.Create, []string{"block public access, bucket owner owns objects, versioning, SSE-S3"}
-		s.Apply = func(ctx context.Context) error { return fixReportBucket(ctx, s3c, bucket, true, true, true, true) }
+		s.Op, s.Details = plan.Create, []string{"block public access, bucket owner owns objects, versioning, SSE-S3, tag " + policy.ReportBucketTag}
+		s.Apply = func(ctx context.Context) error {
+			return fixReportBucket(ctx, s3c, bucket, true, true, true, true, true)
+		}
 		pi.Op, pi.Details = plan.Create, []string{"set"}
 		pi.Apply = func(ctx context.Context) error { return putPolicy(ctx, s3c, bucket, pol) }
 		return []*plan.Item{b, s, pi}, nil
@@ -238,10 +359,14 @@ func reportBucketItems(ctx context.Context, c *awsx.Clients, bucket, pol string)
 		fixSSE = true
 		s.Details = append(s.Details, "no default encryption")
 	}
-	if fixPAB || fixOwner || fixVersioning || fixSSE {
+	fixTag := !tagged
+	if fixTag {
+		s.Details = append(s.Details, "no "+policy.ReportBucketTag+" tag")
+	}
+	if fixPAB || fixOwner || fixVersioning || fixSSE || fixTag {
 		s.Op = plan.Update
 		s.Apply = func(ctx context.Context) error {
-			return fixReportBucket(ctx, s3c, bucket, fixPAB, fixOwner, fixVersioning, fixSSE)
+			return fixReportBucket(ctx, s3c, bucket, fixPAB, fixOwner, fixVersioning, fixSSE, fixTag)
 		}
 	}
 	p, err := s3c.GetBucketPolicy(ctx, &s3.GetBucketPolicyInput{Bucket: aws.String(bucket)})
@@ -259,7 +384,7 @@ func reportBucketItems(ctx context.Context, c *awsx.Clients, bucket, pol string)
 	return []*plan.Item{b, s, pi}, nil
 }
 
-func fixReportBucket(ctx context.Context, s3c *s3.Client, bucket string, pab, owner, versioning, sse bool) error {
+func fixReportBucket(ctx context.Context, s3c *s3.Client, bucket string, pab, owner, versioning, sse, tag bool) error {
 	if pab {
 		if _, err := s3c.PutPublicAccessBlock(ctx, &s3.PutPublicAccessBlockInput{Bucket: aws.String(bucket),
 			PublicAccessBlockConfiguration: &stypes.PublicAccessBlockConfiguration{BlockPublicAcls: aws.Bool(true),
@@ -285,6 +410,22 @@ func fixReportBucket(ctx context.Context, s3c *s3.Client, bucket string, pab, ow
 			ServerSideEncryptionConfiguration: &stypes.ServerSideEncryptionConfiguration{Rules: []stypes.ServerSideEncryptionRule{
 				{ApplyServerSideEncryptionByDefault: &stypes.ServerSideEncryptionByDefault{SSEAlgorithm: stypes.ServerSideEncryptionAes256}}}}}); err != nil {
 			return fmt.Errorf("setting the encryption of %s: %w", bucket, err)
+		}
+	}
+	if tag {
+		// Keep the bucket's other tags.
+		var tags []stypes.Tag
+		t, err := s3c.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(bucket)})
+		switch {
+		case err == nil:
+			tags = t.TagSet
+		case !awsx.IsNotFound(err):
+			return fmt.Errorf("reading the tags of %s: %w", bucket, err)
+		}
+		tags = append(tags, stypes.Tag{Key: aws.String(policy.ReportBucketTag), Value: aws.String("true")})
+		if _, err := s3c.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{Bucket: aws.String(bucket),
+			Tagging: &stypes.Tagging{TagSet: tags}}); err != nil {
+			return fmt.Errorf("tagging %s: %w", bucket, err)
 		}
 	}
 	return nil
@@ -316,7 +457,8 @@ func (a *App) fleetReportCmd() *cobra.Command {
 		Long: `fleet report reads the central report bucket and shows one line per setup (account and id):
 its users (onboarded, set up, paused), this month's spend, when it last reported and whether it
 is still installed. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
---json prints the full reports, with users' emails for setups that send them.`,
+--json prints the full reports, with users' emails for setups that send them. Without --bucket it
+reads the bucket fleet init tagged.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -324,7 +466,14 @@ is still installed. Setups report on every apply and daily at 07:00 UTC; spend l
 			if err != nil {
 				return err
 			}
-			reports, problems, err := fleet.Read(ctx, c.S3In(c.Region), bucket)
+			rb, exists, err := a.fleetBucket(ctx, c, bucket, region)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				return fmt.Errorf("bucket %s doesn't exist; create it with fleet init", rb.Name)
+			}
+			reports, problems, err := fleet.Read(ctx, c.S3In(rb.Region), rb.Name)
 			if err != nil {
 				return err
 			}
@@ -344,9 +493,8 @@ is still installed. Setups report on every apply and daily at 07:00 UTC; spend l
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (required)")
-	fl.StringVar(&region, "region", "", "region of the bucket (default: the profile's)")
-	_ = cmd.MarkFlagRequired("bucket")
+	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged)")
+	fl.StringVar(&region, "region", "", "region of the bucket (default: the bucket's own)")
 	return cmd
 }
 

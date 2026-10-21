@@ -35,8 +35,9 @@ choose them.
 - `bedrock-admin` (the same binary the teams use). `fleet` commands need no `bedrock.yaml`.
 - A profile of the account that should hold the bucket, with rights to create and configure an S3
   bucket (`s3:CreateBucket`, `s3:PutBucketPolicy`, `s3:PutBucketVersioning`,
-  `s3:PutEncryptionConfiguration`, `s3:PutBucketOwnershipControls`, `s3:PutBucketPublicAccessBlock`
-  and the matching reads) and to list and read objects.
+  `s3:PutEncryptionConfiguration`, `s3:PutBucketOwnershipControls`, `s3:PutBucketPublicAccessBlock`,
+  `s3:PutBucketTagging` and the matching reads), to list and read objects, and
+  `s3:ListAllMyBuckets` to find the bucket again without `--bucket`.
 - Who may report: your AWS organization (found with `organizations:DescribeOrganization`, or pass
   `--org-id o-...`), or a list of account IDs (`--accounts`).
 
@@ -53,7 +54,7 @@ Central report bucket s3://acme-bedrock-reports in us-east-1 (account 9999999999
 
 Account setup
 + bucket acme-bedrock-reports       create in us-east-1
-+ settings of acme-bedrock-reports  block public access, bucket owner owns objects, versioning, SSE-S3
++ settings of acme-bedrock-reports  block public access, bucket owner owns objects, versioning, SSE-S3, tag bedrock-admin:report-bucket
 + policy of acme-bedrock-reports    set
 
 Plan: 3 to create.
@@ -73,14 +74,14 @@ Admins of the setups add this to their bedrock.yaml, then run bedrock-admin appl
 <summary>Details</summary>
 
 - The bucket: public access blocked, objects owned by the bucket owner (ACLs off), versioning on,
-  default encryption SSE-S3. Versioning keeps every report; nothing expires. Delete old versions
+  default encryption SSE-S3, and the tag `bedrock-admin:report-bucket=true` (other tags are kept). Versioning keeps every report; nothing expires. Delete old versions
   yourself if you want to.
 - The bucket policy allows `s3:PutObject` on `<bucket>/${aws:PrincipalAccount}/*`, to principals of
   the organization (`aws:PrincipalOrgID`) or of the listed accounts, and denies any request without
   TLS. Nothing else is allowed to other accounts.
-- With an existing bucket, `fleet init` checks it is in your account and in that region, and fixes
-  settings or the policy changed by hand. Run it again any time; with nothing to fix it shows
-  `No changes.`
+- `--region` is for a new bucket (default: the profile's); an existing bucket's own region is used.
+- With an existing bucket, `fleet init` checks it is in your account, and fixes settings, the tag
+  or the policy changed by hand. Run it again any time; with nothing to fix it shows `No changes.`
 - It refuses a setup's own cost export bucket (tagged `bedrock-admin:id`): keep reports apart.
 - `--org-id` and `--accounts` can't be combined.
 
@@ -104,8 +105,12 @@ report:
 ## 3. Read the reports
 
 ```bash
-bedrock-admin fleet report --bucket acme-bedrock-reports --region us-east-1 --profile central-admin
+bedrock-admin fleet report --profile central-admin
 ```
+
+Without `--bucket`, `fleet report` (and `fleet init`) finds the bucket `fleet init` tagged in the
+profile's account, in its own region, and prints `Using report bucket acme-bedrock-reports in
+us-east-1.` With no such bucket, or several, it says so and asks for `--bucket`.
 
 ```text
 ACCOUNT       ID       REGION     VERSION  ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
@@ -153,7 +158,7 @@ the team: it never stops their `apply`, `uninstall` or monthly Lambda.
 ## Add or remove accounts
 
 With `--org-id` (or the default), new accounts of the organization can report without any change.
-With `--accounts`, run `fleet init` again with the full new list; it updates the policy.
+With `--accounts`, run `fleet init --accounts` again with the full new list; it updates the policy.
 
 A setup that stops reporting keeps its last report in the bucket. Delete
 `<account>/<id>.json` (and its versions) yourself to drop it from `fleet report`.
@@ -167,8 +172,10 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 
 | Task | Command |
 | --- | --- |
-| Create or fix the bucket | `bedrock-admin fleet init --bucket NAME --region REGION` |
-| Only some accounts may report | `... fleet init --bucket NAME --accounts 111111111111,222222222222` |
-| See what `fleet init` would change | `... fleet init --bucket NAME --dry-run` |
-| Read every setup's latest report | `bedrock-admin fleet report --bucket NAME --region REGION` |
-| Full reports as JSON | `bedrock-admin fleet report --bucket NAME --region REGION --json` |
+| Create the bucket | `bedrock-admin fleet init --bucket NAME --region REGION` |
+| Check or fix it | `bedrock-admin fleet init` |
+| Only some accounts may report | `bedrock-admin fleet init --accounts 111111111111,222222222222` |
+| See what `fleet init` would change | `bedrock-admin fleet init --dry-run` |
+| Read every setup's latest report | `bedrock-admin fleet report` |
+| Full reports as JSON | `bedrock-admin fleet report --json` |
+| Several report buckets in the account | Add `--bucket NAME` to any of these |
