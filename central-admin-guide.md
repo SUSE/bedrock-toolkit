@@ -27,8 +27,8 @@ report to it, under its own account ID, with the setup admin's or its Lambda's o
 - once more on `bedrock-admin uninstall`, marked `uninstalled`.
 
 A setup can write only its own account's reports and can't read any. You need no access to the
-teams' accounts. Nothing is built in: the tool assumes no bucket, organization or vendor; you
-choose them.
+teams' accounts. No shared bucket, organization or vendor is built in: the bucket is in your
+account, and you choose who may write to it.
 
 ## What you need
 

@@ -508,8 +508,9 @@ delay. Users in the file without a role show `not applied`.
 ### Central reports
 
 Optional, for one central admin following many setups, possibly in many accounts. The tool assumes
-no vendor: the central admin ([central admin guide](central-admin-guide.md)) creates the bucket with `bedrock-admin fleet init` and gives the
-`report:` section to the setups' admins.
+no vendor: the central admin ([central admin guide](central-admin-guide.md)) creates the bucket in
+their own account with `bedrock-admin fleet init` and gives the `report:` section to the setups'
+admins.
 
 - **Bucket** (`fleet init`, in the central admin's account): public access blocked,
   `BucketOwnerEnforced`, versioning on, SSE-S3, no lifecycle (reports are kept). The bucket policy
@@ -637,7 +638,8 @@ sets.
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
 - `bedrock-admin` needs only account-level admin rights. It never changes AWS Organizations;
-  `fleet init` only reads the caller's organization ID.
+  `fleet init` only reads the caller's organization ID, and `fleet` lists the caller's own buckets
+  and their tags to find the report bucket.
 - Central reports leave the account only when `report:` is set, go only to that bucket, and hold
   emails only with `include_emails: true`.
 - `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles
@@ -674,8 +676,8 @@ and a real AWS account:
 | Suite | Covers |
 | --- | --- |
 | `cli` | A smoke test of the built binaries, with no AWS |
-| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall` |
-| `users` | Onboarding, limit changes and offboarding |
+| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports from `apply`, the Lambda and `uninstall`, `fleet report` |
+| `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
 | `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, `bedrock models`, direct SSO calls denied, a pause seen by the user |
 | `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (with `block_direct_calls` on, even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket |
