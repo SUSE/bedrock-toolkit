@@ -522,7 +522,9 @@ admins.
   export bucket), and tags its bucket `bedrock-admin:report-bucket`: without `--bucket`, `fleet init`
   and `fleet report` list the account's buckets (`ListBuckets`, `GetBucketTagging`) and use the one
   tagged bucket, in its own region; with several they ask for `--bucket`. With none, `fleet init`
-  creates `bedrock-reports-<account>` and `fleet report` stops.
+  creates `bedrock-reports-<account>` (in `--region`, else the profile's region, else the region of
+  the file given with `-f`) and `fleet report` stops. `fleet` reads a `bedrock.yaml` only when `-f`
+  is given, and takes only its `profile:` and `region:`.
 - **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
   region, `bedrock-admin` version, status (`active` or `uninstalled`), source (`apply`, `lambda` or
   `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts

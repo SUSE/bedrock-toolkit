@@ -2,10 +2,14 @@ package admincli
 
 import (
 	"bytes"
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 )
 
@@ -53,5 +57,38 @@ func TestPickReportBucket(t *testing.T) {
 	_, err = pickReportBucket([]reportBucket{{"a", "us-east-1"}, {"b", "eu-west-1"}}, "111111111111")
 	if err == nil || !strings.Contains(err.Error(), "a (us-east-1), b (eu-west-1); pass --bucket") {
 		t.Errorf("two: %v", err)
+	}
+}
+func TestFleetClientRegion(t *testing.T) {
+	dir := t.TempDir()
+	awsCfg := filepath.Join(dir, "config")
+	if err := os.WriteFile(awsCfg, []byte("[profile with-region]\nregion = eu-west-1\n[profile no-region]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_CONFIG_FILE", awsCfg)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "none"))
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_DEFAULT_REGION", "")
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, flag string
+		file       *config.Config
+		want       string
+	}{
+		{"flag wins", "ap-south-1", &config.Config{Profile: "with-region", Region: "us-west-2"}, "ap-south-1"},
+		{"profile region before the file's", "", &config.Config{Profile: "with-region", Region: "us-west-2"}, "eu-west-1"},
+		{"file region when the profile has none", "", &config.Config{Profile: "no-region", Region: "us-west-2"}, "us-west-2"},
+		{"no -f and no profile region", "", nil, "us-east-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &App{fleetCfg: tc.file}
+			if tc.file == nil {
+				a.Profile = "no-region"
+			}
+			if got := a.fleetClientRegion(ctx, tc.flag); got != tc.want {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+		})
 	}
 }

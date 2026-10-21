@@ -60,13 +60,18 @@ func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, e
 		}
 		a.fleetCfg = cfg
 	}
+	return awsx.New(ctx, a.profile(a.fleetCfg), a.fleetClientRegion(ctx, region), "")
+}
+
+// fleetClientRegion is --region, else fleetRegion, else us-east-1.
+func (a *App) fleetClientRegion(ctx context.Context, region string) string {
 	if region == "" {
 		region = a.fleetRegion(ctx)
 	}
 	if region == "" {
 		region = "us-east-1"
 	}
-	return awsx.New(ctx, a.profile(a.fleetCfg), region, "")
+	return region
 }
 
 // fleetRegion is the profile's region, else the region of the file given with -f.

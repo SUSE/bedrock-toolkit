@@ -50,9 +50,9 @@ account, and you choose who may write to it.
 bedrock-admin fleet init
 ```
 
-It creates `bedrock-reports-<account ID>` in the profile's region (or the `-f` file's). `--bucket NAME` picks another
-name (S3 bucket names are global, so `fleet init` stops if the name is taken), and `--region`
-another region. After that, every `fleet` command finds the bucket by itself.
+It creates `bedrock-reports-<account ID>` in the profile's region (else the `-f` file's).
+`--bucket NAME` picks another name (S3 bucket names are global, so `fleet init` stops if the name is
+taken), and `--region` another region. After that, every `fleet` command finds the bucket by itself.
 
 It shows what it will do and asks first (`--yes` skips the question, `--dry-run` only shows):
 
@@ -187,3 +187,4 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | Read every setup's latest report | `bedrock-admin fleet report` |
 | Full reports as JSON | `bedrock-admin fleet report --json` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |
+| Use your team setup's profile and region | Add `-f bedrock.yaml` to any of these |
