@@ -9,6 +9,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 func TestUsersView(t *testing.T) {
@@ -43,5 +44,14 @@ func TestUsersView(t *testing.T) {
 	if !strings.Contains(b.String(), "3 onboarded, 1 set up, 1 paused; 1 in the file not applied yet.") ||
 		!strings.Contains(b.String(), "old@x.com (not in the file: apply offboards)") {
 		t.Fatal(b.String())
+	}
+}
+
+func TestFillProducts(t *testing.T) {
+	cfg := &config.Config{ID: "acme", Product: "p", Users: []config.User{{Email: "a@x.com"}, {Email: "b@x.com", Product: "q"}}}
+	us := []usage.User{{Email: "A@x.com"}, {Email: "b@x.com", Product: "old"}, {Email: "gone@x.com"}}
+	fillProducts(us, cfg)
+	if us[0].Product != "p" || us[1].Product != "old" || us[2].Product != "" {
+		t.Fatalf("%+v", us)
 	}
 }

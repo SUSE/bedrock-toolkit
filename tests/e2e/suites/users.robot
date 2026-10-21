@@ -136,6 +136,7 @@ The Monthly Lambda Leaves A Manual Pause And Saves A Snapshot
     ${u}=    Evaluate    [i for i in $result["snapshot"]["users"] if i["email"] == $email][0]
     Should Be Equal    ${u}[state]    paused-by-hand
     Should Be Equal As Numbers    ${u}[limit_usd]    1
+    Should Be Equal    ${u}[product]    ${PRODUCT}
 
 Unpause
     ${role}=    Role Of    a

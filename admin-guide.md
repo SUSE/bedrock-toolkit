@@ -82,7 +82,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin export` | Prints the current account, including its users, as a `bedrock.yaml` | [2](#2-create-bedrockyaml) |
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
-| `bedrock-admin usage` | Spend per user, and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
+| `bedrock-admin usage` | Spend per user (or per product with `--by product`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
