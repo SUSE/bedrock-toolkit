@@ -36,8 +36,8 @@ func (a *App) fleetCmd() *cobra.Command {
 		Short: "For the central admin only: create the report bucket and read every setup's report",
 		Long: `fleet is for the central admin who collects reports from many setups (accounts and ids).
 
-  bedrock-admin fleet init --bucket NAME --region REGION   create the bucket other setups report to
-  bedrock-admin fleet report                               show the latest report of every setup
+  bedrock-admin fleet init     create the bucket other setups report to (bedrock-reports-<account>)
+  bedrock-admin fleet report   show the latest report of every setup
 
 Admins of the setups then add the report: section that fleet init prints to their bedrock.yaml and
 run bedrock-admin apply. They can write their own account's reports only; they can't read any.
@@ -125,13 +125,16 @@ func hasTag(tags []stypes.Tag, key string) bool {
 	return false
 }
 
+// DefaultReportBucket is the bucket fleet init creates without --bucket.
+func DefaultReportBucket(account string) string { return "bedrock-reports-" + account }
+
 // pickReportBucket chooses the bucket when --bucket isn't given.
 func pickReportBucket(found []reportBucket, account string) (reportBucket, error) {
 	switch len(found) {
 	case 1:
 		return found[0], nil
 	case 0:
-		return reportBucket{}, fmt.Errorf("no report bucket in account %s: create one with fleet init --bucket NAME --region REGION, or pass --bucket", account)
+		return reportBucket{}, fmt.Errorf("no report bucket in account %s: create one with fleet init, or pass --bucket", account)
 	}
 	var names []string
 	for _, b := range found {
@@ -140,28 +143,32 @@ func pickReportBucket(found []reportBucket, account string) (reportBucket, error
 	return reportBucket{}, fmt.Errorf("account %s has %d report buckets: %s; pass --bucket", account, len(found), strings.Join(names, ", "))
 }
 
-// fleetBucket resolves --bucket and --region: without --bucket it finds the tagged bucket;
-// without --region it uses the bucket's region, or, for a new bucket, the profile's.
-// exists reports whether the bucket exists.
-func (a *App) fleetBucket(ctx context.Context, c *awsx.Clients, bucket, region string) (b reportBucket, exists bool, err error) {
+// fleetBucket resolves --bucket and --region: without --bucket it finds the tagged bucket, or, for
+// fleet init (create) when there is none, uses DefaultReportBucket; without --region it uses the
+// bucket's region, or, for a new bucket, the profile's. exists reports whether the bucket exists.
+func (a *App) fleetBucket(ctx context.Context, c *awsx.Clients, bucket, region string, create bool) (b reportBucket, exists bool, err error) {
 	if bucket == "" {
 		found, err := findReportBuckets(ctx, c)
 		if err != nil {
 			return b, false, err
 		}
-		if b, err = pickReportBucket(found, c.Account); err != nil {
+		if len(found) == 0 && create {
+			bucket = DefaultReportBucket(c.Account)
+		} else if b, err = pickReportBucket(found, c.Account); err != nil {
 			return b, false, err
 		}
-		if region != "" && region != b.Region {
-			return b, false, fmt.Errorf("bucket %s is in %s, not %s", b.Name, b.Region, region)
+		if bucket == "" {
+			if region != "" && region != b.Region {
+				return b, false, fmt.Errorf("bucket %s is in %s, not %s", b.Name, b.Region, region)
+			}
+			a.info("Using report bucket %s in %s.\n", b.Name, b.Region)
+			return b, true, nil
 		}
-		a.info("Using report bucket %s in %s.\n", b.Name, b.Region)
-		return b, true, nil
 	}
 	got, exists, err := c.BucketRegion(ctx, bucket)
 	switch {
 	case awsx.IsAccessDenied(err):
-		return b, false, fmt.Errorf("bucket %s belongs to another account; pick another name", bucket)
+		return b, false, fmt.Errorf("bucket %s belongs to another account; pick another name with --bucket", bucket)
 	case err != nil:
 		return b, false, fmt.Errorf("reading bucket %s: %w", bucket, err)
 	case exists && region != "" && got != region:
@@ -191,7 +198,8 @@ organization (or of --accounts) write reports under its own account ID only, and
 read them. Nothing expires: delete old versions yourself if you want to.
 
 It tags the bucket bedrock-admin:report-bucket, so without --bucket fleet init and fleet report
-find it (when the account has exactly one). --org-id defaults to the profile's organization. It asks before changing anything unless --yes
+find it (when the account has exactly one). Without --bucket and no tagged bucket, fleet init
+creates bedrock-reports-<account>. --org-id defaults to the profile's organization. It asks before changing anything unless --yes
 is given; --dry-run only shows what it would do.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -211,7 +219,7 @@ is given; --dry-run only shows what it would do.`,
 			if err != nil {
 				return err
 			}
-			rb, exists, err := a.fleetBucket(ctx, c, bucket, region)
+			rb, exists, err := a.fleetBucket(ctx, c, bucket, region, true)
 			if err != nil {
 				return err
 			}
@@ -273,7 +281,7 @@ is given; --dry-run only shows what it would do.`,
 		},
 	}
 	fl := cmd.Flags()
-	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged)")
+	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged, else bedrock-reports-<account>)")
 	fl.StringVar(&region, "region", "", "region of a new bucket (default: the profile's; an existing bucket's own)")
 	fl.StringVar(&orgID, "org-id", "", "AWS organization whose accounts may report (default: the profile's)")
 	fl.StringSliceVar(&accounts, "accounts", nil, "account IDs that may report, instead of an organization")
@@ -466,7 +474,7 @@ reads the bucket fleet init tagged.`,
 			if err != nil {
 				return err
 			}
-			rb, exists, err := a.fleetBucket(ctx, c, bucket, region)
+			rb, exists, err := a.fleetBucket(ctx, c, bucket, region, false)
 			if err != nil {
 				return err
 			}

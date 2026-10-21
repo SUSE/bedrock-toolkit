@@ -1090,7 +1090,7 @@ If your organization has a central admin who follows several teams' setups, they
 
 ```yaml
 report:
-  bucket: acme-bedrock-reports
+  bucket: bedrock-reports-999999999999
   region: us-east-1        # the bucket's region
   include_emails: false    # true also sends each user's email, set up and paused
 ```

@@ -45,22 +45,22 @@ choose them.
 ## 1. Create the report bucket
 
 ```bash
-bedrock-admin fleet init --bucket acme-bedrock-reports
+bedrock-admin fleet init
 ```
 
-Pick a name: S3 bucket names are global, so it can't be chosen for you. The bucket is created in
-the profile's region; add `--region` for another one. This is the only time you need either:
-afterwards every `fleet` command finds the bucket by itself.
+It creates `bedrock-reports-<account ID>` in the profile's region. `--bucket NAME` picks another
+name (S3 bucket names are global, so `fleet init` stops if the name is taken), and `--region`
+another region. After that, every `fleet` command finds the bucket by itself.
 
 It shows what it will do and asks first (`--yes` skips the question, `--dry-run` only shows):
 
 ```text
-Central report bucket s3://acme-bedrock-reports in us-east-1 (account 999999999999), written by accounts of organization o-abc123def4
+Central report bucket s3://bedrock-reports-999999999999 in us-east-1 (account 999999999999), written by accounts of organization o-abc123def4
 
 Account setup
-+ bucket acme-bedrock-reports       create in us-east-1
-+ settings of acme-bedrock-reports  block public access, bucket owner owns objects, versioning, SSE-S3, tag bedrock-admin:report-bucket
-+ policy of acme-bedrock-reports    set
++ bucket bedrock-reports-999999999999       create in us-east-1
++ settings of bedrock-reports-999999999999  block public access, bucket owner owns objects, versioning, SSE-S3, tag bedrock-admin:report-bucket
++ policy of bedrock-reports-999999999999    set
 
 Plan: 3 to create.
 Make these changes? (y/N): y
@@ -69,7 +69,7 @@ Make these changes? (y/N): y
 Admins of the setups add this to their bedrock.yaml, then run bedrock-admin apply:
 
   report:
-    bucket: acme-bedrock-reports
+    bucket: bedrock-reports-999999999999
     region: us-east-1
 
 (add include_emails: true under it to also send users' emails)
@@ -99,7 +99,7 @@ pass `--report-bucket` and `--report-region` to `bedrock-admin configure`) and r
 
 ```yaml
 report:
-  bucket: acme-bedrock-reports
+  bucket: bedrock-reports-999999999999
   region: us-east-1        # the bucket's region
   include_emails: false    # true also sends each user's email, set up and paused
 ```
@@ -113,9 +113,10 @@ report:
 bedrock-admin fleet report
 ```
 
-Without `--bucket`, `fleet report` (and `fleet init`) finds the bucket `fleet init` tagged in the
-profile's account, in its own region, and prints `Using report bucket acme-bedrock-reports in
-us-east-1.` With no such bucket, or several, it says so and asks for `--bucket`.
+Without `--bucket`, `fleet report` (and a later `fleet init`) finds the bucket `fleet init` tagged
+in the profile's account, in its own region, and prints `Using report bucket
+bedrock-reports-999999999999 in us-east-1.` With several tagged buckets it lists them and asks for
+`--bucket`.
 
 ```text
 ACCOUNT       ID       REGION     VERSION  ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
@@ -177,7 +178,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 
 | Task | Command |
 | --- | --- |
-| Create the bucket | `bedrock-admin fleet init --bucket NAME` (`--region` for another region than the profile's) |
+| Create the bucket | `bedrock-admin fleet init` (`--bucket NAME`, `--region REGION` to choose) |
 | Check or fix it | `bedrock-admin fleet init` |
 | Only some accounts may report | `bedrock-admin fleet init --accounts 111111111111,222222222222` |
 | See what `fleet init` would change | `bedrock-admin fleet init --dry-run` |

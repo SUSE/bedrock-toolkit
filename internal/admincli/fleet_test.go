@@ -36,6 +36,12 @@ func TestFleetInitFlags(t *testing.T) {
 	}
 }
 
+func TestDefaultReportBucket(t *testing.T) {
+	if got := DefaultReportBucket("111111111111"); got != "bedrock-reports-111111111111" {
+		t.Error(got)
+	}
+}
+
 func TestPickReportBucket(t *testing.T) {
 	if _, err := pickReportBucket(nil, "111111111111"); err == nil || !strings.Contains(err.Error(), "no report bucket in account 111111111111") {
 		t.Errorf("none: %v", err)

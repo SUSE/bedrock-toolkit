@@ -137,7 +137,7 @@ web_search:                     # optional: Step 1.8
   exclude_domains: [example.com]
 
 report:                         # optional: central reporting, see section 8
-  bucket: acme-bedrock-reports
+  bucket: bedrock-reports-999999999999
   region: us-east-1             # the bucket's region
   include_emails: false
 
@@ -519,7 +519,8 @@ no vendor: the central admin ([central admin guide](central-admin-guide.md)) cre
   another account's prefix. `fleet init` refuses a bucket tagged `bedrock-admin:id` (a setup's cost
   export bucket), and tags its bucket `bedrock-admin:report-bucket`: without `--bucket`, `fleet init`
   and `fleet report` list the account's buckets (`ListBuckets`, `GetBucketTagging`) and use the one
-  tagged bucket, in its own region; with none or several they ask for `--bucket`.
+  tagged bucket, in its own region; with several they ask for `--bucket`. With none, `fleet init`
+  creates `bedrock-reports-<account>` and `fleet report` stops.
 - **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
   region, `bedrock-admin` version, status (`active` or `uninstalled`), source (`apply`, `lambda` or
   `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts
