@@ -1019,6 +1019,20 @@ ends in the id, and everything is tagged `bedrock-admin:id` with it (schedules c
 the id is in the schedule's description). So several setups can share one AWS account, each with its
 own users, budgets, `models:`, pause policy, monthly Lambda, cost export and bucket:
 
+Several teams don't need several setups. If one admin runs them all and they can share `models:`
+and the pause policy, keep one setup and give each team's users their own `product:`: spend is
+then split by team in billing (once `product` is a cost allocation tag) while users, limits and
+`usage` stay in one file. Use a setup per team when teams have their own admins, models or
+settings.
+
+```yaml
+product: genai-tools            # default for everyone
+users:
+  - email: achen@example.com
+  - email: cdiaz@example.com
+    product: data-platform      # charged to the data platform team
+```
+
 | Resource | Name |
 | --- | --- |
 | Personal role | `bedrock-user-<id>-<name>`, path `/bedrock-users/<id>/` |

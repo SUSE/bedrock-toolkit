@@ -582,6 +582,10 @@ tagged, so for the schedule the id is in its description). Several setups can th
 AWS account, each with its own users, limits, models, pause policy, monthly Lambda, cost export and
 bucket. One account with a single setup is the same thing with one id.
 
+Several teams can also share one setup: a user's own `product:` overrides the file's `product` tag on
+their role, so spend splits by team in billing while one admin keeps one file. A setup per team is
+for teams with their own admins, models or settings.
+
 | Resource | Name |
 | --- | --- |
 | Personal role | `bedrock-user-<id>-<name>` under `/bedrock-users/<id>/` (≤ 64 characters: id ≤ 20, name ≤ 30) |
