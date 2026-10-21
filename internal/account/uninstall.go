@@ -98,15 +98,19 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 	} else if e.Cfg.WebSearch.Enabled {
 		missing("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID))
 	}
-	if s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID))}); err == nil {
-		del("1.4", "schedule "+policy.ScheduleName(e.Cfg.ID), ScheduleID(aws.ToString(s.Description)), func(ctx context.Context) error {
-			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID))})
-			return err
-		})
-	} else if awsx.IsNotFound(err) {
-		missing("1.4", "schedule "+policy.ScheduleName(e.Cfg.ID))
-	} else {
-		return nil, err
+	for _, name := range []string{policy.ReportScheduleName(e.Cfg.ID), policy.ScheduleName(e.Cfg.ID)} {
+		s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(name)})
+		switch {
+		case err == nil:
+			del("1.4", "schedule "+name, ScheduleID(aws.ToString(s.Description)), func(ctx context.Context) error {
+				_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(name)})
+				return err
+			})
+		case !awsx.IsNotFound(err):
+			return nil, err
+		case name == policy.ScheduleName(e.Cfg.ID):
+			missing("1.4", "schedule "+name)
+		}
 	}
 	if f, err := e.C.Lambda.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(policy.LambdaName(e.Cfg.ID))}); err == nil {
 		del("1.4", "Lambda "+policy.LambdaName(e.Cfg.ID), f.Tags[policy.IDTag], func(ctx context.Context) error {

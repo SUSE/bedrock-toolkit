@@ -12,6 +12,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
 )
 
@@ -30,7 +31,7 @@ func needsYes(p *plan.Plan) []string {
 func (a *App) buildPlan(ctx context.Context, cfg *config.Config, c *awsx.Clients, noDelete bool) (*plan.Plan, error) {
 	p := &plan.Plan{Header: fmt.Sprintf("%s: id %s, account %s, %s, %d users", cfg.Path, cfg.ID, c.Account, cfg.Region, len(cfg.Users))}
 	a.info("Reading the account setup...\n")
-	acct := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: "."}
+	acct := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: ".", Version: a.Version}
 	items, err := acct.Plan(ctx)
 	if err != nil {
 		return nil, err
@@ -149,7 +150,11 @@ Exit 2 when something is still pending afterwards (for example Step 1.7, which n
 				return &cli.ExitError{Code: cli.Error, Err: fmt.Errorf("these changes need --yes: %s (removals can be skipped with --no-delete); nothing was changed",
 					strings.Join(needYes, ", "))}
 			}
-			return a.apply(ctx, p)
+			err = a.apply(ctx, p)
+			if applied(err) {
+				a.sendReport(ctx, cfg, c, fleet.StatusActive, fleet.SourceApply)
+			}
+			return err
 		},
 	}
 	cmd.Flags().BoolVar(&noDelete, "no-delete", false, "skip removals (offboarded users)")

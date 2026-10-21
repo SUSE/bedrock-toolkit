@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,6 +16,8 @@ import (
 	schtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/iamrole"
 	"github.com/SUSE/bedrock-toolkit/internal/lambdacode"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
@@ -27,16 +30,18 @@ const (
 	EnvSnapshotPrefix = "SNAPSHOT_PREFIX"
 	EnvDenyPolicyArn  = "DENY_POLICY_ARN"
 	EnvID             = "BEDROCK_ID"
+	// EnvReportSetup is the JSON fleet.Setup; set only when central reporting is on.
+	EnvReportSetup = "REPORT_SETUP"
 )
 
 const scheduleIDPrefix = "bedrock-admin:id="
 
 // LambdaRoleSpec and SchedulerRoleSpec are the Step 1.4 roles.
-func LambdaRoleSpec(region, account, id, bucket, snapshotPrefix string) iamrole.Spec {
+func LambdaRoleSpec(region, account, id, bucket, snapshotPrefix, reportBucket string) iamrole.Spec {
 	return iamrole.Spec{Name: policy.LambdaRole(id), Path: policy.Path,
 		Description: "Runs the monthly Bedrock unpause Lambda",
 		Trust:       policy.ServiceTrust("lambda.amazonaws.com", account), InlineName: policy.LambdaPolicy,
-		Inline: policy.LambdaPermissions(region, account, id, bucket, snapshotPrefix)}
+		Inline: policy.LambdaPermissions(region, account, id, bucket, snapshotPrefix, reportBucket)}
 }
 
 func SchedulerRoleSpec(region, account, id string) iamrole.Spec {
@@ -47,18 +52,53 @@ func SchedulerRoleSpec(region, account, id string) iamrole.Spec {
 }
 
 func (e *Env) lambdaEnv() map[string]string {
-	return map[string]string{
+	env := map[string]string{
 		EnvSnapshotBucket: e.Cfg.CostExport.Bucket,
 		EnvSnapshotPrefix: e.Cfg.CostExport.SnapshotPrefix,
 		EnvDenyPolicyArn:  policy.DenyPolicyArn(e.C.Account, e.Cfg.ID),
 		EnvID:             e.Cfg.ID,
 	}
+	if e.Cfg.Report.Enabled() {
+		b, _ := json.Marshal(fleet.SetupFrom(e.Cfg, e.Version))
+		env[EnvReportSetup] = string(b)
+	}
+	return env
+}
+
+// envChange describes how the Lambda's environment differs from want.
+func envChange(have, want map[string]string) string {
+	if maps.Equal(have, want) {
+		return ""
+	}
+	for k := range mergeKeys(have, want) {
+		if k != EnvReportSetup && have[k] != want[k] {
+			return "settings changed outside the file"
+		}
+	}
+	switch {
+	case have[EnvReportSetup] == "":
+		return "turn on the central report"
+	case want[EnvReportSetup] == "":
+		return "turn off the central report"
+	}
+	return "update the central report settings"
+}
+
+func mergeKeys(a, b map[string]string) map[string]bool {
+	out := map[string]bool{}
+	for k := range a {
+		out[k] = true
+	}
+	for k := range b {
+		out[k] = true
+	}
+	return out
 }
 
 func (e *Env) monthlyLambda(ctx context.Context) ([]*plan.Item, error) {
 	region, account := e.Cfg.Region, e.C.Account
 	lr, err := e.roleItem(ctx, "1.4", "Lambda role "+policy.LambdaRole(e.Cfg.ID),
-		LambdaRoleSpec(region, account, e.Cfg.ID, e.Cfg.CostExport.Bucket, e.Cfg.CostExport.SnapshotPrefix))
+		LambdaRoleSpec(region, account, e.Cfg.ID, e.Cfg.CostExport.Bucket, e.Cfg.CostExport.SnapshotPrefix, e.Cfg.Report.Bucket))
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +110,19 @@ func (e *Env) monthlyLambda(ctx context.Context) ([]*plan.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	sch, err := e.schedule(ctx)
+	sch, err := e.schedule(ctx, e.monthlySchedule())
 	if err != nil {
 		return nil, err
 	}
-	return []*plan.Item{lr, sr, fn, sch}, nil
+	rep, err := e.schedule(ctx, e.reportSchedule())
+	if err != nil {
+		return nil, err
+	}
+	out := []*plan.Item{lr, sr, fn, sch}
+	if rep != nil {
+		out = append(out, rep)
+	}
+	return out, nil
 }
 
 func (e *Env) function(ctx context.Context) (*plan.Item, error) {
@@ -125,12 +173,13 @@ func (e *Env) function(ctx context.Context) (*plan.Item, error) {
 	if c.Environment != nil {
 		have = c.Environment.Variables
 	}
-	envChanged := !maps.Equal(have, env)
+	change := envChange(have, env)
+	envChanged := change != ""
 	if codeChanged {
 		it.Details = append(it.Details, "update code (deployed code differs from this bedrock-admin's)")
 	}
 	if envChanged {
-		it.Details = append(it.Details, "settings changed outside the file")
+		it.Details = append(it.Details, change)
 	}
 	if codeChanged || envChanged {
 		it.Op = plan.Update
@@ -170,26 +219,54 @@ func ScheduleID(description string) string {
 	return ""
 }
 
-func (e *Env) schedule(ctx context.Context) (*plan.Item, error) {
-	it := e.item("1.4", "schedule "+policy.ScheduleName(e.Cfg.ID))
-	desc := fmt.Sprintf("Runs %s at 06:00 UTC on the 1st (%s%s)", policy.LambdaName(e.Cfg.ID), scheduleIDPrefix, e.Cfg.ID)
+// scheduleSpec is one EventBridge Scheduler schedule of the Lambda.
+type scheduleSpec struct {
+	Name, Expression, Description, Input string
+	// Want is false when the schedule must not exist (central report off).
+	Want bool
+	// When is the human form of Expression for the plan.
+	When string
+}
+
+func (e *Env) monthlySchedule() scheduleSpec {
+	return scheduleSpec{Name: policy.ScheduleName(e.Cfg.ID), Expression: policy.ScheduleExpression, Want: true,
+		Description: fmt.Sprintf("Runs %s at 06:00 UTC on the 1st (%s%s)", policy.LambdaName(e.Cfg.ID), scheduleIDPrefix, e.Cfg.ID),
+		When:        policy.ScheduleExpression + " UTC"}
+}
+
+func (e *Env) reportSchedule() scheduleSpec {
+	return scheduleSpec{Name: policy.ReportScheduleName(e.Cfg.ID), Expression: policy.ReportScheduleExpression,
+		Input: policy.ReportInput, Want: e.Cfg.Report.Enabled(),
+		Description: fmt.Sprintf("Runs %s daily at 07:00 UTC to send the central report (%s%s)", policy.LambdaName(e.Cfg.ID), scheduleIDPrefix, e.Cfg.ID),
+		When:        "daily 07:00 UTC, central report to s3://" + e.Cfg.Report.Bucket}
+}
+
+// schedule returns nil when the schedule is neither wanted nor present.
+func (e *Env) schedule(ctx context.Context, s scheduleSpec) (*plan.Item, error) {
+	it := e.item("1.4", "schedule "+s.Name)
 	target := &schtypes.Target{Arn: aws.String(policy.LambdaArn(e.Cfg.Region, e.C.Account, e.Cfg.ID)),
 		RoleArn: aws.String(fmt.Sprintf("arn:aws:iam::%s:role%s%s", e.C.Account, policy.Path, policy.SchedulerRole(e.Cfg.ID)))}
-	got, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID))})
+	if s.Input != "" {
+		target.Input = aws.String(s.Input)
+	}
+	got, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(s.Name)})
 	if err != nil && !awsx.IsNotFound(err) {
-		return nil, fmt.Errorf("reading schedule %s: %w", policy.ScheduleName(e.Cfg.ID), err)
+		return nil, fmt.Errorf("reading schedule %s: %w", s.Name, err)
 	}
 	if err != nil {
-		it.Op, it.Details = plan.Create, []string{"create (" + policy.ScheduleExpression + " UTC)"}
+		if !s.Want {
+			return nil, nil
+		}
+		it.Op, it.Details = plan.Create, []string{"create (" + s.When + ")"}
 		it.Apply = func(ctx context.Context) error {
-			in := &scheduler.CreateScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID)),
-				ScheduleExpression: aws.String(policy.ScheduleExpression), ScheduleExpressionTimezone: aws.String("UTC"),
+			in := &scheduler.CreateScheduleInput{Name: aws.String(s.Name),
+				ScheduleExpression: aws.String(s.Expression), ScheduleExpressionTimezone: aws.String("UTC"),
 				FlexibleTimeWindow: &schtypes.FlexibleTimeWindow{Mode: schtypes.FlexibleTimeWindowModeOff},
-				Target:             target, Description: aws.String(desc), State: schtypes.ScheduleStateEnabled}
+				Target:             target, Description: aws.String(s.Description), State: schtypes.ScheduleStateEnabled}
 			err := iamrole.Retry(ctx, 60*time.Second, func(err error) bool { return awsx.ErrorCode(err) == "ValidationException" },
 				func() error { _, err := e.C.Scheduler.CreateSchedule(ctx, in); return err })
 			if err != nil {
-				return fmt.Errorf("creating schedule %s: %w", policy.ScheduleName(e.Cfg.ID), err)
+				return fmt.Errorf("creating schedule %s: %w", s.Name, err)
 			}
 			return nil
 		}
@@ -198,26 +275,57 @@ func (e *Env) schedule(ctx context.Context) (*plan.Item, error) {
 	if !e.owned(it, ScheduleID(aws.ToString(got.Description))) {
 		return it, nil
 	}
+	if !s.Want {
+		it.Op, it.Details = plan.Delete, []string{"remove (central report turned off)"}
+		it.Apply = func(ctx context.Context) error {
+			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(s.Name)})
+			return err
+		}
+		return it, nil
+	}
 	var d []string
-	if aws.ToString(got.ScheduleExpression) != policy.ScheduleExpression || aws.ToString(got.ScheduleExpressionTimezone) != "UTC" {
+	if aws.ToString(got.ScheduleExpression) != s.Expression || aws.ToString(got.ScheduleExpressionTimezone) != "UTC" {
 		d = append(d, fmt.Sprintf("schedule %s %s → %s UTC", aws.ToString(got.ScheduleExpression),
-			aws.ToString(got.ScheduleExpressionTimezone), policy.ScheduleExpression))
+			aws.ToString(got.ScheduleExpressionTimezone), s.Expression))
 	}
 	if got.State != schtypes.ScheduleStateEnabled {
 		d = append(d, "disabled → enabled")
 	}
-	if got.Target == nil || aws.ToString(got.Target.Arn) != aws.ToString(target.Arn) || aws.ToString(got.Target.RoleArn) != aws.ToString(target.RoleArn) {
+	if got.Target == nil || aws.ToString(got.Target.Arn) != aws.ToString(target.Arn) || aws.ToString(got.Target.RoleArn) != aws.ToString(target.RoleArn) ||
+		aws.ToString(got.Target.Input) != aws.ToString(target.Input) {
 		d = append(d, "target changed outside the file")
 	}
 	if len(d) > 0 {
 		it.Op, it.Details = plan.Update, d
 		it.Apply = func(ctx context.Context) error {
-			_, err := e.C.Scheduler.UpdateSchedule(ctx, &scheduler.UpdateScheduleInput{Name: aws.String(policy.ScheduleName(e.Cfg.ID)),
-				ScheduleExpression: aws.String(policy.ScheduleExpression), ScheduleExpressionTimezone: aws.String("UTC"),
+			_, err := e.C.Scheduler.UpdateSchedule(ctx, &scheduler.UpdateScheduleInput{Name: aws.String(s.Name),
+				ScheduleExpression: aws.String(s.Expression), ScheduleExpressionTimezone: aws.String("UTC"),
 				FlexibleTimeWindow: &schtypes.FlexibleTimeWindow{Mode: schtypes.FlexibleTimeWindowModeOff},
-				Target:             target, Description: aws.String(desc), State: schtypes.ScheduleStateEnabled})
+				Target:             target, Description: aws.String(s.Description), State: schtypes.ScheduleStateEnabled})
 			return err
 		}
 	}
 	return it, nil
+}
+
+// DeployedReport is the report: setting of the id's deployed Lambda; zero when reporting is off or
+// the Lambda is missing.
+func DeployedReport(ctx context.Context, l interface {
+	GetFunctionConfiguration(context.Context, *lambda.GetFunctionConfigurationInput, ...func(*lambda.Options)) (*lambda.GetFunctionConfigurationOutput, error)
+}, id string) (config.Report, error) {
+	f, err := l.GetFunctionConfiguration(ctx, &lambda.GetFunctionConfigurationInput{FunctionName: aws.String(policy.LambdaName(id))})
+	if awsx.IsNotFound(err) {
+		return config.Report{}, nil
+	}
+	if err != nil {
+		return config.Report{}, fmt.Errorf("reading Lambda %s: %w", policy.LambdaName(id), err)
+	}
+	if f.Environment == nil || f.Environment.Variables[EnvReportSetup] == "" {
+		return config.Report{}, nil
+	}
+	var s fleet.Setup
+	if err := json.Unmarshal([]byte(f.Environment.Variables[EnvReportSetup]), &s); err != nil {
+		return config.Report{}, fmt.Errorf("reading %s of Lambda %s: %w", EnvReportSetup, policy.LambdaName(id), err)
+	}
+	return config.Report{Bucket: s.Bucket, Region: s.BucketRegion, IncludeEmails: s.IncludeEmails}, nil
 }

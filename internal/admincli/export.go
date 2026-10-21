@@ -136,6 +136,13 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	if base.Path == "" {
 		cfg.BlockDirectCalls = config.BlockDirectCalls{Enabled: true}
 	}
+	if !cfg.Report.Enabled() {
+		r, err := account.DeployedReport(ctx, c.Lambda, cfg.ID)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Report = r
+	}
 
 	// Users: every personal role with this id.
 	roles, err := account.UserRoles(ctx, c.IAM, cfg.ID)

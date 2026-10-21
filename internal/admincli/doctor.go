@@ -16,6 +16,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
 )
 
@@ -39,7 +40,7 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 			if err != nil {
 				return err
 			}
-			env := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: "."}
+			env := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: ".", Version: a.Version}
 			items, err := env.Uninstall(ctx, deleteData)
 			if err != nil {
 				return err
@@ -107,6 +108,7 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 				}
 			}
 			a.info("Uninstalled.\n")
+			a.sendReport(ctx, cfg, c, fleet.StatusUninstalled, fleet.SourceUninstall)
 			return nil
 		},
 	}

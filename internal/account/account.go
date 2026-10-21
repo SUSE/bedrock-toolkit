@@ -20,6 +20,8 @@ type Env struct {
 	Out io.Writer
 	// Dir is where apply writes bedrock-block-policy.json.
 	Dir string
+	// Version is bedrock-admin's version, sent in the central report.
+	Version string
 }
 
 func (e *Env) logf(format string, a ...any) {

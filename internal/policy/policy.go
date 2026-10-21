@@ -15,25 +15,28 @@ import (
 // several setups can share an account.
 const (
 	// DefaultID is the id configure suggests and bedrock setup assumes.
-	DefaultID              = "bedrock"
-	Path                   = "/bedrock/"
-	UsersPath              = "/bedrock-users/"
-	BudgetActionsPolicy    = "attach-bedrock-deny"
-	LambdaPolicy           = "monthly-unpause"
-	SchedulerPolicy        = "invoke-unpause-lambda"
-	ScheduleExpression     = "cron(0 6 1 * ? *)"
-	InvokePolicyName       = "bedrock-invoke"
-	BlockPolicyName        = "bedrock-personal-role-only"
-	BlockSid               = "BedrockOnlyViaPersonalRole"
-	SSOInlinePolicyName    = "AwsSSOInlinePolicy"
-	SSORolePathPrefix      = "/aws-reserved/sso.amazonaws.com/"
-	OwnerTag               = "owner"
-	ProductTag             = "product"
-	IDTag                  = "bedrock-admin:id"
-	CostAllocationOwnerTag = "iamPrincipal/owner"
-	WebSearchPolicy        = "web-search"
-	WebSearchTarget        = "web-search"
-	WebSearchConnector     = "web-search"
+	DefaultID           = "bedrock"
+	Path                = "/bedrock/"
+	UsersPath           = "/bedrock-users/"
+	BudgetActionsPolicy = "attach-bedrock-deny"
+	LambdaPolicy        = "monthly-unpause"
+	SchedulerPolicy     = "invoke-unpause-lambda"
+	ScheduleExpression  = "cron(0 6 1 * ? *)"
+	// ReportScheduleExpression runs the central report daily; ReportInput tells the Lambda to report.
+	ReportScheduleExpression = "cron(0 7 * * ? *)"
+	ReportInput              = `{"action":"report"}`
+	InvokePolicyName         = "bedrock-invoke"
+	BlockPolicyName          = "bedrock-personal-role-only"
+	BlockSid                 = "BedrockOnlyViaPersonalRole"
+	SSOInlinePolicyName      = "AwsSSOInlinePolicy"
+	SSORolePathPrefix        = "/aws-reserved/sso.amazonaws.com/"
+	OwnerTag                 = "owner"
+	ProductTag               = "product"
+	IDTag                    = "bedrock-admin:id"
+	CostAllocationOwnerTag   = "iamPrincipal/owner"
+	WebSearchPolicy          = "web-search"
+	WebSearchTarget          = "web-search"
+	WebSearchConnector       = "web-search"
 	// WebSearchConnectorVersion is the tested AgentCore Web Search connector version.
 	WebSearchConnectorVersion = "1.2.0"
 )
@@ -47,6 +50,7 @@ func LambdaName(id string) string         { return "bedrock-monthly-unpause-" + 
 func LambdaRole(id string) string         { return "bedrock-monthly-unpause-" + id }
 func SchedulerRole(id string) string      { return "bedrock-monthly-unpause-scheduler-" + id }
 func ScheduleName(id string) string       { return "bedrock-monthly-unpause-" + id }
+func ReportScheduleName(id string) string { return "bedrock-daily-report-" + id }
 func WebSearchRole(id string) string      { return "bedrock-web-search-gateway-" + id }
 func WebSearchGateway(id string) string   { return "bedrock-web-search-" + id }
 func ExportName(id string) string         { return "bedrock-cur-" + id }
@@ -199,24 +203,30 @@ func WebSearchGatewayPermissions(region, account, id string) string {
 }
 
 // LambdaPermissions lets the monthly Lambda re-arm budget actions, keep manual pauses in place and
-// write snapshots, for the id's users only.
-func LambdaPermissions(region, account, id, bucket, snapshotPrefix string) string {
-	return document(
-		stmt{"Sid": "Budgets", "Effect": "Allow", "Action": []string{"budgets:DescribeBudgetActionsForAccount",
+// write snapshots, for the id's users only; with reportBucket, also write this account's central
+// report.
+func LambdaPermissions(region, account, id, bucket, snapshotPrefix, reportBucket string) string {
+	s := []stmt{
+		{"Sid": "Budgets", "Effect": "Allow", "Action": []string{"budgets:DescribeBudgetActionsForAccount",
 			"budgets:DescribeBudgetAction", "budgets:ExecuteBudgetAction", "budgets:DescribeBudgetActionHistories",
 			"budgets:ViewBudget"}, "Resource": "*"},
-		stmt{"Sid": "ReadUserRoles", "Effect": "Allow", "Action": []string{"iam:ListRoleTags", "iam:ListAttachedRolePolicies"},
+		{"Sid": "ReadUserRoles", "Effect": "Allow", "Action": []string{"iam:ListRoleTags", "iam:ListAttachedRolePolicies", "iam:GetRole"},
 			"Resource": UserRolesArn(account, id)},
-		stmt{"Sid": "KeepManualPauses", "Effect": "Allow", "Action": "iam:AttachRolePolicy",
+		{"Sid": "KeepManualPauses", "Effect": "Allow", "Action": "iam:AttachRolePolicy",
 			"Resource":  UserRolesArn(account, id),
 			"Condition": doc{"ArnEquals": doc{"iam:PolicyARN": DenyPolicyArn(account, id)}}},
-		stmt{"Sid": "KeepManualPausesIAMUsers", "Effect": "Allow", "Action": "iam:AttachUserPolicy",
+		{"Sid": "KeepManualPausesIAMUsers", "Effect": "Allow", "Action": "iam:AttachUserPolicy",
 			"Resource": IAMUsersArn(account), "Condition": idUserCondition(account, id)},
-		stmt{"Sid": "Snapshots", "Effect": "Allow", "Action": "s3:PutObject",
+		{"Sid": "Snapshots", "Effect": "Allow", "Action": "s3:PutObject",
 			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", bucket, snapshotPrefix)},
-		stmt{"Sid": "Logs", "Effect": "Allow", "Action": []string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"},
+		{"Sid": "Logs", "Effect": "Allow", "Action": []string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"},
 			"Resource": fmt.Sprintf("arn:aws:logs:%s:%s:log-group:/aws/lambda/%s:*", region, account, LambdaName(id))},
-	)
+	}
+	if reportBucket != "" {
+		s = append(s, stmt{"Sid": "CentralReport", "Effect": "Allow", "Action": "s3:PutObject",
+			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", reportBucket, account)})
+	}
+	return document(s...)
 }
 
 func SchedulerPermissions(region, account, id string) string {

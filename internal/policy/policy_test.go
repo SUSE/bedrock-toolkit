@@ -150,3 +150,14 @@ func TestIAMUsersPolicy(t *testing.T) {
 		t.Fatalf("names %s %s", IAMUsersPolicyName("t"), IAMUsersPolicyArn("1", "t"))
 	}
 }
+
+func TestLambdaPermissionsReport(t *testing.T) {
+	off := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "")
+	if strings.Contains(off, "CentralReport") {
+		t.Fatalf("report statement without a bucket:\n%s", off)
+	}
+	on := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "central")
+	if !strings.Contains(on, `"arn:aws:s3:::central/123456789012/*"`) || !strings.Contains(on, "iam:GetRole") {
+		t.Fatalf("report statement:\n%s", on)
+	}
+}

@@ -291,3 +291,21 @@ func TestConfigureBaselineModels(t *testing.T) {
 		t.Fatalf("--model: %d\n%s\n%s", code, out, errs)
 	}
 }
+
+func TestConfigureReport(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
+	args := []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--account", "123456789012", "--region", "eu-west-1"}
+	code, out, errs := run(t, append(args, "--report-bucket", "central-reports", "--report-region", "us-east-1")...)
+	if code != 0 || !strings.Contains(out, "report:\n  bucket: central-reports\n  region: us-east-1\n") {
+		t.Fatalf("report: %d\n%s\n%s", code, out, errs)
+	}
+	code, _, errs = run(t, append(args, "--report-bucket", "central-reports")...)
+	if code == 0 || !strings.Contains(errs, "report.region") {
+		t.Fatalf("missing region: %d\n%s", code, errs)
+	}
+	if _, out, _ := run(t, args...); strings.Contains(out, "report:") {
+		t.Fatalf("report: without a bucket:\n%s", out)
+	}
+}

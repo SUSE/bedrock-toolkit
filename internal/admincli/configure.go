@@ -21,6 +21,7 @@ import (
 
 type configureFlags struct {
 	id, account, region, product, bucket, prefix, method, adminPS string
+	reportBucket, reportRegion                                    string
 	models                                                        []string
 	limit                                                         float64
 	block                                                         bool
@@ -53,6 +54,8 @@ Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 	fl.BoolVar(&f.block, "block-direct-calls", true, "block model calls outside personal roles (Step 1.7)")
 	fl.StringVar(&f.method, "method", "", "how the org admin applies Step 1.7: permission-set or scp")
 	fl.StringVar(&f.adminPS, "admin-permission-set", "", "permission set exempt from Step 1.7 (default: BedrockAdmin)")
+	fl.StringVar(&f.reportBucket, "report-bucket", "", "central report bucket your central admin gave you (default: no report)")
+	fl.StringVar(&f.reportRegion, "report-region", "", "region of --report-bucket")
 	return cmd
 }
 
@@ -90,6 +93,8 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	set(&cur.CostExport.Prefix, f.prefix)
 	set(&cur.BlockDirectCalls.Method, f.method)
 	set(&cur.BlockDirectCalls.AdminPermissionSet, f.adminPS)
+	set(&cur.Report.Bucket, f.reportBucket)
+	set(&cur.Report.Region, f.reportRegion)
 	if len(f.models) > 0 {
 		cur.Models = f.models
 	}
@@ -246,7 +251,14 @@ func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) err
 			return err
 		}
 	}
-	return nil
+	if err := q("report-bucket", "central report bucket, if your central admin gave you one (\"-\": none)", &c.Report.Bucket, "-"); err != nil {
+		return err
+	}
+	if c.Report.Bucket == "-" {
+		c.Report = config.Report{}
+		return nil
+	}
+	return q("report-region", "region of the central report bucket", &c.Report.Region, "")
 }
 
 // writeSettings replaces every top-level key except users: in doc with the values of c.
