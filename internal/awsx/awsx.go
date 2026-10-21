@@ -46,13 +46,18 @@ type Clients struct {
 	AgentCore *bedrockagentcorecontrol.Client
 }
 
+// RetryMaxAttempts is the SDK's attempts per call. The default 3 isn't enough for AWS Budgets,
+// which throttles a plan or the Lambda reading many users' budgets.
+const RetryMaxAttempts = 10
+
 // Load reads AWS credentials for profile ("" for the default chain) and region.
 func Load(ctx context.Context, profile, region string) (aws.Config, error) {
 	// A stalled connection otherwise blocks a call for minutes; with a timeout the SDK retries it.
 	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(t *http.Transport) {
 		t.ResponseHeaderTimeout = 60 * time.Second
 	})
-	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpClient)}
+	opts := []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpClient),
+		awsconfig.WithRetryMaxAttempts(RetryMaxAttempts)}
 	if profile != "" {
 		opts = append(opts, awsconfig.WithSharedConfigProfile(profile))
 	}

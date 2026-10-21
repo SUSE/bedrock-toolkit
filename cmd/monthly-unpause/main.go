@@ -43,7 +43,7 @@ func handler(ctx context.Context, ev event) (any, error) {
 
 // manager builds the pause manager of the Lambda's id; budgets lives in us-east-1.
 func manager(ctx context.Context, setupID string) (*pause.Manager, aws.Config, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRetryMaxAttempts(10)) // as awsx.RetryMaxAttempts: Budgets throttles
 	if err != nil {
 		return nil, cfg, err
 	}
