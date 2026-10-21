@@ -71,6 +71,14 @@ func New(ctx context.Context, profile, region, account string) (*Clients, error)
 	c := FromConfig(cfg)
 	id, err := c.STS.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
+		// Opt-in regions that the account hasn't enabled reject every token at their STS endpoint.
+		if ErrorCode(err) == "InvalidClientTokenId" && cfg.Region != "" && cfg.Region != "us-east-1" {
+			east := cfg.Copy()
+			east.Region = "us-east-1"
+			if id, e := sts.NewFromConfig(east).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); e == nil {
+				return nil, fmt.Errorf("region %s is not enabled in account %s (an opt-in region): use another region, or enable it in the AWS console under Account, AWS Regions", cfg.Region, aws.ToString(id.Account))
+			}
+		}
 		hint := ""
 		if profile != "" {
 			hint = fmt.Sprintf(" (try: aws sso login --profile %s)", profile)
