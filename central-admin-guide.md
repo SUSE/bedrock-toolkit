@@ -103,7 +103,7 @@ pass `--report-bucket` and `--report-region` to `bedrock-admin configure`) and r
 report:
   bucket: bedrock-reports-999999999999
   region: us-east-1        # the bucket's region
-  include_emails: false    # true also sends each user's email, set up and paused
+  include_emails: false    # true also sends each user's email, product, set up and paused
 ```
 
 `apply` sends the first report at once and creates the daily schedule. Ask for
@@ -121,15 +121,23 @@ bedrock-reports-999999999999 in us-east-1.` With several tagged buckets it lists
 `--bucket`.
 
 ```text
-ACCOUNT       ID       REGION     VERSION  ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
-111111111111  bedrock  us-east-1  v1.1.0   25         10      0       412.30       2026-10  3h ago    active
-222222222222  bedrock  eu-west-1  v1.1.0   12         3       1       57.10        2026-10  5h ago    active
+ACCOUNT       ID       REGION     VERSION  PRODUCTS             ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
+111111111111  bedrock  us-east-1  v1.2.0   harvester, longhorn  25         10      0       412.30       2026-10  3h ago    active
+222222222222  bedrock  eu-west-1  v1.2.0   rancher              12         3       1       57.10        2026-10  5h ago    active
+
+PRODUCT    SETUPS  ONBOARDED  SET UP  PAUSED  SPEND (USD)
+longhorn   1       22         8       0       380.00
+rancher    1       12         3       1       57.10
+harvester  1       3          2       0       32.30
 
 2 installed setups: 37 onboarded, 13 set up, 1 paused; $469.40 this month.
 ```
 
-One line per setup (account and id), its latest report. The totals count `active` setups only, and
-spend only of reports from this month. `--json` prints the full reports, with emails where sent.
+One line per setup (account and id), its latest report. `PRODUCTS` lists the setup's `product:`
+first, then the other products its users have (a user's own `product:` overrides the setup's). The
+`PRODUCT` table and the totals count `active` setups only, and spend only of reports from this
+month. A report from a version before v1.2.0 has no products and shows `-` until the team applies
+with a newer one. `--json` prints the full reports, with emails where sent.
 Objects that aren't valid reports, or whose content doesn't match their key, are listed as problems.
 
 A `REPORTED` older than a day means the setup's Lambda didn't run or couldn't write: ask the team
@@ -142,12 +150,14 @@ to run `bedrock-admin doctor` and `apply`.
 | Field | |
 | --- | --- |
 | `account`, `id`, `region`, `version` | The setup and the `bedrock-admin` version that applied it |
+| `product` | The setup's default `product:` |
 | `status`, `source`, `reported_at` | `active` or `uninstalled`; sent by `apply`, `lambda` or `uninstall`; when |
 | `defaults` | Default `limit_usd`, `pause_at_percent`, `alert_at_percent` |
 | `models`, `web_search` | The setup's `models:` (empty: any Claude model) and whether web search is on |
 | `users` | Counts: `onboarded`, `set_up`, `paused`, `iam_users` |
 | `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day) |
-| `people` | Only with `include_emails: true`: each user's `email`, `kind`, `set_up`, `paused` |
+| `products` | Per product (each user's, else the setup's): `product`, `users` counts, `spend_usd` |
+| `people` | Only with `include_emails: true`: each user's `email`, `kind`, `product`, `set_up`, `paused` |
 
 "Set up" means the user's personal role has been used (`bedrock setup` uses it); AWS updates this
 with up to about 4 hours of delay. It's the same figure the team sees in `bedrock-admin users`.

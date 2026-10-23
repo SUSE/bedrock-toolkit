@@ -29,6 +29,37 @@ func TestWriteFleet(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, s)
 		}
 	}
+	if strings.Contains(s, "PRODUCT ") {
+		t.Errorf("no product section when no report has a product:\n%s", s)
+	}
+}
+
+func TestWriteFleetProducts(t *testing.T) {
+	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	a := &App{Out: &out}
+	writeFleet(a, []fleet.Report{
+		{Account: "111111111111", ID: "bedrock", Product: "harvester", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10",
+			SpendUSD: 30, Users: fleet.Counts{Onboarded: 5, SetUp: 3},
+			Products: []fleet.ProductSummary{
+				{Product: "longhorn", Users: fleet.Counts{Onboarded: 4, SetUp: 2}, SpendUSD: 20},
+				{Product: "harvester", Users: fleet.Counts{Onboarded: 1, SetUp: 1}, SpendUSD: 10},
+			}},
+		{Account: "222222222222", ID: "team", Product: "longhorn", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10",
+			SpendUSD: 7, Users: fleet.Counts{Onboarded: 2, SetUp: 2}},
+		{Account: "333333333333", ID: "old", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10",
+			SpendUSD: 1, Users: fleet.Counts{Onboarded: 1}},
+	}, now)
+	s := out.String()
+	for _, want := range []string{
+		"harvester, longhorn",
+		"PRODUCT    SETUPS  ONBOARDED  SET UP  PAUSED  SPEND (USD)\nlonghorn   2       6          4       0       27.00\nharvester  1       1          1       0       10.00\n-          1       1          0       0       1.00\n",
+		"3 installed setups: 8 onboarded, 5 set up, 0 paused; $38.00 this month.",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lacks %q:\n%s", want, s)
+		}
+	}
 }
 
 func TestFleetInitFlags(t *testing.T) {

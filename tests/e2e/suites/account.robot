@@ -171,8 +171,9 @@ The Lambda Sends The Daily Report
 Fleet Report Shows The Setup
     ${f}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --json
     ...    config=none
-    ${ids}=    Evaluate    [r["id"] for r in $f["reports"] if r["account"] == $ACCOUNT]
-    Should Contain    ${ids}    ${ID}
+    ${mine}=    Evaluate    [r for r in $f["reports"] if r["account"] == $ACCOUNT and r["id"] == $ID]
+    Length Should Be    ${mine}    1
+    Should Be Equal    ${mine}[0][product]    ${PRODUCT}
     Should Not Contain    ${f}    problems
 
 Export Keeps The Report Settings

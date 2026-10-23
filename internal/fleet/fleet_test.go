@@ -56,6 +56,24 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+func TestBuildProducts(t *testing.T) {
+	us := users()
+	us[1].Product = "longhorn"
+	us[3].Product = "longhorn"
+	s := Setup{ID: "acme", Product: "harvester", IncludeEmails: true}
+	r := Build(s, "123456789012", StatusActive, SourceApply, us, now)
+	want := []ProductSummary{
+		{Product: "harvester", Users: Counts{Onboarded: 2, SetUp: 2, Paused: 1}, SpendUSD: 10},
+		{Product: "longhorn", Users: Counts{Onboarded: 2, Paused: 1, IAMUsers: 1}, SpendUSD: 5},
+	}
+	if r.Product != "harvester" || len(r.Products) != 2 || r.Products[0] != want[0] || r.Products[1] != want[1] {
+		t.Fatalf("%s %+v", r.Product, r.Products)
+	}
+	if r.People[0].Product != "harvester" || r.People[1].Product != "longhorn" {
+		t.Fatalf("people's products: %+v", r.People)
+	}
+}
+
 type putter struct {
 	in   *s3.PutObjectInput
 	body string

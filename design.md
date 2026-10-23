@@ -526,10 +526,11 @@ admins.
   the file given with `-f`) and `fleet report` stops. `fleet` reads a `bedrock.yaml` only when `-f`
   is given, and takes only its `profile:` and `region:`.
 - **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
-  region, `bedrock-admin` version, status (`active` or `uninstalled`), source (`apply`, `lambda` or
+  region, `bedrock-admin` version, default product, status (`active` or `uninstalled`), source (`apply`, `lambda` or
   `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts
   (onboarded, set up, paused, with an IAM user), the month and the sum of the id's budgets' actual
-  spend. With `include_emails: true`, also each user's email, kind, set up and paused.
+  spend, and the same counts and spend per product (the product tag on each user's role, else the
+  setup's). With `include_emails: true`, also each user's email, kind, product, set up and paused.
 - **Senders**: `apply` after a run with no failures, and `uninstall` (status `uninstalled`), with
   the admin's credentials; a failure is a warning. The Lambda, invoked daily at 07:00 UTC by a
   second schedule `bedrock-daily-report-<id>` with input `{"action":"report"}`. `apply` passes it

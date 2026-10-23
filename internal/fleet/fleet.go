@@ -35,6 +35,7 @@ type User struct {
 	Role     string      `json:"role"`
 	Budget   string      `json:"budget"`
 	Kind     string      `json:"kind"`
+	Product  string      `json:"product,omitempty"`
 	IAMUsers []string    `json:"iam_users,omitempty"`
 	LastUsed time.Time   `json:"last_used,omitzero"`
 	State    pause.State `json:"state"`
@@ -77,7 +78,7 @@ func Collect(ctx context.Context, m *pause.Manager, roles RoleGetter) ([]User, e
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	for i, s := range snap.Users {
-		u := User{Email: s.Email, Role: s.Role, Budget: s.Budget, Kind: KindSSO, IAMUsers: iamUsers[s.Budget],
+		u := User{Email: s.Email, Role: s.Role, Budget: s.Budget, Kind: KindSSO, Product: s.Product, IAMUsers: iamUsers[s.Budget],
 			State: s.State, LimitUSD: s.LimitUSD, SpendUSD: spend[s.Budget]}
 		if len(u.IAMUsers) > 0 {
 			u.Kind = KindIAMUser
@@ -190,6 +191,7 @@ type Setup struct {
 	ID            string   `json:"id"`
 	Region        string   `json:"region"`
 	Version       string   `json:"version"`
+	Product       string   `json:"product,omitempty"`
 	Defaults      Defaults `json:"defaults"`
 	Models        []string `json:"models,omitempty"`
 	WebSearch     bool     `json:"web_search"`
@@ -201,7 +203,7 @@ type Setup struct {
 // SetupFrom builds the setup part from the config.
 func SetupFrom(cfg *config.Config, version string) Setup {
 	d := cfg.ResolveUser(config.User{})
-	return Setup{ID: cfg.ID, Region: cfg.Region, Version: version,
+	return Setup{ID: cfg.ID, Region: cfg.Region, Version: version, Product: cfg.Product,
 		Defaults: Defaults{LimitUSD: d.LimitUSD, PauseAtPercent: d.PauseAtPercent, AlertAtPercent: d.AlertAtPercent},
 		Models:   cfg.Models, WebSearch: cfg.WebSearch.Enabled, Bucket: cfg.Report.Bucket, BucketRegion: cfg.Report.Region,
 		IncludeEmails: cfg.Report.IncludeEmails}
@@ -209,19 +211,22 @@ func SetupFrom(cfg *config.Config, version string) Setup {
 
 // Person is one user in a report with include_emails.
 type Person struct {
-	Email  string `json:"email"`
-	Kind   string `json:"kind"`
-	SetUp  bool   `json:"set_up"`
-	Paused bool   `json:"paused"`
+	Email   string `json:"email"`
+	Kind    string `json:"kind"`
+	Product string `json:"product,omitempty"`
+	SetUp   bool   `json:"set_up"`
+	Paused  bool   `json:"paused"`
 }
 
 // Report is what a setup sends to the central bucket.
 type Report struct {
-	Schema     int       `json:"schema"`
-	Account    string    `json:"account"`
-	ID         string    `json:"id"`
-	Region     string    `json:"region"`
-	Version    string    `json:"version"`
+	Schema  int    `json:"schema"`
+	Account string `json:"account"`
+	ID      string `json:"id"`
+	Region  string `json:"region"`
+	Version string `json:"version"`
+	// Product is the setup's default product; Products splits users and spend by each user's product.
+	Product    string    `json:"product,omitempty"`
 	Status     string    `json:"status"`
 	Source     string    `json:"source"`
 	ReportedAt time.Time `json:"reported_at"`
@@ -231,23 +236,65 @@ type Report struct {
 	WebSearch bool     `json:"web_search"`
 	Users     Counts   `json:"users"`
 	// Month and SpendUSD: the sum of the users' budgets' actual spend this month (lags up to a day).
-	Month    string   `json:"month"`
-	SpendUSD float64  `json:"spend_usd"`
-	People   []Person `json:"people,omitempty"`
+	Month    string           `json:"month"`
+	SpendUSD float64          `json:"spend_usd"`
+	Products []ProductSummary `json:"products,omitempty"`
+	People   []Person         `json:"people,omitempty"`
 }
+
+// ProductSummary is one product's users and spend in a report.
+type ProductSummary struct {
+	Product  string  `json:"product"`
+	Users    Counts  `json:"users"`
+	SpendUSD float64 `json:"spend_usd"`
+}
+
+// ByProduct groups users by product (a user without one has the setup's), the most spend first.
+func ByProduct(us []User, defaultProduct string) []ProductSummary {
+	groups := map[string][]User{}
+	for _, u := range us {
+		p := u.Product
+		if p == "" {
+			p = defaultProduct
+		}
+		groups[p] = append(groups[p], u)
+	}
+	out := make([]ProductSummary, 0, len(groups))
+	for p, g := range groups {
+		s := ProductSummary{Product: p, Users: Count(g)}
+		for _, u := range g {
+			s.SpendUSD += u.SpendUSD
+		}
+		s.SpendUSD = cents(s.SpendUSD)
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SpendUSD != out[j].SpendUSD {
+			return out[i].SpendUSD > out[j].SpendUSD
+		}
+		return out[i].Product < out[j].Product
+	})
+	return out
+}
+
+func cents(v float64) float64 { return float64(int64(v*100+0.5)) / 100 }
 
 // Build makes a report.
 func Build(s Setup, account, status, source string, us []User, now time.Time) Report {
-	r := Report{Schema: SchemaVersion, Account: account, ID: s.ID, Region: s.Region, Version: s.Version, Status: status,
+	r := Report{Schema: SchemaVersion, Account: account, ID: s.ID, Region: s.Region, Version: s.Version, Product: s.Product, Status: status,
 		Source: source, ReportedAt: now.UTC().Truncate(time.Second), Defaults: s.Defaults, Models: s.Models,
-		WebSearch: s.WebSearch, Users: Count(us), Month: now.UTC().Format("2006-01")}
+		WebSearch: s.WebSearch, Users: Count(us), Month: now.UTC().Format("2006-01"), Products: ByProduct(us, s.Product)}
 	for _, u := range us {
 		r.SpendUSD += u.SpendUSD
 		if s.IncludeEmails {
-			r.People = append(r.People, Person{Email: u.Email, Kind: u.Kind, SetUp: u.SetUp(), Paused: u.Paused()})
+			p := u.Product
+			if p == "" {
+				p = s.Product
+			}
+			r.People = append(r.People, Person{Email: u.Email, Kind: u.Kind, Product: p, SetUp: u.SetUp(), Paused: u.Paused()})
 		}
 	}
-	r.SpendUSD = float64(int64(r.SpendUSD*100+0.5)) / 100
+	r.SpendUSD = cents(r.SpendUSD)
 	return r
 }
 

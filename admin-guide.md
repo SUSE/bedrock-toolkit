@@ -379,7 +379,7 @@ users:                          # or: users: !include users.yaml
 | `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
 | `cost_export.snapshot_prefix` | Where the Lambda writes snapshots in the bucket. Default `bedrock-admin/snapshots`. |
 | `report.bucket`, `report.region` | Optional. The central report bucket and its region, from your central admin; see [Central reporting](#central-reporting-optional). Both or neither. |
-| `report.include_emails` | Default false. True also sends each user's email, set up and paused. |
+| `report.include_emails` | Default false. True also sends each user's email, product, set up and paused. |
 
 `!include` works anywhere in the file. Duplicate emails or names are rejected. Every problem in the
 file is reported at once.
@@ -1112,15 +1112,15 @@ If your organization has a central admin who follows several teams' setups, they
 report:
   bucket: bedrock-reports-999999999999
   region: us-east-1        # the bucket's region
-  include_emails: false    # true also sends each user's email, set up and paused
+  include_emails: false    # true also sends each user's email, product, set up and paused
 ```
 
 The setup then sends a short report on every `apply`, daily at 07:00 UTC from the monthly Lambda (a
 second schedule, `bedrock-daily-report-<id>`), and once more on `uninstall`, marked `uninstalled`.
 A failed report is only a warning. The report is `s3://<bucket>/<account>/<id>.json`: the id,
-region, `bedrock-admin` version, default limit and pause and alert percentages, `models:`, web
+region, `bedrock-admin` version, `product:`, default limit and pause and alert percentages, `models:`, web
 search on or off, counts of onboarded, set up and paused users, and this month's total spend from
-the users' budgets. It holds no emails unless `include_emails: true`. Your setup can write only its
+the users' budgets, with the counts and spend also split by each user's product. It holds no emails unless `include_emails: true`. Your setup can write only its
 own account's reports and can't read any. Remove `report:` and run `apply` to stop; `apply` removes
 the daily schedule.
 

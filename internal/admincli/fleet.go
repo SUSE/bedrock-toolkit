@@ -489,8 +489,8 @@ func (a *App) fleetReportCmd() *cobra.Command {
 		Use:   "report",
 		Short: "Show the latest report of every setup",
 		Long: `fleet report reads the central report bucket and shows one line per setup (account and id):
-its users (onboarded, set up, paused), this month's spend, when it last reported and whether it
-is still installed. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
+its products, users (onboarded, set up, paused), this month's spend, when it last reported and
+whether it is still installed, then the installed setups' users and spend per product. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
 --json prints the full reports, with users' emails for setups that send them. Without --bucket it
 reads the bucket fleet init tagged.`,
 		Args: cobra.NoArgs,
@@ -532,33 +532,107 @@ reads the bucket fleet init tagged.`,
 	return cmd
 }
 
-// writeFleet prints one line per setup and the totals of the installed ones.
+// writeFleet prints one line per setup, then the installed setups' totals by product and overall.
 func writeFleet(a *App, reports []fleet.Report, now time.Time) {
 	if len(reports) == 0 {
 		a.printf("No reports yet.\n")
 		return
 	}
+	month := now.UTC().Format("2006-01")
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tONBOARDED\tSET UP\tPAUSED\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
+	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tPRODUCTS\tONBOARDED\tSET UP\tPAUSED\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
 	var total fleet.Counts
 	var spend float64
 	setups := 0
+	type productTotal struct {
+		setups int
+		users  fleet.Counts
+		spend  float64
+	}
+	byProduct := map[string]*productTotal{}
+	known := false
 	for _, r := range reports {
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%.2f\t%s\t%s\t%s\n", r.Account, r.ID, r.Region, r.Version,
+		products := reportProducts(r)
+		names := make([]string, 0, len(products))
+		if r.Product != "" {
+			names = append(names, r.Product)
+		}
+		for _, p := range products {
+			if p.Product != r.Product && p.Product != noProduct {
+				names = append(names, p.Product)
+			}
+		}
+		list := strings.Join(names, ", ")
+		if list == "" {
+			list = noProduct
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%.2f\t%s\t%s\t%s\n", r.Account, r.ID, r.Region, r.Version, list,
 			r.Users.Onboarded, r.Users.SetUp, r.Users.Paused, r.SpendUSD, r.Month, ago(now, r.ReportedAt), r.Status)
-		if r.Status == fleet.StatusActive {
-			setups++
-			total.Onboarded += r.Users.Onboarded
-			total.SetUp += r.Users.SetUp
-			total.Paused += r.Users.Paused
-			total.IAMUsers += r.Users.IAMUsers
-			if r.Month == now.UTC().Format("2006-01") {
-				spend += r.SpendUSD
+		if r.Status != fleet.StatusActive {
+			continue
+		}
+		setups++
+		total = addCounts(total, r.Users)
+		if r.Month == month {
+			spend += r.SpendUSD
+		}
+		for _, p := range products {
+			known = known || p.Product != noProduct
+			t := byProduct[p.Product]
+			if t == nil {
+				t = &productTotal{}
+				byProduct[p.Product] = t
+			}
+			t.setups++
+			t.users = addCounts(t.users, p.Users)
+			if r.Month == month {
+				t.spend += p.SpendUSD
 			}
 		}
 	}
 	_ = w.Flush()
+	if known {
+		names := make([]string, 0, len(byProduct))
+		for p := range byProduct {
+			names = append(names, p)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			if byProduct[names[i]].spend != byProduct[names[j]].spend {
+				return byProduct[names[i]].spend > byProduct[names[j]].spend
+			}
+			return names[i] < names[j]
+		})
+		a.printf("\n")
+		w = tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "PRODUCT\tSETUPS\tONBOARDED\tSET UP\tPAUSED\tSPEND (USD)")
+		for _, p := range names {
+			t := byProduct[p]
+			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%.2f\n", p, t.setups, t.users.Onboarded, t.users.SetUp, t.users.Paused, t.spend)
+		}
+		_ = w.Flush()
+	}
 	a.printf("\n%d installed setups: %s; $%.2f this month.\n", setups, total.Text(), spend)
+}
+
+// noProduct stands for the product of a report from a version that didn't send it.
+const noProduct = "-"
+
+// reportProducts is the report's product split; a report from an older version counts as one
+// product: its default, or noProduct.
+func reportProducts(r fleet.Report) []fleet.ProductSummary {
+	if len(r.Products) > 0 {
+		return r.Products
+	}
+	p := r.Product
+	if p == "" {
+		p = noProduct
+	}
+	return []fleet.ProductSummary{{Product: p, Users: r.Users, SpendUSD: r.SpendUSD}}
+}
+
+func addCounts(a, b fleet.Counts) fleet.Counts {
+	return fleet.Counts{Onboarded: a.Onboarded + b.Onboarded, SetUp: a.SetUp + b.SetUp, Paused: a.Paused + b.Paused,
+		IAMUsers: a.IAMUsers + b.IAMUsers}
 }
 
 // ago is how long before now t was, in a short form.
