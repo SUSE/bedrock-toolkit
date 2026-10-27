@@ -15,6 +15,7 @@ import (
 
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 	"github.com/SUSE/bedrock-toolkit/internal/websearch"
 )
 
@@ -37,6 +38,20 @@ type fakeAWS struct {
 	policyErr  error
 	policyRole string
 	userEmail  map[string]string // IAM user -> email tag
+	files      map[string]*usage.UserFile
+	filesErr   error
+	filesAsked []string
+}
+
+func (f *fakeAWS) UsageFiles(_ context.Context, _, role string, months []string) (map[string]*usage.UserFile, error) {
+	f.filesAsked = append(f.filesAsked, role+" "+strings.Join(months, ","))
+	out := map[string]*usage.UserFile{}
+	for _, m := range months {
+		if x := f.files[m]; x != nil {
+			out[m] = x
+		}
+	}
+	return out, f.filesErr
 }
 
 func (f *fakeAWS) UserEmail(_ context.Context, _, user string) (string, error) {

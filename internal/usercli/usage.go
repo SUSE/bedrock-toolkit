@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 // Budget is a user's own budget and pause state, as their personal role reads them.
@@ -42,22 +44,56 @@ type usageJSON struct {
 	State      string    `json:"state"`
 	Detail     string    `json:"detail"`
 	AsOf       time.Time `json:"as_of,omitzero"`
+	daily
+}
+
+type monthJSON struct {
+	Month    string  `json:"month"`
+	TotalUSD float64 `json:"total_usd"`
+	daily
 }
 
 func (a *App) usageCmd() *cobra.Command {
-	var profile string
+	var profile, month string
+	var days int
 	cmd := &cobra.Command{
 		Use:   "usage",
 		Short: "Show this month's spend against your budget, and whether you are paused",
 		Long: `usage reads your own monthly budget and your personal role, with the bedrock profile: what you
-spent this month, the forecast, where you get paused and whether you are paused now.
+spent this month, the forecast, where you get paused and whether you are paused now. Then it shows
+your spend per day of the last --days days and per model this month, from the usage file the
+account writes for you every day at 07:00 UTC.
 
-AWS refreshes budget spend a few times a day, so the last hours are not in it yet. Web search is not
-counted: the account pays for it.`,
+With --month YYYY-MM it shows that month's days and models only, without the budget.
+
+AWS refreshes budget spend a few times a day and the cost export up to a day late, so the last hours
+are not in them yet. Web search is not counted: the account pays for it.`,
+		Example: `  bedrock usage
+  bedrock usage --days 30
+  bedrock usage --month 2026-04`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return a.usage(cmd.Context(), profile) },
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if days < 1 || days > 62 {
+				return fmt.Errorf("--days must be 1 to 62 (got %d)", days)
+			}
+			if month != "" {
+				if _, err := time.Parse("2006-01", month); err != nil {
+					return fmt.Errorf("--month must be YYYY-MM (got %q)", month)
+				}
+				if month > a.now().UTC().Format("2006-01") {
+					return fmt.Errorf("--month %s is in the future", month)
+				}
+				if cmd.Flags().Changed("days") {
+					return errors.New("--days and --month don't go together")
+				}
+				return a.usageMonth(cmd.Context(), profile, month)
+			}
+			return a.usage(cmd.Context(), profile, days)
+		},
 	}
 	cmd.Flags().StringVar(&profile, "profile-name", DefaultProfile, "profile of your personal role")
+	cmd.Flags().IntVar(&days, "days", 14, "days of daily spend to show")
+	cmd.Flags().StringVar(&month, "month", "", "show the days and models of this month (YYYY-MM) instead")
 	cmd.Flags().BoolVar(&a.JSON, "json", false, "print as JSON")
 	return cmd
 }
@@ -105,7 +141,33 @@ func profileRole(profile string) (account, id, role string, err error) {
 	return "", "", "", fmt.Errorf("profile %s: role_arn %s is not a personal Bedrock role", profile, arn)
 }
 
-func (a *App) usage(ctx context.Context, profile string) error {
+// usageMonth shows one month's days and models, from the usage file only.
+func (a *App) usageMonth(ctx context.Context, profile, month string) error {
+	_, role, _, err := ownBudget(profile)
+	if err != nil {
+		return err
+	}
+	now := a.now().UTC()
+	start, _ := time.Parse("2006-01", month)
+	d, err := a.readDaily(ctx, profile, role, month, usage.Dates(month, now), now)
+	if err != nil {
+		return fmt.Errorf("%w\nif your sign-in expired: aws sso login, then try again", short(err))
+	}
+	total := 0.0
+	for _, r := range d.Days {
+		total += r.USD
+	}
+	if a.JSON {
+		return cli.WriteJSON(a.Out, monthJSON{Month: month, TotalUSD: math.Round(total*100) / 100, daily: d})
+	}
+	d.write(a.Out, fmt.Sprintf("Your spend in %s (%s)", start.Format("January 2006"), asOfText(d.AsOf)), "Per model")
+	if d.Note == "" {
+		a.printf("\nTotal %s\n", usd(total))
+	}
+	return nil
+}
+
+func (a *App) usage(ctx context.Context, profile string, days int) error {
 	account, role, budget, err := ownBudget(profile)
 	if err != nil {
 		return err
@@ -126,9 +188,13 @@ func (a *App) usage(ctx context.Context, profile string) error {
 		trigger = b.Limit * b.PauseAt / 100
 	}
 	state, detail := userState(b.Pause, now)
+	d, err := a.readDaily(ctx, profile, role, now.Format("2006-01"), lastDays(days, now), now)
+	if err != nil {
+		d = daily{Days: []usage.DayUSD{}, Models: []usage.Amount{}, Note: "Could not read your daily usage: " + short(err).Error()}
+	}
 	if a.JSON {
 		return cli.WriteJSON(a.Out, usageJSON{Month: now.Format("2006-01"), Budget: budget, LimitUSD: b.Limit, SpentUSD: b.Spent,
-			Forecast: b.Forecast, TriggerUSD: trigger, State: state, Detail: detail, AsOf: b.Updated})
+			Forecast: b.Forecast, TriggerUSD: trigger, State: state, Detail: detail, AsOf: b.Updated, daily: d})
 	}
 	a.printf("Budget     %s, %s (resets %s)\n", budget, now.Format("January 2006"), pause.NextMonth(now).Format("Jan 2"))
 	a.printf("Spent      %s of %s%s\n", usd(b.Spent), usd(b.Limit), percent(b.Spent, b.Limit))
@@ -142,6 +208,8 @@ func (a *App) usage(ctx context.Context, profile string) error {
 	if !b.Updated.IsZero() {
 		a.printf("As of      %s (AWS refreshes budgets a few times a day)\n", b.Updated.UTC().Format("Jan 2 15:04 MST"))
 	}
+	a.printf("\n")
+	d.write(a.Out, fmt.Sprintf("Per day (%s)", asOfText(d.AsOf)), "Per model this month")
 	a.printf("\nWeb search is not counted here: the account pays for it.\n")
 	return nil
 }

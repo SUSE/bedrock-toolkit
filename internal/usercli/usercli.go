@@ -18,6 +18,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 // DefaultProfile is the profile setup writes.
@@ -37,6 +38,9 @@ type AWS interface {
 	WebSearch(ctx context.Context, profile, region, url string, search bool) error
 	// Budget reads the user's own budget, pause threshold and pause state with their personal role.
 	Budget(ctx context.Context, profile, account, role, budget string) (Budget, error)
+	// UsageFiles reads the personal role's daily usage files of months, where its usage tag points;
+	// months without a file are missing from the map.
+	UsageFiles(ctx context.Context, profile, role string, months []string) (map[string]*usage.UserFile, error)
 	// RolePolicy reads the personal role's own invoke policy, decoded.
 	RolePolicy(ctx context.Context, profile, role string) (string, error)
 	// UserEmail reads the owner tag of the IAM user a profile signs in as.

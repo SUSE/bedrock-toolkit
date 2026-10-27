@@ -203,7 +203,7 @@ func (d DayReport) Write(w io.Writer, s Sections) {
 	rows = append(rows, append(cols, fmt.Sprintf("%.2f", round2(t))))
 	bars = append(bars, "")
 	fmt.Fprintln(w)
-	writeTable(w, rows, bars)
+	WriteTable(w, rows, bars)
 	if tracked {
 		fmt.Fprintf(w, "ACTIVE: users who spent at least $0.01 that day; Total: in the month (%d of %d users)\n", d.ActiveUsers, d.Users)
 	}
@@ -230,9 +230,9 @@ func Bar(v, top float64, width int) string {
 	return strings.Repeat("█", n/8) + eighths[n%8]
 }
 
-// writeTable prints rows with the first column left-aligned and the others right-aligned, then each
+// WriteTable prints rows with the first column left-aligned and the others right-aligned, then each
 // row's bar.
-func writeTable(w io.Writer, rows [][]string, bars []string) {
+func WriteTable(w io.Writer, rows [][]string, bars []string) {
 	width := make([]int, len(rows[0]))
 	for _, r := range rows {
 		for i, c := range r {

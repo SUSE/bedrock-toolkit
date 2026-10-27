@@ -12,6 +12,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 func runUsage(t *testing.T, f *fakeAWS, cfg string, args ...string) (int, string) {
@@ -102,5 +103,104 @@ func TestUsageErrors(t *testing.T) {
 				t.Fatalf("code %d, want %q in:\n%s", code, c.want, out)
 			}
 		})
+	}
+}
+
+func usageFiles() map[string]*usage.UserFile {
+	return map[string]*usage.UserFile{
+		"2026-04": {Month: "2026-04", ExportAsOf: "2026-04-30T23:00:00Z", Days: []usage.DayUSD{{Date: "2026-04-30", USD: 3}},
+			Models: []usage.Amount{{Key: "claude-old", USD: 3}}, TotalUSD: 3},
+		"2026-05": {Month: "2026-05", ExportAsOf: "2026-05-13T22:00:00Z",
+			Days:   []usage.DayUSD{{Date: "2026-05-01", USD: 1}, {Date: "2026-05-12", USD: 4}, {Date: "2026-05-13", USD: 2}},
+			Models: []usage.Amount{{Key: "claude-sonnet", USD: 6}, {Key: "claude-haiku", USD: 1}}, TotalUSD: 7},
+	}
+}
+
+func TestUsageDaily(t *testing.T) {
+	f := newFake()
+	f.budget = Budget{Limit: 100, Spent: 7, Pause: pause.Status{State: pause.Armed}}
+	f.files = usageFiles()
+	code, out := runUsage(t, f, ssoConfig+"\n"+wantBlock, "--days", "15")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	if f.filesAsked[0] != "bedrock-user-bedrock-achen 2026-04,2026-05" {
+		t.Fatalf("asked %v", f.filesAsked)
+	}
+	for _, w := range []string{"Per day (from the cost export, as of May 13 22:00 UTC)", "2026-04-30  $3.00 ",
+		"2026-05-12  $4.00   ████████████████████████", "2026-05-13  $2.00*", "2026-05-14  $0.00*", "* still being billed",
+		"Per model this month", "claude-sonnet  $6.00", "Spent      $7.00"} {
+		if !strings.Contains(out, w) {
+			t.Fatalf("want %q in:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "2026-04-29") || strings.Contains(out, "claude-old") {
+		t.Fatalf("15 days start on Apr 30, models are this month's:\n%s", out)
+	}
+
+	f.filesAsked = nil
+	if code, out = runUsage(t, f, ssoConfig+"\n"+wantBlock, "--days", "3", "--json"); code != 0 {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	for _, w := range []string{`"days": [`, `"date": "2026-05-12"`, `"partial_from": "2026-05-13"`, `"export_as_of": "2026-05-13T22:00:00Z"`, `"key": "claude-sonnet"`} {
+		if !strings.Contains(out, w) {
+			t.Fatalf("want %s in %s", w, out)
+		}
+	}
+	if f.filesAsked[0] != "bedrock-user-bedrock-achen 2026-05" {
+		t.Fatalf("asked %v", f.filesAsked)
+	}
+}
+
+func TestUsageMonth(t *testing.T) {
+	f := newFake()
+	f.files = usageFiles()
+	code, out := runUsage(t, f, ssoConfig+"\n"+wantBlock, "--month", "2026-04")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	for _, w := range []string{"Your spend in April 2026 (from the cost export, as of Apr 30 23:00 UTC)", "2026-04-01  $0.00",
+		"2026-04-30  $3.00 ", "Per model", "claude-old  $3.00", "Total $3.00"} {
+		if !strings.Contains(out, w) {
+			t.Fatalf("want %q in:\n%s", w, out)
+		}
+	}
+	if f.budgetArgs != "" || strings.Contains(out, "Budget") || strings.Contains(out, "*") {
+		t.Fatalf("a past month has no budget and no partial days:\n%s", out)
+	}
+	if code, out = runUsage(t, f, ssoConfig+"\n"+wantBlock, "--month", "2026-04", "--json"); code != 0 || !strings.Contains(out, `"total_usd": 3`) {
+		t.Fatalf("code %d: %s", code, out)
+	}
+}
+
+func TestUsageDailyHints(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no file", nil, "No daily usage yet: it is written every day at 07:00 UTC"},
+		{"no tag", errNoUsageTag, "Your role cannot read its daily usage yet: ask your admin to run bedrock-admin apply"},
+		{"denied", &smithy.GenericAPIError{Code: "AccessDenied"}, "Your role cannot read its daily usage yet"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake()
+			f.budget = Budget{Limit: 100, Pause: pause.Status{State: pause.Armed}}
+			f.filesErr = c.err
+			code, out := runUsage(t, f, ssoConfig+"\n"+wantBlock)
+			if code != 0 || !strings.Contains(out, c.want) || strings.Contains(out, "DATE") {
+				t.Fatalf("code %d, want %q in:\n%s", code, c.want, out)
+			}
+		})
+	}
+}
+
+func TestUsageFlags(t *testing.T) {
+	for _, c := range [][]string{{"--days", "0"}, {"--days", "63"}, {"--month", "2026-13"}, {"--month", "2026-06"},
+		{"--month", "2026-04", "--days", "3"}} {
+		if code, out := runUsage(t, newFake(), ssoConfig+"\n"+wantBlock, c...); code == 0 {
+			t.Fatalf("%v: want an error, got %s", c, out)
+		}
 	}
 }
