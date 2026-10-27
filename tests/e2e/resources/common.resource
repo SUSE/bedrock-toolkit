@@ -10,9 +10,9 @@ Library             ../lib/BedrockE2E.py
 Start AWS Run
     [Documentation]    Starts a run that uses the admin profile and applies its own setup (id ${ID}).
     ...    Pass an id to use it instead of the run id. Tear Down Run removes the setup again.
-    [Arguments]    ${id}=${EMPTY}
+    [Arguments]    ${setup_id}=${EMPTY}
     Start Run
-    IF    $id    Use Id    ${id}
+    IF    $setup_id    Use Id    ${setup_id}
     Set Up Account
 
 Set Up Account

@@ -164,6 +164,7 @@ class BedrockE2E:
         self.offline = False
         self._sessions = {}
         self._user_sessions = {}
+        self._trust_set_at = {}
 
     # ---------------------------------------------------------------- settings and run
 
@@ -478,12 +479,14 @@ class BedrockE2E:
         email = self.user_email(x)
         arn = self.role_arn_of(x)
         sts = self._session("admin").client("sts")
-        for attempt in range(12):
+        # Assuming right after the trust change can keep failing for minutes; give it time first.
+        time.sleep(max(0, self._trust_set_at.pop(x, 0) + 20 - time.time()))
+        for attempt in range(36):  # a new trust statement can take minutes to apply
             try:
                 cr = sts.assume_role(RoleArn=arn, RoleSessionName=email, DurationSeconds=3600)["Credentials"]
                 break
             except ClientError as e:
-                if attempt == 11 or e.response["Error"]["Code"] != "AccessDenied":
+                if attempt == 35 or e.response["Error"]["Code"] != "AccessDenied":
                     raise Failure(f"can't assume {arn} as {email}: {e}")
                 time.sleep(5)
         sess = boto3.Session(aws_access_key_id=cr["AccessKeyId"], aws_secret_access_key=cr["SecretAccessKey"],
@@ -504,6 +507,7 @@ class BedrockE2E:
             "Sid": "E2EAdminSpends", "Effect": "Allow", "Principal": {"AWS": principal}, "Action": "sts:AssumeRole",
             "Condition": {"StringEquals": {"sts:RoleSessionName": self.user_email(x)}}}]
         self._iam().update_assume_role_policy(RoleName=role, PolicyDocument=json.dumps(doc))
+        self._trust_set_at[x] = time.time()
         return f"user:{x}"
 
     def _iam(self):

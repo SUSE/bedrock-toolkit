@@ -61,27 +61,27 @@ Several Months
 
 The Daily Run Writes Each User's Usage File
     Invoke Daily Lambda
-    ${a}=    Usage File    ${A}
-    Should Be Close    ${a}[total_usd]    13.25
-    Length Should Be    ${a}[days]    2
-    ${c}=    Usage File    ${C}
-    Should Be Close    ${c}[total_usd]    1.20
+    ${fa}=    Usage File    ${A}
+    Should Be Close    ${fa}[total_usd]    13.25
+    Length Should Be    ${fa}[days]    2
+    ${fc}=    Usage File    ${C}
+    Should Be Close    ${fc}[total_usd]    1.20
     ${role}=    Role Of    ${A}
     ${n}=    Names
     Role Tag Should Be    ${role}    bedrock-admin:usage    s3://${n}[bucket]/bedrock-admin/usage/usage/${role}/
 
 A Personal Role Reads Only Its Own Usage File
     Let Admin Assume    ${A}
-    ${a}=    Usage File    ${A}    as_user=${A}
-    Should Be Close    ${a}[total_usd]    13.25
+    ${fa}=    Usage File    ${A}    as_user=${A}
+    Should Be Close    ${fa}[total_usd]    13.25
     Usage File Should Be Denied    ${B}    as_user=${A}
 
 Offboarding Deletes The User's Usage Files
     Remove User    ${C}
     Apply
     Usage Files Should Not Exist    ${C}
-    ${b}=    Usage File    ${B}
-    Should Be Close    ${b}[total_usd]    4.00
+    ${fb}=    Usage File    ${B}
+    Should Be Close    ${fb}[total_usd]    4.00
 
 
 *** Keywords ***
