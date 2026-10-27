@@ -2,7 +2,6 @@ package account
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -12,7 +11,6 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	stypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
@@ -224,29 +222,8 @@ func deletePolicy(ctx context.Context, c *iam.Client, arn string) error {
 
 // EmptyAndDeleteBucket deletes every object (and version), then the bucket.
 func EmptyAndDeleteBucket(ctx context.Context, c *s3.Client, bucket string) error {
-	p := s3.NewListObjectVersionsPaginator(c, &s3.ListObjectVersionsInput{Bucket: aws.String(bucket)})
-	for p.HasMorePages() {
-		r, err := p.NextPage(ctx)
-		if err != nil {
-			return err
-		}
-		var ids []stypes.ObjectIdentifier
-		for _, v := range r.Versions {
-			ids = append(ids, stypes.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
-		}
-		for _, m := range r.DeleteMarkers {
-			ids = append(ids, stypes.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
-		}
-		if len(ids) == 0 {
-			continue
-		}
-		out, err := c.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket), Delete: &stypes.Delete{Objects: ids, Quiet: aws.Bool(true)}})
-		if err != nil {
-			return err
-		}
-		if len(out.Errors) > 0 {
-			return fmt.Errorf("deleting %s: %s", aws.ToString(out.Errors[0].Key), aws.ToString(out.Errors[0].Message))
-		}
+	if err := awsx.DeletePrefix(ctx, c, bucket, ""); err != nil {
+		return err
 	}
 	_, err := c.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	return err

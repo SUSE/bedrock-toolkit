@@ -39,8 +39,24 @@ func TestAllowsAssume(t *testing.T) {
 	}
 }
 
+func TestUserReadsOwnUsageOnly(t *testing.T) {
+	off := UserInvoke("123456789012", "t", "bedrock-user-t-a", "b", "", "", nil)
+	if strings.Contains(off, "s3:") {
+		t.Fatalf("no bucket, no S3: %s", off)
+	}
+	on := UserInvoke("123456789012", "t", "bedrock-user-t-a", "b", "bkt", "", nil)
+	for _, want := range []string{`"arn:aws:s3:::bkt/bedrock-admin/usage/t/bedrock-user-t-a/*"`, `"arn:aws:s3:::bkt"`, "s3:GetBucketLocation"} {
+		if !strings.Contains(on, want) {
+			t.Fatalf("%s missing: %s", want, on)
+		}
+	}
+	if strings.Contains(on, "s3:ListBucket\"") || strings.Contains(on, "usage/t/*") {
+		t.Fatalf("must not read other users' files: %s", on)
+	}
+}
+
 func TestWebSearchPolicies(t *testing.T) {
-	off, on := UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "", nil), UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "us-east-1", nil)
+	off, on := UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "", "", nil), UserInvoke("123456789012", "t", "bedrock-user-t-a", "bedrock-t-a", "", "us-east-1", nil)
 	if strings.Contains(off, "bedrock-agentcore") {
 		t.Fatalf("web search off must not allow gateways: %s", off)
 	}
@@ -67,7 +83,7 @@ func TestWebSearchPolicies(t *testing.T) {
 }
 
 func TestUserInvokeModels(t *testing.T) {
-	any := UserInvoke("123456789012", "t", "r", "b", "", nil)
+	any := UserInvoke("123456789012", "t", "r", "b", "", "", nil)
 	if !strings.Contains(any, "foundation-model/anthropic.claude-*") || !strings.Contains(any, "DenyUnapprovedFableModels") {
 		t.Fatalf("no models must allow any Claude model: %s", any)
 	}
@@ -75,7 +91,7 @@ func TestUserInvokeModels(t *testing.T) {
 		t.Fatalf("ListedModels(any) = %v, %v", m, err)
 	}
 	models := []string{"us.anthropic.claude-haiku-5-5", "anthropic.claude-opus-5-5"}
-	listed := UserInvoke("123456789012", "t", "r", "b", "", models)
+	listed := UserInvoke("123456789012", "t", "r", "b", "", "", models)
 	for _, want := range []string{`"arn:aws:bedrock:*:123456789012:inference-profile/us.anthropic.claude-haiku-5-5"`,
 		`"arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5"`, `"arn:aws:bedrock:*::foundation-model/anthropic.claude-opus-5-5"`,
 		"DenyUnapprovedFableModels"} {

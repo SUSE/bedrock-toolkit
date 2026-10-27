@@ -6,11 +6,13 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // UsagePrefix is where a personal role's daily usage files live in the cost export bucket; the role
 // may read only its own prefix.
-func UsagePrefix(id, role string) string { return "bedrock-admin/usage/" + id + "/" + role + "/" }
+func UsagePrefix(id, role string) string { return policy.UserUsagePrefix(id, role) }
 
 // UsageKey is a personal role's usage file of one month.
 func UsageKey(id, role, month string) string { return UsagePrefix(id, role) + month + ".json" }

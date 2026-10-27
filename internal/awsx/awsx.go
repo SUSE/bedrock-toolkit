@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
@@ -218,4 +219,41 @@ func IsAccessDenied(err error) bool {
 func Identity(arn string) string {
 	parts := strings.Split(arn, "/")
 	return parts[len(parts)-1]
+}
+
+// DeletePrefix deletes every object (and version) under prefix; a missing bucket is not an error.
+func DeletePrefix(ctx context.Context, c *s3.Client, bucket, prefix string) error {
+	in := &s3.ListObjectVersionsInput{Bucket: aws.String(bucket)}
+	if prefix != "" {
+		in.Prefix = aws.String(prefix)
+	}
+	p := s3.NewListObjectVersionsPaginator(c, in)
+	for p.HasMorePages() {
+		r, err := p.NextPage(ctx)
+		if IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var ids []s3types.ObjectIdentifier
+		for _, v := range r.Versions {
+			ids = append(ids, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+		}
+		for _, m := range r.DeleteMarkers {
+			ids = append(ids, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		out, err := c.DeleteObjects(ctx, &s3.DeleteObjectsInput{Bucket: aws.String(bucket),
+			Delete: &s3types.Delete{Objects: ids, Quiet: aws.Bool(true)}})
+		if err != nil {
+			return err
+		}
+		if len(out.Errors) > 0 {
+			return fmt.Errorf("deleting %s: %s", aws.ToString(out.Errors[0].Key), aws.ToString(out.Errors[0].Message))
+		}
+	}
+	return nil
 }

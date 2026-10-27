@@ -12,7 +12,7 @@ import (
 )
 
 func TestModels(t *testing.T) {
-	listed := policy.UserInvoke("111122223333", "bedrock", "bedrock-user-bedrock-achen", "b", "",
+	listed := policy.UserInvoke("111122223333", "bedrock", "bedrock-user-bedrock-achen", "b", "", "",
 		[]string{"us.anthropic.claude-opus-4-1", "eu.anthropic.claude-opus-4-1", "global.anthropic.claude-sonnet-4-5"})
 	cases := []struct {
 		name      string
@@ -23,7 +23,7 @@ func TestModels(t *testing.T) {
 			[]string{"Your admin allows these models in us-west-2", "  us.anthropic.claude-opus-4-1\n",
 				"  global.anthropic.claude-sonnet-4-5\n", "  us.anthropic.claude-haiku-5-5\n"},
 			[]string{"eu.", "global.anthropic.claude-haiku", "Other Claude models"}},
-		{"any claude", func(f *fakeAWS) { f.rolePolicy = policy.UserInvoke("111122223333", "bedrock", "r", "b", "", nil) },
+		{"any claude", func(f *fakeAWS) { f.rolePolicy = policy.UserInvoke("111122223333", "bedrock", "r", "b", "", "", nil) },
 			[]string{"any Anthropic Claude models except Fable", "  us.anthropic.claude-haiku-5-5\n", "Other Claude models work"},
 			[]string{"eu.", "global."}},
 		{"old role", func(f *fakeAWS) {
@@ -55,7 +55,7 @@ func TestModels(t *testing.T) {
 
 func TestModelsJSONAndErrors(t *testing.T) {
 	f := newFake()
-	f.rolePolicy = policy.UserInvoke("111122223333", "bedrock", "r", "b", "", nil)
+	f.rolePolicy = policy.UserInvoke("111122223333", "bedrock", "r", "b", "", "", nil)
 	code, out, _ := run(t, f, ssoConfig+"\n"+wantBlock, "", "models", "--json")
 	var got modelsJSON
 	if err := json.Unmarshal([]byte(out), &got); code != cli.OK || err != nil || !got.AnyClaude || got.Source != "role" ||

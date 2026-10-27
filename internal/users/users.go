@@ -56,8 +56,9 @@ func RoleSpec(cfg *config.Config, account string, u config.Resolved) iamrole.Spe
 	return iamrole.Spec{Name: u.RoleName, Path: policy.UserPath(cfg.ID),
 		Description: "Personal Bedrock role of " + u.Email,
 		Trust:       policy.UserTrust(account, u.Email, u.IAMUser), InlineName: policy.InvokePolicyName,
-		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, WebSearchRegion(cfg), cfg.AllowedModels()), MaxSession: MaxSession,
-		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: u.Product, policy.IDTag: cfg.ID}}
+		Inline: policy.UserInvoke(account, cfg.ID, u.RoleName, u.BudgetName, cfg.CostExport.Bucket, WebSearchRegion(cfg), cfg.AllowedModels()), MaxSession: MaxSession,
+		Tags: map[string]string{policy.OwnerTag: u.Email, policy.ProductTag: u.Product, policy.IDTag: cfg.ID,
+			policy.UsageTag: "s3://" + cfg.CostExport.Bucket + "/" + policy.UserUsagePrefix(cfg.ID, u.RoleName)}}
 }
 
 // WebSearchRegion is the region personal roles may search in, or "" when web search is off.
@@ -452,7 +453,7 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	return nil
 }
 
-// remove offboards a user: budget (with its actions), then the role.
+// remove offboards a user: budget (with its actions), the role, then their daily usage files.
 func (e *Env) remove(ctx context.Context, role, budget string) error {
 	acct := aws.String(e.C.Account)
 	r, err := e.C.Budgets.DescribeBudgetActionsForBudget(ctx, &budgets.DescribeBudgetActionsForBudgetInput{AccountId: acct, BudgetName: aws.String(budget)})
@@ -476,7 +477,17 @@ func (e *Env) remove(ctx context.Context, role, budget string) error {
 			}
 		}
 	}
-	return iamrole.Delete(ctx, e.C.IAM, role)
+	if err := iamrole.Delete(ctx, e.C.IAM, role); err != nil {
+		return err
+	}
+	if e.C.S3 == nil {
+		return nil
+	}
+	b := e.Cfg.CostExport.Bucket
+	if err := awsx.DeletePrefix(ctx, e.C.BucketS3(ctx, b), b, policy.UserUsagePrefix(e.Cfg.ID, role)); err != nil {
+		return fmt.Errorf("removing the usage files of %s: %w", role, err)
+	}
+	return nil
 }
 
 // Find resolves an email or name to a configured user, or to a role managed by this config.

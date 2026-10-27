@@ -37,7 +37,9 @@ const (
 	ProductTag          = "product"
 	IDTag               = "bedrock-admin:id"
 	// ReportBucketTag marks the central report bucket made by fleet init, so fleet finds it.
-	ReportBucketTag        = "bedrock-admin:report-bucket"
+	ReportBucketTag = "bedrock-admin:report-bucket"
+	// UsageTag on a personal role is s3://<bucket>/<prefix>/, where the user's daily usage files are.
+	UsageTag               = "bedrock-admin:usage"
 	CostAllocationOwnerTag = "iamPrincipal/owner"
 	WebSearchPolicy        = "web-search"
 	WebSearchTarget        = "web-search"
@@ -390,8 +392,9 @@ func ListedModels(policyDoc string) ([]string, error) {
 
 // UserInvoke allows the listed models, or any Claude model when none are listed, and always denies
 // the Claude Fable family. It lets the user read their own budget and their own role's tags, for
-// bedrock usage. With a webSearchRegion, it also allows calling the id's AgentCore gateway there.
-func UserInvoke(account, id, role, budget, webSearchRegion string, models []string) string {
+// bedrock usage. With a usageBucket, it lets the user read their own daily usage files there. With a
+// webSearchRegion, it also allows calling the id's AgentCore gateway there.
+func UserInvoke(account, id, role, budget, usageBucket, webSearchRegion string, models []string) string {
 	budgetArn := fmt.Sprintf("arn:aws:budgets::%s:budget/%s", account, budget)
 	s := []stmt{
 		invokeStmt(account, models),
@@ -406,6 +409,13 @@ func UserInvoke(account, id, role, budget, webSearchRegion string, models []stri
 			"Resource": []string{budgetArn, budgetArn + "/action/*"}},
 		{"Sid": "ReadOwnRole", "Effect": "Allow", "Action": []string{"iam:GetRole", "iam:ListRoleTags", "iam:GetRolePolicy"},
 			"Resource": UserRoleArn(account, id, role)},
+	}
+	if usageBucket != "" {
+		s = append(s,
+			stmt{"Sid": "ReadOwnUsage", "Effect": "Allow", "Action": "s3:GetObject",
+				"Resource": "arn:aws:s3:::" + usageBucket + "/" + UserUsagePrefix(id, role) + "*"},
+			stmt{"Sid": "FindUsageBucket", "Effect": "Allow", "Action": "s3:GetBucketLocation",
+				"Resource": "arn:aws:s3:::" + usageBucket})
 	}
 	if webSearchRegion != "" {
 		s = append(s,
@@ -610,3 +620,6 @@ func ReportBucketPolicy(bucket, orgID string, accounts []string) string {
 			"Resource":  []string{"arn:aws:s3:::" + bucket, "arn:aws:s3:::" + bucket + "/*"},
 			"Condition": doc{"Bool": doc{"aws:SecureTransport": "false"}}})
 }
+
+// UserUsagePrefix is the key prefix of a user's daily usage files in the cost export bucket.
+func UserUsagePrefix(id, role string) string { return UsageFilesPrefix + id + "/" + role + "/" }
