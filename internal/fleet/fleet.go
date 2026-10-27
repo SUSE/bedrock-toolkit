@@ -344,7 +344,8 @@ func Read(ctx context.Context, r Reader, bucket string) ([]Report, []string, err
 		}
 		for _, o := range l.Contents {
 			key := aws.ToString(o.Key)
-			if !strings.HasSuffix(key, ".json") {
+			// Reports are <account>/<id>.json; deeper keys are the setups' usage files.
+			if !strings.HasSuffix(key, ".json") || strings.Count(key, "/") != 1 {
 				continue
 			}
 			g, err := r.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})

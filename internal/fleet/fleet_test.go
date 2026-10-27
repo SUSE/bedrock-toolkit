@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
 )
@@ -118,6 +119,9 @@ func (s store) ListObjectsV2(_ context.Context, _ *s3.ListObjectsV2Input, _ ...f
 }
 
 func (s store) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	if _, ok := s[aws.ToString(in.Key)]; !ok {
+		return nil, &smithy.GenericAPIError{Code: "NoSuchKey"}
+	}
 	return &s3.GetObjectOutput{Body: io.NopCloser(strings.NewReader(string(s[aws.ToString(in.Key)])))}, nil
 }
 
@@ -136,6 +140,7 @@ func TestRead(t *testing.T) {
 	s["333333333333/x.json"] = []byte(`{"account":"111111111111","id":"z"}`)
 	s["333333333333/y.json"] = []byte(`not json`)
 	s["README.txt"] = []byte("skip")
+	s[UsageKey("222222222222", "b", "2025-10")] = []byte(`{"schema":1}`)
 	got, problems, err := Read(context.Background(), s, "central")
 	if err != nil {
 		t.Fatal(err)

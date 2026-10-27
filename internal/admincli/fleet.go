@@ -23,6 +23,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
 var (
@@ -479,23 +480,43 @@ func putPolicy(ctx context.Context, s3c *s3.Client, bucket, pol string) error {
 
 // FleetJSON is fleet report --json.
 type FleetJSON struct {
-	Reports  []fleet.Report `json:"reports"`
-	Problems []string       `json:"problems,omitempty"`
+	Reports []fleet.Report `json:"reports"`
+	// Usage is each setup's daily usage of this month, keyed by account/id.json, when it sends one.
+	Usage    map[string]*usage.FleetUsage `json:"usage,omitempty"`
+	Problems []string                     `json:"problems,omitempty"`
 }
 
 func (a *App) fleetReportCmd() *cobra.Command {
-	var bucket, region string
+	var bucket, region, by, product, month string
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Show the latest report of every setup",
 		Long: `fleet report reads the central report bucket and shows one line per setup (account and id):
 its products, users (onboarded, set up, paused), this month's spend, when it last reported and
 whether it is still installed, then the installed setups' users and spend per product. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
---json prints the full reports, with users' emails for setups that send them. Without --bucket it
-reads the bucket fleet init tagged.`,
+ACTIVE is the users who spent at least $0.01 this month, of those onboarded, from the setup's daily
+usage file ("-" when the setup doesn't send one yet).
+
+--by product sums the setups' daily usage per product (each team's active users and spend) and --by
+day per day, with a bar; both take --product to keep one product and --month for an earlier month.
+They count every setup that sent daily usage that month, also uninstalled ones.
+
+--json prints the full reports, with users' emails for setups that send them, and the daily usage.
+Without --bucket it reads the bucket fleet init tagged.`,
+		Example: `  bedrock-admin fleet report
+  bedrock-admin fleet report --by product
+  bedrock-admin fleet report --by day --product rancher
+  bedrock-admin fleet report --by product --month 2026-04`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			now := a.Now().UTC()
+			if err := checkFleetUsageFlags(by, product, month, now); err != nil {
+				return err
+			}
+			if month == "" {
+				month = now.Format("2006-01")
+			}
 			c, err := a.fleetClients(ctx, region)
 			if err != nil {
 				return err
@@ -507,9 +528,22 @@ reads the bucket fleet init tagged.`,
 			if !exists {
 				return fmt.Errorf("bucket %s doesn't exist; create it with fleet init", rb.Name)
 			}
-			reports, problems, err := fleet.Read(ctx, c.S3In(rb.Region), rb.Name)
+			s3c := c.S3In(rb.Region)
+			reports, problems, err := fleet.Read(ctx, s3c, rb.Name)
 			if err != nil {
 				return err
+			}
+			us, err := fleet.ReadUsage(ctx, s3c, rb.Name, month, reports)
+			if err != nil {
+				return err
+			}
+			if by != "setup" {
+				defer func() {
+					for _, p := range problems {
+						_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
+					}
+				}()
+				return writeFleetUsage(a, by, product, month, reports, us, now)
 			}
 			if a.JSON {
 				if reports == nil {
@@ -517,9 +551,9 @@ reads the bucket fleet init tagged.`,
 				}
 				enc := json.NewEncoder(a.Out)
 				enc.SetIndent("", "  ")
-				return enc.Encode(FleetJSON{Reports: reports, Problems: problems})
+				return enc.Encode(FleetJSON{Reports: reports, Usage: us, Problems: problems})
 			}
-			writeFleet(a, reports, a.Now())
+			writeFleet(a, reports, us, now)
 			for _, p := range problems {
 				_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
 			}
@@ -529,18 +563,22 @@ reads the bucket fleet init tagged.`,
 	fl := cmd.Flags()
 	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged)")
 	fl.StringVar(&region, "region", "", "region of the bucket (default: the bucket's own)")
+	fl.StringVar(&by, "by", "setup", "setup, product or day")
+	fl.StringVar(&product, "product", "", "with --by product or day: only this product")
+	fl.StringVar(&month, "month", "", "with --by product or day: this month (YYYY-MM) instead of the current one")
 	return cmd
 }
 
 // writeFleet prints one line per setup, then the installed setups' totals by product and overall.
-func writeFleet(a *App, reports []fleet.Report, now time.Time) {
+// us is this month's daily usage, for ACTIVE.
+func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, now time.Time) {
 	if len(reports) == 0 {
 		a.printf("No reports yet.\n")
 		return
 	}
 	month := now.UTC().Format("2006-01")
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tPRODUCTS\tONBOARDED\tSET UP\tPAUSED\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
+	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tPRODUCTS\tONBOARDED\tSET UP\tPAUSED\tACTIVE\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
 	var total fleet.Counts
 	var spend float64
 	setups := 0
@@ -566,8 +604,17 @@ func writeFleet(a *App, reports []fleet.Report, now time.Time) {
 		if list == "" {
 			list = noProduct
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%.2f\t%s\t%s\t%s\n", r.Account, r.ID, r.Region, r.Version, list,
-			r.Users.Onboarded, r.Users.SetUp, r.Users.Paused, r.SpendUSD, r.Month, ago(now, r.ReportedAt), r.Status)
+		active := "-"
+		if u := us[fleet.Key(r.Account, r.ID)]; u != nil && u.Month == month {
+			n, of := 0, 0
+			for _, p := range u.Products {
+				n += p.ActiveUsers
+				of += p.Onboarded
+			}
+			active = fmt.Sprintf("%d/%d", n, of)
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%.2f\t%s\t%s\t%s\n", r.Account, r.ID, r.Region, r.Version, list,
+			r.Users.Onboarded, r.Users.SetUp, r.Users.Paused, active, r.SpendUSD, r.Month, ago(now, r.ReportedAt), r.Status)
 		if r.Status != fleet.StatusActive {
 			continue
 		}
@@ -612,6 +659,9 @@ func writeFleet(a *App, reports []fleet.Report, now time.Time) {
 		_ = w.Flush()
 	}
 	a.printf("\n%d installed setups: %s; $%.2f this month.\n", setups, total.Text(), spend)
+	if len(us) > 0 {
+		a.printf("ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.\n")
+	}
 }
 
 // noProduct stands for the product of a report from a version that didn't send it.
