@@ -65,7 +65,8 @@ bedrock-admin usage                               # spend per user, and spend ou
   `pause_at_percent` AWS Budgets pauses only them, by attaching the `bedrock-deny-<id>` policy to
   their role.
 - On the 1st of each month, a Lambda saves a snapshot of everyone's limit and pause state, then
-  re-arms every pause.
+  re-arms every pause. Daily at 07:00 UTC it writes each user's spend per day and model from the cost
+  export, so `bedrock usage` can show it.
 - `bedrock.yaml` says who has access and how much they may spend. `bedrock-admin plan` shows what
   differs between the file and the account. `bedrock-admin apply` makes the account match.
 - `pause` and `unpause` are commands, not file settings. Applying the file never undoes them.
@@ -527,6 +528,7 @@ Account setup
 + 1.4 scheduler role bedrock-monthly-unpause-scheduler-acmeprod  create
 + 1.4 Lambda bedrock-monthly-unpause-acmeprod              create (runs 06:00 UTC on the 1st)
 + 1.4 schedule bedrock-monthly-unpause-acmeprod            create (cron(0 6 1 * ? *) UTC)
++ 1.4 schedule bedrock-daily-acmeprod                      create (cron(0 7 * * ? *) UTC)
   1.5 model us.anthropic.claude-opus-5-5                   ok
   1.5 model us.anthropic.claude-sonnet-5-5                 ok
   1.5 model us.anthropic.claude-haiku-5-5                  ok
@@ -560,7 +562,7 @@ Plan: 11 to create, 1 needs org admin.
 | 1.1 | A private S3 bucket that only AWS Data Exports may write to, and a CUR 2.0 export (Parquet, hourly, with caller identity) into it |
 | 1.2 | `bedrock-deny-<id>`, the policy that pauses someone when attached to their role |
 | 1.3 | `bedrock-budget-actions-<id>`, the role AWS Budgets uses. It may only attach and detach `bedrock-deny-<id>` on the id's `/bedrock-users/<id>/` roles and on IAM users tagged `bedrock-admin:id=<id>`. |
-| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>`, its role, and an EventBridge Scheduler schedule at 06:00 UTC on the 1st. The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
+| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` (1024 MB), its role, and two EventBridge Scheduler schedules: `bedrock-monthly-unpause-<id>` at 06:00 UTC on the 1st, and `bedrock-daily-<id>` at 07:00 UTC every day, which writes each user's daily usage file (and the central report, with `report:`). The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
 | 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can read and activate it; elsewhere Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning to ask your org admin (not a change, so the exit code stays 0). |
 | 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
@@ -1083,6 +1085,8 @@ users:
 | Pause policy | `bedrock-deny-<id>` |
 | Budget actions role | `bedrock-budget-actions-<id>` |
 | Monthly Lambda, its role and schedule | `bedrock-monthly-unpause-<id>` |
+| Daily schedule | `bedrock-daily-<id>` |
+| Users' daily usage files | `s3://<bucket>/bedrock-admin/usage/<id>/<role>/YYYY-MM.json` |
 | Scheduler role | `bedrock-monthly-unpause-scheduler-<id>` |
 | IAM user policy | `bedrock-iam-users-<id>`, path `/bedrock/` |
 | Web search gateway and its role | `bedrock-web-search-<id>`, `bedrock-web-search-gateway-<id>` |
@@ -1152,14 +1156,16 @@ report:
   include_emails: false    # true also sends each user's email, product, set up and paused
 ```
 
-The setup then sends a short report on every `apply`, daily at 07:00 UTC from the monthly Lambda (a
-second schedule, `bedrock-daily-report-<id>`), and once more on `uninstall`, marked `uninstalled`.
+The setup then sends a short report on every `apply`, daily at 07:00 UTC from the monthly Lambda
+(schedule `bedrock-daily-<id>`), and once more on `uninstall`, marked `uninstalled`. The daily run
+also sends the setup's daily usage, `s3://<bucket>/<account>/<id>/usage/YYYY-MM.json`: per day and per
+product, active users and tracked spend, with no emails.
 A failed report is only a warning. The report is `s3://<bucket>/<account>/<id>.json`: the id,
 region, `bedrock-admin` version, `product:`, default limit and pause and alert percentages, `models:`, web
 search on or off, counts of onboarded, set up and paused users, and this month's total spend from
 the users' budgets, with the counts and spend also split by each user's product. It holds no emails unless `include_emails: true`. Your setup can write only its
-own account's reports and can't read any. Remove `report:` and run `apply` to stop; `apply` removes
-the daily schedule.
+own account's reports and can't read any. Remove `report:` and run `apply` to stop; the daily schedule
+stays for the users' own usage files.
 
 The central admin's side (`bedrock-admin fleet`) is in the
 [central admin guide](central-admin-guide.md).

@@ -83,7 +83,7 @@ way in.
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
 | `bedrock doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
-| `bedrock usage` | Shows this month's spend against your budget, where you get paused and whether you are paused | [Check your spend](#check-your-spend) |
+| `bedrock usage` | Shows this month's spend against your budget, where you get paused, whether you are paused, and your spend per day and per model | [Check your spend](#check-your-spend) |
 | `bedrock models` | Lists the models you may use in your profile's region | [Which models you may use](#which-models-you-may-use) |
 
 Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for the flags.
@@ -424,13 +424,33 @@ Pauses at  $100.00 (100%)
 Access     active
 As of      May 14 06:30 UTC (AWS refreshes budgets a few times a day)
 
+Per day (from the cost export, as of May 13 22:00 UTC)
+DATE         SPEND
+2026-05-10  $0.00
+2026-05-11  $0.00
+2026-05-12  $4.00   ████████████████████████
+2026-05-13  $2.00*  ████████████
+2026-05-14  $0.00*
+* still being billed: AWS adds spend up to a day late.
+
+Per model this month
+us.anthropic.claude-sonnet-5-5  $6.00
+us.anthropic.claude-haiku-5-5   $1.00
+
 Web search is not counted here: the account pays for it.
 ```
 
-It reads only your own budget and your own role, with the `bedrock` profile; `--json` prints the same
-as JSON. The spend lags: AWS refreshes it a few times a day, so the last hours aren't in it yet.
-If it says your role cannot read its budget, your role predates `bedrock usage`: ask your admin to run
-`bedrock-admin apply`.
+It reads only your own budget, your own role and your own usage file, with the `bedrock` profile;
+`--json` prints the same as JSON. The per-day part shows the last 14 days (`--days N`, up to 62) and
+comes from a file your account writes for you every day at 07:00 UTC from its cost export. Both lag:
+AWS refreshes the budget a few times a day and the cost export up to a day late, so the last hours
+aren't in them yet, and days marked `*` may still grow.
+
+`bedrock usage --month 2026-04` shows one month's days and models, without the budget.
+
+If it says your role cannot read its budget or its daily usage, your role predates them: ask your
+admin to run `bedrock-admin apply`. `No daily usage yet` means the account hasn't written your file
+yet; it appears the morning after `apply`.
 
 ## Which models you may use
 

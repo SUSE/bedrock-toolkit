@@ -23,7 +23,8 @@ You own one S3 bucket. Each setup whose `bedrock.yaml` has a `report:` section w
 report to it, under its own account ID, with the setup admin's or its Lambda's own credentials:
 
 - on every `bedrock-admin apply` that had no failures;
-- daily at 07:00 UTC, from the setup's monthly Lambda (schedule `bedrock-daily-report-<id>`);
+- daily at 07:00 UTC, from the setup's monthly Lambda (schedule `bedrock-daily-<id>`), with the
+  setup's daily usage per product (`<account>/<id>/usage/YYYY-MM.json`, from v1.2.0);
 - once more on `bedrock-admin uninstall`, marked `uninstalled`.
 
 A setup can write only its own account's reports and can't read any. You need no access to the
@@ -121,9 +122,9 @@ bedrock-reports-999999999999 in us-east-1.` With several tagged buckets it lists
 `--bucket`.
 
 ```text
-ACCOUNT       ID       REGION     VERSION  PRODUCTS             ONBOARDED  SET UP  PAUSED  SPEND (USD)  MONTH    REPORTED  STATUS
-111111111111  bedrock  us-east-1  v1.2.0   harvester, longhorn  25         10      0       412.30       2026-10  3h ago    active
-222222222222  bedrock  eu-west-1  v1.2.0   rancher              12         3       1       57.10        2026-10  5h ago    active
+ACCOUNT       ID       REGION     VERSION  PRODUCTS             ONBOARDED  SET UP  PAUSED  ACTIVE  SPEND (USD)  MONTH    REPORTED  STATUS
+111111111111  bedrock  us-east-1  v1.2.0   harvester, longhorn  25         10      0       8/25    412.30       2026-10  3h ago    active
+222222222222  bedrock  eu-west-1  v1.2.0   rancher              12         3       1       2/12    57.10        2026-10  5h ago    active
 
 PRODUCT    SETUPS  ONBOARDED  SET UP  PAUSED  SPEND (USD)
 longhorn   1       22         8       0       380.00
@@ -131,6 +132,7 @@ rancher    1       12         3       1       57.10
 harvester  1       3          2       0       32.30
 
 2 installed setups: 37 onboarded, 13 set up, 1 paused; $469.40 this month.
+ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.
 ```
 
 One line per setup (account and id), its latest report. `PRODUCTS` lists the setup's `product:`
@@ -142,6 +144,38 @@ Objects that aren't valid reports, or whose content doesn't match their key, are
 
 A `REPORTED` older than a day means the setup's Lambda didn't run or couldn't write: ask the team
 to run `bedrock-admin doctor` and `apply`.
+
+### Each team's active usage
+
+`--by product` sums the setups' daily usage per product: how many of each team's users were active
+(spent at least $0.01) this month and their tracked spend. `--by day` shows the fleet per day. Both
+take `--product` to keep one team, and `--month YYYY-MM` for an earlier month:
+
+```text
+$ bedrock-admin fleet report --by product
+Fleet usage in October 2026 (2 setups, cost export as of Oct 21 05:00 UTC)
+PRODUCT    SETUPS  ACTIVE  SPEND (USD)
+longhorn        1    6/22       380.00  ████████████████████████
+rancher         1    2/12        57.10  ███▋
+harvester       1     2/3        32.30  ██
+total           2   10/37       469.40
+ACTIVE: users who spent at least $0.01 in the month, of those onboarded. SPEND is tracked spend of personal roles.
+
+$ bedrock-admin fleet report --by day --product longhorn
+Fleet usage in October 2026, product longhorn (2 setups, cost export as of Oct 21 05:00 UTC)
+DATE        ACTIVE  SPEND (USD)
+2026-10-01       3        12.40   ███████▊
+...
+2026-10-20       5        38.10*  ████████████████████████
+2026-10-21       0         0.00*
+ACTIVE: users who spent at least $0.01 that day. SPEND is tracked spend of personal roles.
+* still being billed: AWS adds spend up to a day late.
+```
+
+The numbers come from the setups' cost exports, not their budgets, so they can differ a little from
+`SPEND` in the setup table. Setups that send no daily usage (before v1.2.0, or not applied since)
+are listed below the table; uninstalled setups count for the months they sent. `--json` prints the
+same.
 
 ## What a report holds
 
@@ -158,6 +192,11 @@ to run `bedrock-admin doctor` and `apply`.
 | `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day) |
 | `products` | Per product (each user's, else the setup's): `product`, `users` counts, `spend_usd` |
 | `people` | Only with `include_emails: true`: each user's `email`, `kind`, `product`, `set_up`, `paused` |
+
+The daily usage, `s3://<bucket>/<account>/<id>/usage/YYYY-MM.json`, rewritten each day: `month`,
+`as_of` (the newest cost export hour), `days` (each day's `active_users`, `tracked_usd` and the same
+per product) and `products` (each product's `active_users`, `onboarded` and `tracked_usd` in the
+month). It holds no emails.
 
 "Set up" means the user's personal role has been used (`bedrock setup` uses it); AWS updates this
 with up to about 4 hours of delay. It's the same figure the team sees in `bedrock-admin users`.
@@ -196,5 +235,8 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | See what `fleet init` would change | `bedrock-admin fleet init --dry-run` |
 | Read every setup's latest report | `bedrock-admin fleet report` |
 | Full reports as JSON | `bedrock-admin fleet report --json` |
+| Each team's active users and spend | `bedrock-admin fleet report --by product` |
+| The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
+| An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |
 | Use your team setup's profile and region | Add `-f bedrock.yaml` to any of these |

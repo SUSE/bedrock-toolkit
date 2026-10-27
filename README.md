@@ -121,7 +121,7 @@ Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 aws sso login                        # or nothing, with an IAM user access key
 bedrock setup                        # write the bedrock profile and check it
 bedrock claude                       # test Claude Code, print its settings
-bedrock usage                        # this month's spend against your budget
+bedrock usage                        # this month's spend against your budget, per day and per model
 bedrock models                       # the models you may use
 ```
 
@@ -141,7 +141,7 @@ bedrock models                       # the models you may use
 | `unpause` | Restores a paused user's access |
 | `usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 when it finds untracked spend |
 | `users` | Who is onboarded, who has run `bedrock setup`, and who is paused |
-| `fleet` | For a central admin only: creates the report bucket and shows every setup's report; see the [central admin guide](central-admin-guide.md) |
+| `fleet` | For a central admin only: creates the report bucket and shows every setup's report, and each team's active users and spend per product or day; see the [central admin guide](central-admin-guide.md) |
 | `uninstall` | Removes the account setup. Refuses while users remain |
 
 `bedrock`, for users:
@@ -151,7 +151,7 @@ bedrock models                       # the models you may use
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
 | `doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |
-| `usage` | Shows this month's spend against your budget, and whether you are paused |
+| `usage` | Shows this month's spend against your budget, whether you are paused, and spend per day and per model |
 | `models` | Lists the models you may use in your profile's region |
 
 Both CLIs exit with 0 when everything is fine, 1 on an error, and 2 when they ran but found a

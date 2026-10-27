@@ -187,7 +187,7 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
 | 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
 | 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/` and on IAM users tagged `bedrock-admin:id=<id>`. |
-| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` and its schedule (06:00 UTC on the 1st); with `report:`, a daily report schedule | Re-arms every pause of the id's users each month, after saving a snapshot; sends the central report. See [section 8](#8-the-monthly-lambda-snapshots-and-central-reports). |
+| 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` (1024 MB), its schedule (06:00 UTC on the 1st) and the daily schedule `bedrock-daily-<id>` (07:00 UTC) | Re-arms every pause of the id's users each month, after saving a snapshot; writes each user's daily usage file and, with `report:`, sends the central report. See [section 8](#8-the-monthly-lambda-snapshots-and-central-reports). |
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
 | 1.7 | Model calls outside personal roles are blocked | See below |
@@ -304,7 +304,8 @@ Each user gets one role per setup, `bedrock-user-<id>-<name>`, under the path `/
 | Tag `owner` | The user's SSO email | Billing records it on every call as `iamPrincipal/owner`; the budget filters on it |
 | Tag `product` | The user's `product`, else `product` from the file | Charge spend to a team or product |
 | Tag `bedrock-admin:id` | The file's `id` | Ownership (see [section 10](#10-the-id-several-setups-in-one-account)) |
-| Inline policy `bedrock-invoke` | Call and stream the models in `models:` and the baseline, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history) and the role itself (`GetRole`, `ListRoleTags`, `GetRolePolicy`) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend, `bedrock models` nobody else's models |
+| Inline policy `bedrock-invoke` | Call and stream the models in `models:` and the baseline, or any `anthropic.claude-*` foundation model and inference profile when empty; list and read models; deny the Claude Fable family; read the user's own budget (`ViewBudget`, its budget actions and their history), the role itself (`GetRole`, `ListRoleTags`, `GetRolePolicy`) and its own daily usage files (`s3:GetObject` on `<cost export bucket>/bedrock-admin/usage/<id>/<role>/*`, `s3:GetBucketLocation` on the bucket) | Bedrock only, Claude only; `bedrock usage` sees nobody else's spend, `bedrock models` nobody else's models |
+| Tag `bedrock-admin:usage` | `s3://<cost export bucket>/bedrock-admin/usage/<id>/<role>/` | Where `bedrock usage` finds the daily usage files |
 | Max session | 1 hour | The limit for role chaining |
 
 ### Trust policy
@@ -383,7 +384,10 @@ needs none). It also prints the values for the Claude desktop app's Amazon Bedro
 path, model list). It never writes Claude Code's settings: the user adds them, or uses `/setup-bedrock`.
 `bedrock usage` reads the user's own budget (spend, forecast, the pause action's threshold) and the
 pause state (budget action status and the role's pause tags) with the personal role. The budget name
-comes from the profile's `role_arn`. It doesn't read the cost export, which holds everyone's spend.
+comes from the profile's `role_arn`. It doesn't read the cost export, which holds everyone's spend:
+the spend per day and per model comes from the role's own daily usage file (see
+[Daily usage](#daily-usage)), found through the role's `bedrock-admin:usage` tag. `--days N` (1–62,
+default 14) picks the days; `--month YYYY-MM` shows one month's file without the budget.
 `bedrock models` reads the role's own `bedrock-invoke` policy (`policy.ListedModels`) and lists the
 allowed models the profile's region can call (`config.CallableModels`); when the policy allows any
 Claude model, or the role predates `GetRolePolicy`, it lists the region's baseline models.
@@ -476,6 +480,9 @@ the account:
    needed, then resets it to armed.
 3. It leaves pauses by hand alone. They last until an admin runs `unpause`.
 
+The same Lambda also runs daily at 07:00 UTC (schedule `bedrock-daily-<id>`, input
+`{"action":"daily"}`), whether or not `report:` is set; see [Daily usage](#daily-usage).
+
 The Lambda uses the `provided.al2023` runtime on arm64. It shares the pause, re-arm and snapshot
 code with the CLI. It is built by `go generate` and embedded in the `bedrock-admin` binary with
 `go:embed`, and `apply` creates or updates it (Step 1.4). `plan` compares the deployed code's
@@ -498,6 +505,24 @@ account, so the bucket policy needs no change.
 `bedrock-admin usage --month YYYY-MM` uses the snapshot for past limits, pause states and products
 (the role's `product` tag). Without one, limits and products come from the file and pause state is
 unknown; a snapshot without `product` takes it from the file too.
+
+### Daily usage
+
+The daily run reads the month's cost export (Parquet, as in [section 9](#9-usage-and-untracked-spend)),
+then, for the current month and, on the 1st and 2nd, the month before:
+
+1. For every personal role of the id, it writes
+   `s3://<cost export bucket>/bedrock-admin/usage/<id>/<role>/YYYY-MM.json` (`internal/usage.UserFile`):
+   `month`, `export_as_of` (the newest line's hour), and the role's spend per day (only days with
+   spend) and per model. The role reads only its own prefix (tag `bedrock-admin:usage`), so
+   `bedrock usage` shows the days without Cost Explorer or any access to the export. Offboarding
+   deletes the prefix with the role; `uninstall --delete-data` deletes it with the bucket.
+2. With `report:`, it writes the setup's fleet usage to the central bucket (below), then sends the
+   report.
+
+The Lambda's role gets `s3:GetObject` and `s3:ListBucket` on the export prefix and `s3:PutObject` on
+`bedrock-admin/usage/<id>/*`. A user's days from the export's newest day on are partial: AWS adds
+spend up to a day late.
 
 ### Who has set up
 
@@ -531,14 +556,24 @@ admins.
   (onboarded, set up, paused, with an IAM user), the month and the sum of the id's budgets' actual
   spend, and the same counts and spend per product (the product tag on each user's role, else the
   setup's). With `include_emails: true`, also each user's email, kind, product, set up and paused.
+- **Fleet usage** (`internal/usage.FleetUsage`, schema 1): `s3://<bucket>/<account>/<id>/usage/YYYY-MM.json`,
+  rewritten by the daily run: `month`, `as_of`, per day the active users (at least $0.01 that day)
+  and tracked spend, overall and per product, and per product the month's active users, onboarded
+  users and tracked spend. No emails, whatever `include_emails` says. The product is the role's
+  `product` tag, else the setup's.
 - **Senders**: `apply` after a run with no failures, and `uninstall` (status `uninstalled`), with
-  the admin's credentials; a failure is a warning. The Lambda, invoked daily at 07:00 UTC by a
-  second schedule `bedrock-daily-report-<id>` with input `{"action":"report"}`. `apply` passes it
+  the admin's credentials; a failure is a warning. The Lambda, in its daily run (`bedrock-daily-<id>`,
+  input `{"action":"daily"}`; `{"action":"report"}` sends only the report). `apply` passes it
   the setup part as the `REPORT_SETUP` environment variable (`fleet.Setup` as JSON) and grants its
   role `s3:PutObject` on `<bucket>/<account>/*`, plus `iam:GetRole` on the id's personal roles. With
-  `report:` removed, `apply` removes the variable, the permission and the schedule.
+  `report:` removed, `apply` removes the variable and the permission; the daily schedule stays for
+  the users' files. `apply` deletes the old `bedrock-daily-report-<id>` schedule of earlier versions.
 - **Reading**: `fleet report` lists the bucket and shows the latest report of each setup; it skips
-  objects whose content doesn't match their key.
+  objects whose content doesn't match their key, and keys below `<account>/<id>/`. Its `ACTIVE`
+  column is the active and onboarded users of the setup's usage file for this month.
+  `--by product` and `--by day` (with `--product` and `--month`) read every setup's usage file for the
+  month, including uninstalled setups', and sum them per product or per day; days from the oldest
+  setup's `as_of` day on are partial. Active setups without a file are listed.
 - The report's `region` is in the file so neither the CLI nor the Lambda needs to read the bucket's
   location across accounts.
 
