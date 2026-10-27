@@ -4,6 +4,8 @@ Documentation       bedrock-admin usage against a real bucket: the Parquet fixtu
 ...                 roles are bedrock-user-usage-<a|b|c>, so this suite's setup has id usage (don't run two at
 ...                 once in one account). The users a, b and c are applied for real, so this month's limits
 ...                 and pause state come from their budgets. Numbers: tests/fixtures/README.md.
+...                 This month's fixture is also uploaded under the real export prefix, where the Lambda's daily
+...                 run reads it to write each user's usage file.
 ...                 Report layout and formatting are covered by the Go unit tests.
 Resource            ../resources/common.resource
 Suite Setup         Start Usage Run
@@ -57,6 +59,30 @@ Several Months
     ${a}=    Evaluate    [s for s in $m["users"] if s["who"].lower() == $A][0]
     Should Be Close    ${a}[total_usd]    68.25
 
+The Daily Run Writes Each User's Usage File
+    Invoke Daily Lambda
+    ${a}=    Usage File    ${A}
+    Should Be Close    ${a}[total_usd]    13.25
+    Length Should Be    ${a}[days]    2
+    ${c}=    Usage File    ${C}
+    Should Be Close    ${c}[total_usd]    1.20
+    ${role}=    Role Of    ${A}
+    ${n}=    Names
+    Role Tag Should Be    ${role}    bedrock-admin:usage    s3://${n}[bucket]/bedrock-admin/usage/usage/${role}/
+
+A Personal Role Reads Only Its Own Usage File
+    Let Admin Assume    ${A}
+    ${a}=    Usage File    ${A}    as_user=${A}
+    Should Be Close    ${a}[total_usd]    13.25
+    Usage File Should Be Denied    ${B}    as_user=${A}
+
+Offboarding Deletes The User's Usage Files
+    Remove User    ${C}
+    Apply
+    Usage Files Should Not Exist    ${C}
+    ${b}=    Usage File    ${B}
+    Should Be Close    ${b}[total_usd]    4.00
+
 
 *** Keywords ***
 Start Usage Run
@@ -67,3 +93,4 @@ Start Usage Run
     Apply
     ${f}=    Upload Usage Fixtures
     Set Suite Variable    ${USAGE_CONFIG}    ${f}
+    Upload Fixture As Real Export

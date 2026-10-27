@@ -22,6 +22,8 @@ Apply Creates The Account Setup
     ${env_id}=    Lambda Setting    BEDROCK_ID
     Should Be Equal    ${env_id}    ${ID}
     Schedule Should Exist
+    ${daily}=    Daily Schedule Exists
+    Should Be True    ${daily}    the daily schedule runs without report: too
     ${p}=    Plan
     ${allowed}=    Allowed Models
     FOR    ${m}    IN    @{allowed}
@@ -158,15 +160,15 @@ Apply Sends The Central Report
     Should Be Equal    ${report}[source]    apply
     Should Be Equal    ${report}[id]    ${ID}
     Should Not Contain    ${report}    people
-    ${exists}=    Report Schedule Exists
-    Should Be True    ${exists}
     Plan Should Show No Changes
 
-The Lambda Sends The Daily Report
-    Invoke Report Lambda
+The Lambda Sends The Daily Report And Usage
+    Invoke Daily Lambda
     ${report}=    Central Report
     Should Be Equal    ${report}[source]    lambda
     Should Be Equal    ${report}[status]    active
+    ${u}=    Central Usage
+    Should Be Equal    ${u}[month]    ${report}[month]
 
 Fleet Report Shows The Setup
     ${f}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --json
@@ -175,16 +177,21 @@ Fleet Report Shows The Setup
     Length Should Be    ${mine}    1
     Should Be Equal    ${mine}[0][product]    ${PRODUCT}
     Should Not Contain    ${f}    problems
+    ${p}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --by    product
+    ...    --json    config=none
+    Should Contain    ${p}[setups]    ${ACCOUNT}/${ID}
 
 Export Keeps The Report Settings
     ${yaml}=    Admin    export    --id    ${ID}    --region    ${REGION}    --product    ${PRODUCT}    config=none
     Should Contain    ${yaml}    ${N}[report_bucket]
 
-Turning The Report Off Removes The Schedule
+Turning The Report Off Keeps The Daily Schedule
     Unset Config    report
     Apply
-    ${exists}=    Report Schedule Exists
-    Should Not Be True    ${exists}
+    ${env}=    Lambda Setting    REPORT_SETUP
+    Should Be True    not $env
+    ${exists}=    Daily Schedule Exists
+    Should Be True    ${exists}
     Plan Should Show No Changes
     Set Config    report.bucket    ${N}[report_bucket]
     Set Config    report.region    ${REGION}
@@ -258,7 +265,7 @@ Uninstall Keeps The Bucket
     Role Should Not Exist    ${N}[budget_actions_role]
     Cost Export Should Not Exist
     Bucket Should Exist
-    ${exists}=    Report Schedule Exists
+    ${exists}=    Daily Schedule Exists
     Should Not Be True    ${exists}
     ${report}=    Central Report
     Should Be Equal    ${report}[status]    uninstalled

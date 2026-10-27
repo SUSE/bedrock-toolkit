@@ -733,11 +733,11 @@ and a real AWS account:
 | Suite | Covers |
 | --- | --- |
 | `cli` | A smoke test of the built binaries, with no AWS |
-| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports from `apply`, the Lambda and `uninstall`, `fleet report` |
+| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` and `--by product` |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
-| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage`, `bedrock models`, direct SSO calls denied, a pause seen by the user |
+| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file), `bedrock models`, direct SSO calls denied, a pause seen by the user |
 | `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (with `block_direct_calls` on, even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
-| `usage` | The report, against Parquet fixtures uploaded to the bucket |
+| `usage` | The report, against Parquet fixtures uploaded to the bucket; the Lambda's daily usage files, read only by their own role, deleted at offboarding |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |
 

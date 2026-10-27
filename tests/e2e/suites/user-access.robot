@@ -59,6 +59,13 @@ Usage Reads The User's Own Budget
     Should Be Equal    ${u["state"]}    active
     Should Be True    $u["limit_usd"] > 0
 
+Usage Reads The User's Own Daily Usage File
+    [Documentation]    The role finds its file through its bedrock-admin:usage tag and reads it.
+    Invoke Daily Lambda
+    ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --days    3    --json
+    Dictionary Should Not Contain Key    ${u}    note
+    Length Should Be    ${u}[days]    3
+
 Models Lists The Role's Allowed Models
     [Documentation]    bedrock models reads the personal role's own policy: the run's models: and the
     ...    region's baseline models, without other geographies' profiles.
