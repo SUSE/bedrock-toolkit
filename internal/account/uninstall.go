@@ -98,7 +98,7 @@ func (e *Env) Uninstall(ctx context.Context, deleteData bool) ([]*plan.Item, err
 	} else if e.Cfg.WebSearch.Enabled {
 		missing("1.8", "web search gateway "+policy.WebSearchGateway(e.Cfg.ID))
 	}
-	for _, name := range []string{policy.ReportScheduleName(e.Cfg.ID), policy.ScheduleName(e.Cfg.ID)} {
+	for _, name := range []string{policy.ReportScheduleName(e.Cfg.ID), policy.DailyScheduleName(e.Cfg.ID), policy.ScheduleName(e.Cfg.ID)} {
 		s, err := e.C.Scheduler.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(name)})
 		switch {
 		case err == nil:

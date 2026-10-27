@@ -301,6 +301,11 @@ func Build(s Setup, account, status, source string, us []User, now time.Time) Re
 // Key is the object key of a setup's report.
 func Key(account, id string) string { return account + "/" + id + ".json" }
 
+// UsageKey is a setup's daily usage of one month in the central bucket, written by the Lambda.
+func UsageKey(account, id, month string) string {
+	return account + "/" + id + "/usage/" + month + ".json"
+}
+
 // Putter writes an object.
 type Putter interface {
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)

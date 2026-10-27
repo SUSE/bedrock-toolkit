@@ -30,18 +30,23 @@ const (
 	EnvSnapshotPrefix = "SNAPSHOT_PREFIX"
 	EnvDenyPolicyArn  = "DENY_POLICY_ARN"
 	EnvID             = "BEDROCK_ID"
+	// EnvExportPrefix is the cost export's <prefix>/<name> in SNAPSHOT_BUCKET, read by the daily run.
+	EnvExportPrefix = "EXPORT_PREFIX"
 	// EnvReportSetup is the JSON fleet.Setup; set only when central reporting is on.
 	EnvReportSetup = "REPORT_SETUP"
 )
 
 const scheduleIDPrefix = "bedrock-admin:id="
 
+// LambdaMemoryMB is enough to read a month of the hourly cost export.
+const LambdaMemoryMB = 1024
+
 // LambdaRoleSpec and SchedulerRoleSpec are the Step 1.4 roles.
-func LambdaRoleSpec(region, account, id, bucket, snapshotPrefix, reportBucket string) iamrole.Spec {
+func LambdaRoleSpec(region, account, id, bucket, snapshotPrefix, exportPrefix, reportBucket string) iamrole.Spec {
 	return iamrole.Spec{Name: policy.LambdaRole(id), Path: policy.Path,
 		Description: "Runs the monthly Bedrock unpause Lambda",
 		Trust:       policy.ServiceTrust("lambda.amazonaws.com", account), InlineName: policy.LambdaPolicy,
-		Inline: policy.LambdaPermissions(region, account, id, bucket, snapshotPrefix, reportBucket)}
+		Inline: policy.LambdaPermissions(region, account, id, bucket, snapshotPrefix, exportPrefix, reportBucket)}
 }
 
 func SchedulerRoleSpec(region, account, id string) iamrole.Spec {
@@ -57,6 +62,7 @@ func (e *Env) lambdaEnv() map[string]string {
 		EnvSnapshotPrefix: e.Cfg.CostExport.SnapshotPrefix,
 		EnvDenyPolicyArn:  policy.DenyPolicyArn(e.C.Account, e.Cfg.ID),
 		EnvID:             e.Cfg.ID,
+		EnvExportPrefix:   e.Cfg.ExportPrefix(),
 	}
 	if e.Cfg.Report.Enabled() {
 		b, _ := json.Marshal(fleet.SetupFrom(e.Cfg, e.Version))
@@ -98,7 +104,7 @@ func mergeKeys(a, b map[string]string) map[string]bool {
 func (e *Env) monthlyLambda(ctx context.Context) ([]*plan.Item, error) {
 	region, account := e.Cfg.Region, e.C.Account
 	lr, err := e.roleItem(ctx, "1.4", "Lambda role "+policy.LambdaRole(e.Cfg.ID),
-		LambdaRoleSpec(region, account, e.Cfg.ID, e.Cfg.CostExport.Bucket, e.Cfg.CostExport.SnapshotPrefix, e.Cfg.Report.Bucket))
+		LambdaRoleSpec(region, account, e.Cfg.ID, e.Cfg.CostExport.Bucket, e.Cfg.CostExport.SnapshotPrefix, e.Cfg.ExportPrefix(), e.Cfg.Report.Bucket))
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +120,17 @@ func (e *Env) monthlyLambda(ctx context.Context) ([]*plan.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	rep, err := e.schedule(ctx, e.reportSchedule())
+	daily, err := e.schedule(ctx, e.dailySchedule())
 	if err != nil {
 		return nil, err
 	}
-	out := []*plan.Item{lr, sr, fn, sch}
-	if rep != nil {
-		out = append(out, rep)
+	old, err := e.schedule(ctx, e.oldReportSchedule())
+	if err != nil {
+		return nil, err
+	}
+	out := []*plan.Item{lr, sr, fn, sch, daily}
+	if old != nil {
+		out = append(out, old)
 	}
 	return out, nil
 }
@@ -144,8 +154,8 @@ func (e *Env) function(ctx context.Context) (*plan.Item, error) {
 				Role:    aws.String(fmt.Sprintf("arn:aws:iam::%s:role%s%s", e.C.Account, policy.Path, policy.LambdaRole(e.Cfg.ID))),
 				Runtime: ltypes.RuntimeProvidedal2023, Handler: aws.String("bootstrap"),
 				Architectures: []ltypes.Architecture{ltypes.ArchitectureArm64},
-				Code:          &ltypes.FunctionCode{ZipFile: zip}, Timeout: aws.Int32(300), MemorySize: aws.Int32(128),
-				Description: aws.String("Unpauses and re-arms Bedrock users on the 1st; saves the monthly snapshot (bedrock-admin)"),
+				Code:          &ltypes.FunctionCode{ZipFile: zip}, Timeout: aws.Int32(300), MemorySize: aws.Int32(LambdaMemoryMB),
+				Description: aws.String(lambdaDescription),
 				Environment: &ltypes.Environment{Variables: env}, Tags: e.tags()}
 			// A new role can't be assumed by Lambda for a few seconds.
 			err := iamrole.Retry(ctx, 90*time.Second, func(err error) bool {
@@ -174,6 +184,9 @@ func (e *Env) function(ctx context.Context) (*plan.Item, error) {
 		have = c.Environment.Variables
 	}
 	change := envChange(have, env)
+	if aws.ToInt32(c.MemorySize) != LambdaMemoryMB {
+		change = strings.TrimPrefix(change+fmt.Sprintf("; memory %d → %d MB", aws.ToInt32(c.MemorySize), LambdaMemoryMB), "; ")
+	}
 	envChanged := change != ""
 	if codeChanged {
 		it.Details = append(it.Details, "update code (deployed code differs from this bedrock-admin's)")
@@ -198,7 +211,8 @@ func (e *Env) function(ctx context.Context) (*plan.Item, error) {
 			}
 			if envChanged {
 				if _, err := e.C.Lambda.UpdateFunctionConfiguration(ctx, &lambda.UpdateFunctionConfigurationInput{
-					FunctionName: aws.String(policy.LambdaName(e.Cfg.ID)), Environment: &ltypes.Environment{Variables: env}}); err != nil {
+					FunctionName: aws.String(policy.LambdaName(e.Cfg.ID)), Environment: &ltypes.Environment{Variables: env},
+					MemorySize: aws.Int32(LambdaMemoryMB), Description: aws.String(lambdaDescription)}); err != nil {
 					return fmt.Errorf("updating Lambda settings: %w", err)
 				}
 				return w.Wait(ctx, get, 2*time.Minute)
@@ -222,8 +236,9 @@ func ScheduleID(description string) string {
 // scheduleSpec is one EventBridge Scheduler schedule of the Lambda.
 type scheduleSpec struct {
 	Name, Expression, Description, Input string
-	// Want is false when the schedule must not exist (central report off).
+	// Want is false when the schedule must not exist; Gone says why.
 	Want bool
+	Gone string
 	// When is the human form of Expression for the plan.
 	When string
 }
@@ -234,11 +249,21 @@ func (e *Env) monthlySchedule() scheduleSpec {
 		When:        policy.ScheduleExpression + " UTC"}
 }
 
-func (e *Env) reportSchedule() scheduleSpec {
-	return scheduleSpec{Name: policy.ReportScheduleName(e.Cfg.ID), Expression: policy.ReportScheduleExpression,
-		Input: policy.ReportInput, Want: e.Cfg.Report.Enabled(),
-		Description: fmt.Sprintf("Runs %s daily at 07:00 UTC to send the central report (%s%s)", policy.LambdaName(e.Cfg.ID), scheduleIDPrefix, e.Cfg.ID),
-		When:        "daily 07:00 UTC, central report to s3://" + e.Cfg.Report.Bucket}
+const lambdaDescription = "Unpauses and re-arms Bedrock users on the 1st and saves the monthly snapshot; daily, writes each user's usage file and the central report (bedrock-admin)"
+
+func (e *Env) dailySchedule() scheduleSpec {
+	when := "daily 07:00 UTC, users' usage files"
+	if e.Cfg.Report.Enabled() {
+		when += " and central report to s3://" + e.Cfg.Report.Bucket
+	}
+	return scheduleSpec{Name: policy.DailyScheduleName(e.Cfg.ID), Expression: policy.DailyScheduleExpression,
+		Input: policy.DailyInput, Want: true, When: when,
+		Description: fmt.Sprintf("Runs %s daily at 07:00 UTC: usage files and central report (%s%s)", policy.LambdaName(e.Cfg.ID), scheduleIDPrefix, e.Cfg.ID)}
+}
+
+// oldReportSchedule is bedrock-admin 1.1's report-only schedule, which the daily schedule replaces.
+func (e *Env) oldReportSchedule() scheduleSpec {
+	return scheduleSpec{Name: policy.ReportScheduleName(e.Cfg.ID), Gone: "replaced by " + policy.DailyScheduleName(e.Cfg.ID)}
 }
 
 // schedule returns nil when the schedule is neither wanted nor present.
@@ -276,7 +301,7 @@ func (e *Env) schedule(ctx context.Context, s scheduleSpec) (*plan.Item, error) 
 		return it, nil
 	}
 	if !s.Want {
-		it.Op, it.Details = plan.Delete, []string{"remove (central report turned off)"}
+		it.Op, it.Details = plan.Delete, []string{"remove (" + s.Gone + ")"}
 		it.Apply = func(ctx context.Context) error {
 			_, err := e.C.Scheduler.DeleteSchedule(ctx, &scheduler.DeleteScheduleInput{Name: aws.String(s.Name)})
 			return err

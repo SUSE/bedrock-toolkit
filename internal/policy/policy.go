@@ -22,17 +22,20 @@ const (
 	LambdaPolicy        = "monthly-unpause"
 	SchedulerPolicy     = "invoke-unpause-lambda"
 	ScheduleExpression  = "cron(0 6 1 * ? *)"
-	// ReportScheduleExpression runs the central report daily; ReportInput tells the Lambda to report.
-	ReportScheduleExpression = "cron(0 7 * * ? *)"
-	ReportInput              = `{"action":"report"}`
-	InvokePolicyName         = "bedrock-invoke"
-	BlockPolicyName          = "bedrock-personal-role-only"
-	BlockSid                 = "BedrockOnlyViaPersonalRole"
-	SSOInlinePolicyName      = "AwsSSOInlinePolicy"
-	SSORolePathPrefix        = "/aws-reserved/sso.amazonaws.com/"
-	OwnerTag                 = "owner"
-	ProductTag               = "product"
-	IDTag                    = "bedrock-admin:id"
+	// DailyScheduleExpression runs the Lambda daily; DailyInput tells it to write the usage files and,
+	// with central reporting on, the report.
+	DailyScheduleExpression = "cron(0 7 * * ? *)"
+	DailyInput              = `{"action":"daily"}`
+	// UsageFilesPrefix is where the Lambda writes each user's daily usage in the cost export bucket.
+	UsageFilesPrefix    = "bedrock-admin/usage/"
+	InvokePolicyName    = "bedrock-invoke"
+	BlockPolicyName     = "bedrock-personal-role-only"
+	BlockSid            = "BedrockOnlyViaPersonalRole"
+	SSOInlinePolicyName = "AwsSSOInlinePolicy"
+	SSORolePathPrefix   = "/aws-reserved/sso.amazonaws.com/"
+	OwnerTag            = "owner"
+	ProductTag          = "product"
+	IDTag               = "bedrock-admin:id"
 	// ReportBucketTag marks the central report bucket made by fleet init, so fleet finds it.
 	ReportBucketTag        = "bedrock-admin:report-bucket"
 	CostAllocationOwnerTag = "iamPrincipal/owner"
@@ -45,13 +48,17 @@ const (
 
 // Names of an id's account resources. An id is 1-20 lowercase letters and digits, so every name
 // fits AWS limits (IAM role names: 64) and a name maps back to exactly one id.
-func UserPath(id string) string           { return UsersPath + id + "/" }
-func DenyPolicyName(id string) string     { return "bedrock-deny-" + id }
-func BudgetActionsRole(id string) string  { return "bedrock-budget-actions-" + id }
-func LambdaName(id string) string         { return "bedrock-monthly-unpause-" + id }
-func LambdaRole(id string) string         { return "bedrock-monthly-unpause-" + id }
-func SchedulerRole(id string) string      { return "bedrock-monthly-unpause-scheduler-" + id }
-func ScheduleName(id string) string       { return "bedrock-monthly-unpause-" + id }
+func UserPath(id string) string          { return UsersPath + id + "/" }
+func DenyPolicyName(id string) string    { return "bedrock-deny-" + id }
+func BudgetActionsRole(id string) string { return "bedrock-budget-actions-" + id }
+func LambdaName(id string) string        { return "bedrock-monthly-unpause-" + id }
+func LambdaRole(id string) string        { return "bedrock-monthly-unpause-" + id }
+func SchedulerRole(id string) string     { return "bedrock-monthly-unpause-scheduler-" + id }
+func ScheduleName(id string) string      { return "bedrock-monthly-unpause-" + id }
+func DailyScheduleName(id string) string { return "bedrock-daily-" + id }
+
+// ReportScheduleName is the daily report schedule of bedrock-admin 1.1, replaced by DailyScheduleName;
+// apply removes it.
 func ReportScheduleName(id string) string { return "bedrock-daily-report-" + id }
 func WebSearchRole(id string) string      { return "bedrock-web-search-gateway-" + id }
 func WebSearchGateway(id string) string   { return "bedrock-web-search-" + id }
@@ -207,7 +214,7 @@ func WebSearchGatewayPermissions(region, account, id string) string {
 // LambdaPermissions lets the monthly Lambda re-arm budget actions, keep manual pauses in place and
 // write snapshots, for the id's users only; with reportBucket, also write this account's central
 // report.
-func LambdaPermissions(region, account, id, bucket, snapshotPrefix, reportBucket string) string {
+func LambdaPermissions(region, account, id, bucket, snapshotPrefix, exportPrefix, reportBucket string) string {
 	s := []stmt{
 		{"Sid": "Budgets", "Effect": "Allow", "Action": []string{"budgets:DescribeBudgetActionsForAccount",
 			"budgets:DescribeBudgetAction", "budgets:ExecuteBudgetAction", "budgets:DescribeBudgetActionHistories",
@@ -221,6 +228,12 @@ func LambdaPermissions(region, account, id, bucket, snapshotPrefix, reportBucket
 			"Resource": IAMUsersArn(account), "Condition": idUserCondition(account, id)},
 		{"Sid": "Snapshots", "Effect": "Allow", "Action": "s3:PutObject",
 			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", bucket, snapshotPrefix)},
+		{"Sid": "ReadCostExport", "Effect": "Allow", "Action": "s3:GetObject",
+			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s/*", bucket, exportPrefix)},
+		{"Sid": "ListCostExport", "Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::" + bucket,
+			"Condition": doc{"StringLike": doc{"s3:prefix": exportPrefix + "/*"}}},
+		{"Sid": "UsageFiles", "Effect": "Allow", "Action": "s3:PutObject",
+			"Resource": fmt.Sprintf("arn:aws:s3:::%s/%s%s/*", bucket, UsageFilesPrefix, id)},
 		{"Sid": "Logs", "Effect": "Allow", "Action": []string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"},
 			"Resource": fmt.Sprintf("arn:aws:logs:%s:%s:log-group:/aws/lambda/%s:*", region, account, LambdaName(id))},
 	}

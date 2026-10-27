@@ -152,11 +152,16 @@ func TestIAMUsersPolicy(t *testing.T) {
 }
 
 func TestLambdaPermissionsReport(t *testing.T) {
-	off := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "")
+	off := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "cur/bedrock-cur-x", "")
 	if strings.Contains(off, "CentralReport") {
 		t.Fatalf("report statement without a bucket:\n%s", off)
 	}
-	on := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "central")
+	for _, want := range []string{`"arn:aws:s3:::b/cur/bedrock-cur-x/*"`, `"s3:prefix":"cur/bedrock-cur-x/*"`, `"arn:aws:s3:::b/bedrock-admin/usage/x/*"`} {
+		if !strings.Contains(off, want) {
+			t.Errorf("lacks %s:\n%s", want, off)
+		}
+	}
+	on := LambdaPermissions("us-east-1", "123456789012", "x", "b", "snap", "cur/bedrock-cur-x", "central")
 	if !strings.Contains(on, `"arn:aws:s3:::central/123456789012/*"`) || !strings.Contains(on, "iam:GetRole") {
 		t.Fatalf("report statement:\n%s", on)
 	}
