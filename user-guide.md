@@ -416,7 +416,7 @@ finds and puts in `--region`, so it can differ from your profile's region.
 ## Check your spend
 
 ```text
-$ bedrock usage
+$ bedrock usage --days 5
 Budget     bedrock-bedrock-achen, May 2026 (resets Jun 1)
 Spent      $42.50 of $100.00 (42%)
 Forecast   $90.00 by the end of the month
@@ -428,14 +428,14 @@ Per day (from the cost export, as of May 13 22:00 UTC)
 DATE         SPEND
 2026-05-10  $0.00
 2026-05-11  $0.00
-2026-05-12  $4.00   ████████████████████████
-2026-05-13  $2.00*  ████████████
+2026-05-12  $6.00   ████████████████████████
+2026-05-13  $3.00*  ████████████
 2026-05-14  $0.00*
 * still being billed: AWS adds spend up to a day late.
 
 Per model this month
-us.anthropic.claude-sonnet-5-5  $6.00
-us.anthropic.claude-haiku-5-5   $1.00
+us.anthropic.claude-sonnet-5-5  $36.50
+us.anthropic.claude-haiku-5-5    $4.00
 
 Web search is not counted here: the account pays for it.
 ```

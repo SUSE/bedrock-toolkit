@@ -158,6 +158,7 @@ ok    Step 1.4 Lambda role bedrock-monthly-unpause-acmeprod: ok
 ok    Step 1.4 scheduler role bedrock-monthly-unpause-scheduler-acmeprod: ok
 ok    Step 1.4 Lambda bedrock-monthly-unpause-acmeprod: ok
 ok    Step 1.4 schedule bedrock-monthly-unpause-acmeprod: ok
+ok    Step 1.4 schedule bedrock-daily-acmeprod: ok
 ok    Step 1.5 model us.anthropic.claude-opus-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-sonnet-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-haiku-5-5: ok
@@ -528,7 +529,7 @@ Account setup
 + 1.4 scheduler role bedrock-monthly-unpause-scheduler-acmeprod  create
 + 1.4 Lambda bedrock-monthly-unpause-acmeprod              create (runs 06:00 UTC on the 1st)
 + 1.4 schedule bedrock-monthly-unpause-acmeprod            create (cron(0 6 1 * ? *) UTC)
-+ 1.4 schedule bedrock-daily-acmeprod                      create (cron(0 7 * * ? *) UTC)
++ 1.4 schedule bedrock-daily-acmeprod                      create (daily 07:00 UTC, users' usage files)
   1.5 model us.anthropic.claude-opus-5-5                   ok
   1.5 model us.anthropic.claude-sonnet-5-5                 ok
   1.5 model us.anthropic.claude-haiku-5-5                  ok
@@ -784,8 +785,8 @@ ACTIVE: users who spent at least $0.01 that day; Total: in the month (3 of 3 use
 ```
 
 Users can check their own spend and pause state with `bedrock usage`, and their allowed models with
-`bedrock models`: their personal role may read only its own budget, its own tags and its own
-`bedrock-invoke` policy. Roles created before this show a `~` on `bedrock-invoke` in `plan`;
+`bedrock models`: their personal role may read only its own budget, its own tags, its own
+`bedrock-invoke` policy and its own daily usage files (spend per day and per model). Roles created before this show a `~` on `bedrock-invoke` in `plan`;
 `apply` updates them.
 
 <details>

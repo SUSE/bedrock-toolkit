@@ -166,7 +166,7 @@ Fleet usage in October 2026, product longhorn (2 setups, cost export as of Oct 2
 DATE        ACTIVE  SPEND (USD)
 2026-10-01       3        12.40   ███████▊
 ...
-2026-10-20       5        38.10*  ████████████████████████
+2026-10-20       5        38.10   ████████████████████████
 2026-10-21       0         0.00*
 ACTIVE: users who spent at least $0.01 that day. SPEND is tracked spend of personal roles.
 * still being billed: AWS adds spend up to a day late.
