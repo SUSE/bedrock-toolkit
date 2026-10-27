@@ -148,6 +148,12 @@ func TestUsageProductFlag(t *testing.T) {
 	if code, _, errs := run(t, "usage", "--product", "web", "--untracked"); code != 1 || !strings.Contains(errs, "no product") {
 		t.Fatalf("code %d %s", code, errs)
 	}
+	if err := checkUsageFlags(usageFlags{by: "day", months: 2, monthsSet: true}, ""); err == nil || !strings.Contains(err.Error(), "one month") {
+		t.Errorf("--by day --months: %v", err)
+	}
+	if err := checkUsageFlags(usageFlags{by: "day", month: "2026-09"}, "a@x.test"); err != nil {
+		t.Error(err)
+	}
 	if err := checkUsageFlags(usageFlags{by: "product", product: []string{"web"}}, ""); err != nil {
 		t.Error(err)
 	}

@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/SUSE/bedrock-toolkit/internal/pause"
-	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 // User is someone with a budget in a month: tracked spend is spend through their personal role
@@ -160,12 +159,13 @@ func Summarize(month, id string, lines []Line, users []User, now time.Time) Mont
 	callers := map[key]*Caller{}
 	last := map[key]time.Time{}
 	for _, l := range lines {
-		if u, ok := set.owner(l); ok {
+		u, kind := set.classify(l, id)
+		switch kind {
+		case kindTracked:
 			spent[strings.ToLower(u.Email)] += l.Cost
 			r.TrackedUSD += l.Cost
 			continue
-		}
-		if other, _, ok := policy.SplitUserRole(principalRole(l.Principal)); ok && other != id {
+		case kindOtherID:
 			r.OtherIDsUSD += l.Cost
 			continue
 		}

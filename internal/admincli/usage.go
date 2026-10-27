@@ -42,6 +42,7 @@ budget. Callers under $0.01 are left out of the list.
   bedrock-admin usage --month 2026-09      a past month, with limits and pause state from its snapshot
   bedrock-admin usage --months 3           one column per month
   bedrock-admin usage --by product         spend per product tag instead of per user
+  bedrock-admin usage --by day             one row per day: active users, spend, a trend bar
   bedrock-admin usage --product web        only the users of product web (repeatable)
   bedrock-admin usage alice@acme.com       one person: per day, per model, per way of calling
 
@@ -61,7 +62,7 @@ Exit code 2 when there is untracked spend (never with --product, which leaves it
 	fl.IntVar(&f.months, "months", 0, "the last N months, this one included")
 	fl.BoolVar(&f.tracked, "tracked", false, "show only spend in personal roles")
 	fl.BoolVar(&f.untracked, "untracked", false, "show only spend outside personal roles")
-	fl.StringVar(&f.by, "by", "user", "group tracked spend by user or product")
+	fl.StringVar(&f.by, "by", "user", "group spend by user, product or day")
 	fl.StringSliceVar(&f.product, "product", nil, "only users of this product; repeat for more (untracked spend has no product, so it is left out)")
 	return cmd
 }
@@ -96,8 +97,11 @@ func usageMonths(f usageFlags, thisMonth string) ([]string, error) {
 
 // checkUsageFlags rejects flag combinations that make no sense.
 func checkUsageFlags(f usageFlags, email string) error {
-	if f.by != "user" && f.by != "product" {
-		return fmt.Errorf("--by must be user or product (got %q)", f.by)
+	if f.by != "user" && f.by != "product" && f.by != "day" {
+		return fmt.Errorf("--by must be user, product or day (got %q)", f.by)
+	}
+	if f.by == "day" && f.monthsSet {
+		return errors.New("--by day shows one month; use --month, not --months")
 	}
 	if email != "" && f.by == "product" {
 		return errors.New("<email> shows one person; leave out --by product")
@@ -136,6 +140,7 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 
 	var reports []usage.MonthReport
 	var lastLines []usage.Line
+	var lastUsers []usage.User
 	for _, month := range months {
 		var lines []usage.Line
 		files, err := usage.ReadMonth(ctx, src, month, func(l usage.Line) { lines = append(lines, l) })
@@ -162,7 +167,7 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 		r := usage.Summarize(month, cfg.ID, lines, us, now)
 		r.Files, r.Note = files, note
 		reports = append(reports, r)
-		lastLines = lines
+		lastLines, lastUsers = lines, us
 	}
 
 	products := usage.Products(f.product)
@@ -185,6 +190,17 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 		return nil
 	}
 	var untracked bool
+	if f.by == "day" {
+		d := usage.Daily(reports[0], usage.DailySpend(cfg.ID, lastLines, lastUsers), now)
+		if a.JSON {
+			if err := cli.WriteJSON(a.Out, d); err != nil {
+				return err
+			}
+		} else {
+			d.Write(a.Out, sec)
+		}
+		return usageExit(sec, reports[0].HasUntracked())
+	}
 	if len(reports) > 1 {
 		m := usage.Combine(reports)
 		untracked = m.HasUntracked()

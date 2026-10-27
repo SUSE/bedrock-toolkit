@@ -82,7 +82,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin export` | Prints the current account, including its users, as a `bedrock.yaml` | [2](#2-create-bedrockyaml) |
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
-| `bedrock-admin usage` | Spend per user (or per product with `--by product`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
+| `bedrock-admin usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
@@ -738,6 +738,8 @@ bedrock-admin usage --month 2026-09       # a past month, with limits and pause 
 bedrock-admin usage --months 6            # the last 6 months, one column per month
 bedrock-admin usage --by product          # tracked spend per product tag instead of per user
 bedrock-admin usage --product web         # only the users of product web; repeat --product for more
+bedrock-admin usage --by day              # one row per day: active users, spend and a trend bar
+bedrock-admin usage --by day --product web  # one team's daily activity
 bedrock-admin usage achen@example.com     # one person: per day, per model, per way of calling
 bedrock-admin usage --untracked           # only spend outside personal roles
 bedrock-admin usage --tracked             # only spend in personal roles
@@ -757,6 +759,27 @@ cost allocation tag, and untracked spend has no product, so it stays per caller.
 `--product <name>` keeps only that product's users, with any `--by` and any month. Use `(none)` for
 users without a product. Untracked spend has no product, so `--product` leaves it out (and exits 0);
 run without `--product` to see it. An unknown product is an error that lists the known ones.
+
+`--by day` shows one row per day of the month (through today): users active that day (spent at least
+$0.01 that day), tracked and untracked spend, and a bar scaled to the largest day. `*` marks days
+whose spend may still grow, since billing lags up to ~16 h. The Total row counts users active in the
+month. It works with `--month` and `--product`, not `--months`; `--by day <email>` is the one-person
+view, which already lists days.
+
+```text
+$ bedrock-admin usage --by day
+2026-10 (to Oct 8, billing lags up to ~16 h)
+
+DATE         ACTIVE  TRACKED  UNTRACKED  TOTAL
+2026-10-01        2     4.10       0.00   4.10  ███▊
+2026-10-02        3     9.80       3.20  13.00  ████████████
+...
+2026-10-07        3    21.40       0.00  21.40  ████████████████████
+2026-10-08*       2     6.30       0.00   6.30  █████▉
+Total             3   148.50       9.60  158.10
+ACTIVE: users who spent at least $0.01 that day; Total: in the month (3 of 3 users)
+*: still growing; billing lags up to ~16 h
+```
 
 Users can check their own spend and pause state with `bedrock usage`, and their allowed models with
 `bedrock models`: their personal role may read only its own budget, its own tags and its own

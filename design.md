@@ -559,6 +559,9 @@ snapshot's for past months) instead of per user, so it works before `product` is
 tag. Untracked spend has no product and stays per caller. `ACTIVE` counts users who spent at least
 $0.01 in the month. `--product` (repeatable) keeps only those products' users with any `--by`, and
 leaves out untracked spend, which has no product.
+`--by day` adds up the export's hourly lines by `line_item_usage_start_date` (UTC): per day, the users
+who spent at least $0.01 that day, tracked and untracked spend, and a text bar. Days from the newest
+line's day on are marked partial.
 
 The CLI lists `s3://<bucket>/<prefix>/<export>/data/BILLING_PERIOD=YYYY-MM/*.parquet`, streams each
 file, reads only four columns, and adds up the cost per caller. No query engine is needed.
