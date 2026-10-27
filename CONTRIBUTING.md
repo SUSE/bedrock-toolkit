@@ -11,6 +11,7 @@ is in the [README](README.md).
 | [`admin-guide.md`](admin-guide.md) | Account setup, managing users, pauses, spend, cheat sheet |
 | [`central-admin-guide.md`](central-admin-guide.md) | The central report bucket and `bedrock-admin fleet` |
 | [`design.md`](design.md) | How and why it works: the model, each component, security, limits, testing, open items |
+| [`AGENTS.md`](AGENTS.md) | Instructions for coding agents: checks, AWS safety, e2e pitfalls, commits |
 | `cmd/bedrock-admin/` | Admin CLI |
 | `cmd/bedrock/` | User CLI |
 | `cmd/monthly-unpause/` | The monthly Lambda (`provided.al2023`), embedded in `bedrock-admin` by `make build` and releases (not `go install`) |
