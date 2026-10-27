@@ -47,7 +47,7 @@ Only users with this id are exported.
 			if region != "" {
 				base.Region = region
 			}
-			c, err := awsx.New(ctx, a.profile(base), base.Region, base.Account)
+			c, err := a.connect(ctx, base, base.Region, base.Account)
 			if err != nil {
 				return err
 			}

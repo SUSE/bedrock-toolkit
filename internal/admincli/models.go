@@ -15,7 +15,6 @@ import (
 	btypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	"github.com/spf13/cobra"
 
-	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
@@ -81,7 +80,7 @@ pick another region in bedrock setup; use --region to see what they get there.
 				}
 				return fmt.Errorf("%s has no region: pass --region", path)
 			}
-			c, err := awsx.New(ctx, a.profile(cfg), cfg.Region, cfg.Account)
+			c, err := a.connect(ctx, cfg, cfg.Region, cfg.Account)
 			if err != nil {
 				return err
 			}

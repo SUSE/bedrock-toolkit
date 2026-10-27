@@ -206,6 +206,11 @@ make model calls.
 
 </details>
 
+`bedrock-admin` refuses to run with a Bedrock user's own credentials: a personal role
+(`bedrock-user-<id>-<name>`), or an IAM user that is some user's `iam_user` (in the file, or
+tagged `bedrock-admin:id`). This only guards against using the wrong profile. What really keeps
+users out is IAM: their credentials have no rights to change the setup.
+
 ## 2. Create `bedrock.yaml`
 
 ```bash

@@ -652,6 +652,11 @@ sets.
 - `bedrock-admin` needs only account-level admin rights. It never changes AWS Organizations;
   `fleet init` only reads the caller's organization ID, and `fleet` lists the caller's own buckets
   and their tags to find the report bucket.
+- `bedrock-admin` refuses a user's credentials: a personal role (assumed-role ARN
+  `bedrock-user-<id>-<name>`) or an IAM user that is an `iam_user` in the file or tagged
+  `bedrock-admin:id`. It reads the IAM user's tags with `iam:ListUserTags`; if that is denied, the
+  credentials can't run `bedrock-admin` anyway. This is a guardrail against the wrong profile. IAM
+  is the control: personal roles and users' IAM users have no admin rights.
 - Central reports leave the account only when `report:` is set, go only to that bucket, and hold
   emails only with `include_emails: true`.
 - `bedrock-deny-<id>` and the budget actions role are scoped to the id's `/bedrock-users/<id>/` roles

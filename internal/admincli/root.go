@@ -121,7 +121,7 @@ func (a *App) profile(cfg *config.Config) string {
 
 // clients connects to the config's account and region.
 func (a *App) clients(ctx context.Context, cfg *config.Config) (*awsx.Clients, error) {
-	return awsx.New(ctx, a.profile(cfg), cfg.Region, cfg.Account)
+	return a.connect(ctx, cfg, cfg.Region, cfg.Account)
 }
 
 // profileRegion is the admin profile's own region, used to decide whether setup commands need --region.

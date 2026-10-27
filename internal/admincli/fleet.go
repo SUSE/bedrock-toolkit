@@ -60,7 +60,7 @@ func (a *App) fleetClients(ctx context.Context, region string) (*awsx.Clients, e
 		}
 		a.fleetCfg = cfg
 	}
-	return awsx.New(ctx, a.profile(a.fleetCfg), a.fleetClientRegion(ctx, region), "")
+	return a.connect(ctx, a.fleetCfg, a.fleetClientRegion(ctx, region), "")
 }
 
 // fleetClientRegion is --region, else fleetRegion, else us-east-1.
