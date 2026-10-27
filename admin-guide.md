@@ -737,6 +737,7 @@ bedrock-admin usage                       # this month: users, then untracked ca
 bedrock-admin usage --month 2026-09       # a past month, with limits and pause state from its snapshot
 bedrock-admin usage --months 6            # the last 6 months, one column per month
 bedrock-admin usage --by product          # tracked spend per product tag instead of per user
+bedrock-admin usage --product web         # only the users of product web; repeat --product for more
 bedrock-admin usage achen@example.com     # one person: per day, per model, per way of calling
 bedrock-admin usage --untracked           # only spend outside personal roles
 bedrock-admin usage --tracked             # only spend in personal roles
@@ -744,11 +745,18 @@ bedrock-admin usage --json                # for scripts
 ```
 
 `usage` exits 2 when it finds spend outside personal roles, so a scheduled job can alert on it.
+A user is active in a month when they spent at least $0.01; the users table ends with "N of M users
+active", and `--by product` shows `ACTIVE` as active/onboarded users per product (with `--months`,
+active users per month in brackets).
 
 `--by product` sums the users per `product` (the file's, or a user's own `product:`): users, limits,
 spend and forecast per product, also with `--months`. A user's product is the one in the file for
 this month and the one in the snapshot for past months. It doesn't need `product` activated as a
 cost allocation tag, and untracked spend has no product, so it stays per caller.
+
+`--product <name>` keeps only that product's users, with any `--by` and any month. Use `(none)` for
+users without a product. Untracked spend has no product, so `--product` leaves it out (and exits 0);
+run without `--product` to see it. An unknown product is an error that lists the known ones.
 
 Users can check their own spend and pause state with `bedrock usage`, and their allowed models with
 `bedrock models`: their personal role may read only its own budget, its own tags and its own
@@ -766,6 +774,7 @@ achen@example.com  $50    $41.20   82%   $160      armed
 bkim@example.com   $100   $104.20  104%  -         PAUSED (Oct 7)
 cdiaz@example.com  $30    $3.10    10%   $12       PAUSED by hand (Oct 8: runaway agent loop, INC-4521)
 Tracked total             $148.50
+3 of 3 users active (spent at least $0.01)
 
 UNTRACKED (outside personal roles)
 WHO               USED VIA                       USD   LAST USED

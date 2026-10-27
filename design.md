@@ -556,7 +556,9 @@ The forecast for this month is the spend so far, scaled to the whole month.
 
 `--by product` groups tracked spend by each user's product (the file's for this month, the
 snapshot's for past months) instead of per user, so it works before `product` is a cost allocation
-tag. Untracked spend has no product and stays per caller.
+tag. Untracked spend has no product and stays per caller. `ACTIVE` counts users who spent at least
+$0.01 in the month. `--product` (repeatable) keeps only those products' users with any `--by`, and
+leaves out untracked spend, which has no product.
 
 The CLI lists `s3://<bucket>/<prefix>/<export>/data/BILLING_PERIOD=YYYY-MM/*.parquet`, streams each
 file, reads only four columns, and adds up the cost per caller. No query engine is needed.

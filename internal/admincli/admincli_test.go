@@ -144,6 +144,15 @@ func TestUsageMonths(t *testing.T) {
 	}
 }
 
+func TestUsageProductFlag(t *testing.T) {
+	if code, _, errs := run(t, "usage", "--product", "web", "--untracked"); code != 1 || !strings.Contains(errs, "no product") {
+		t.Fatalf("code %d %s", code, errs)
+	}
+	if err := checkUsageFlags(usageFlags{by: "product", product: []string{"web"}}, ""); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestShortAWSError(t *testing.T) {
 	in := "creating bucket b: operation error S3: CreateBucket, https response error StatusCode: 409, RequestID: R1, HostID: H/1=, api error OperationAborted: try again."
 	if got, want := shortAWSError(in), "creating bucket b: OperationAborted: try again."; got != want {

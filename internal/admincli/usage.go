@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 
@@ -25,6 +26,7 @@ type usageFlags struct {
 	monthsSet          bool
 	tracked, untracked bool
 	by                 string
+	product            []string
 }
 
 func (a *App) usageCmd() *cobra.Command {
@@ -40,9 +42,10 @@ budget. Callers under $0.01 are left out of the list.
   bedrock-admin usage --month 2026-09      a past month, with limits and pause state from its snapshot
   bedrock-admin usage --months 3           one column per month
   bedrock-admin usage --by product         spend per product tag instead of per user
+  bedrock-admin usage --product web        only the users of product web (repeatable)
   bedrock-admin usage alice@acme.com       one person: per day, per model, per way of calling
 
-Exit code 2 when there is untracked spend.`,
+Exit code 2 when there is untracked spend (never with --product, which leaves it out).`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := ""
@@ -59,6 +62,7 @@ Exit code 2 when there is untracked spend.`,
 	fl.BoolVar(&f.tracked, "tracked", false, "show only spend in personal roles")
 	fl.BoolVar(&f.untracked, "untracked", false, "show only spend outside personal roles")
 	fl.StringVar(&f.by, "by", "user", "group tracked spend by user or product")
+	fl.StringSliceVar(&f.product, "product", nil, "only users of this product; repeat for more (untracked spend has no product, so it is left out)")
 	return cmd
 }
 
@@ -90,15 +94,26 @@ func usageMonths(f usageFlags, thisMonth string) ([]string, error) {
 	return []string{thisMonth}, nil
 }
 
-func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
+// checkUsageFlags rejects flag combinations that make no sense.
+func checkUsageFlags(f usageFlags, email string) error {
 	if f.by != "user" && f.by != "product" {
 		return fmt.Errorf("--by must be user or product (got %q)", f.by)
 	}
 	if email != "" && f.by == "product" {
 		return errors.New("<email> shows one person; leave out --by product")
 	}
+	if len(f.product) > 0 && f.untracked {
+		return errors.New("untracked spend has no product; use --untracked without --product")
+	}
 	if email != "" && f.months > 0 {
 		return errors.New("<email> shows one month; use it with --month, not --months")
+	}
+	return nil
+}
+
+func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
+	if err := checkUsageFlags(f, email); err != nil {
+		return err
 	}
 	now := a.now().UTC()
 	thisMonth := now.Format("2006-01")
@@ -148,6 +163,17 @@ func (a *App) usage(ctx context.Context, f usageFlags, email string) error {
 		r.Files, r.Note = files, note
 		reports = append(reports, r)
 		lastLines = lines
+	}
+
+	products := usage.Products(f.product)
+	if err := products.Check(usage.KnownProducts(reports...)); err != nil {
+		return err
+	}
+	for i := range reports {
+		reports[i] = reports[i].Filter(products)
+	}
+	if email != "" && len(products) > 0 && !slices.ContainsFunc(reports[0].Users, func(u usage.UserRow) bool { return strings.EqualFold(u.Email, email) }) {
+		return fmt.Errorf("%s is not a user of product %s", email, strings.Join(products, ", "))
 	}
 
 	if email != "" {

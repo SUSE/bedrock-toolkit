@@ -50,16 +50,20 @@ type Caller struct {
 
 // MonthReport is usage for one month.
 type MonthReport struct {
-	Month        string       `json:"month"`
-	Current      bool         `json:"current"`
-	Through      string       `json:"through,omitempty"`
-	Note         string       `json:"note,omitempty"`
-	Files        int          `json:"files"`
-	Users        []UserRow    `json:"users"`
-	Products     []ProductRow `json:"products"`
-	TrackedUSD   float64      `json:"tracked_usd"`
-	Untracked    []Caller     `json:"untracked"`
-	UntrackedUSD float64      `json:"untracked_usd"`
+	Month      string       `json:"month"`
+	Current    bool         `json:"current"`
+	Through    string       `json:"through,omitempty"`
+	Note       string       `json:"note,omitempty"`
+	Files      int          `json:"files"`
+	Users      []UserRow    `json:"users"`
+	Products   []ProductRow `json:"products"`
+	TrackedUSD float64      `json:"tracked_usd"`
+	// ActiveUsers is the number of users who spent at least MinUSD.
+	ActiveUsers int `json:"active_users"`
+	// ProductFilter is --product: only these products' users, and no untracked spend.
+	ProductFilter []string `json:"product_filter,omitempty"`
+	Untracked     []Caller `json:"untracked"`
+	UntrackedUSD  float64  `json:"untracked_usd"`
 	// OtherIDsUSD is spend through personal roles of other ids (other setups in the account).
 	OtherIDsUSD float64 `json:"other_ids_usd"`
 }
@@ -202,6 +206,7 @@ func Summarize(month, id string, lines []Line, users []User, now time.Time) Mont
 	}
 	sort.Slice(r.Users, func(i, j int) bool { return r.Users[i].Email < r.Users[j].Email })
 	r.Products = byProduct(r.Users)
+	r.ActiveUsers = activeUsers(r.Users)
 	for k, c := range callers {
 		c.USD = round2(c.USD)
 		if c.USD < MinUSD {
@@ -248,6 +253,7 @@ const NoProduct = "(none)"
 type ProductRow struct {
 	Product     string   `json:"product"`
 	Users       int      `json:"users"`
+	ActiveUsers int      `json:"active_users"`
 	LimitUSD    float64  `json:"limit_usd"`
 	SpentUSD    float64  `json:"spent_usd"`
 	UsedPercent float64  `json:"used_percent"`
@@ -275,6 +281,9 @@ func byProduct(users []UserRow) []ProductRow {
 		}
 		r := &out[i]
 		r.Users++
+		if u.Active() {
+			r.ActiveUsers++
+		}
 		r.LimitUSD += u.LimitUSD
 		r.SpentUSD = round2(r.SpentUSD + u.SpentUSD)
 		if u.ForecastUSD != nil {
@@ -306,6 +315,9 @@ func (r MonthReport) Write(w io.Writer, s Sections) {
 	} else {
 		fmt.Fprintf(w, "%s (%s)\n", r.Month, firstNonEmpty(r.Note, "final"))
 	}
+	if len(r.ProductFilter) > 0 {
+		fmt.Fprintf(w, "Product %s\n", strings.Join(r.ProductFilter, ", "))
+	}
 	if s.Tracked && s.ByProduct {
 		fmt.Fprintln(w)
 		r.writeProducts(w)
@@ -335,11 +347,18 @@ func (r MonthReport) Write(w io.Writer, s Sections) {
 		}
 		fmt.Fprintf(tw, "Tracked total\t\t%s\n", cents(r.TrackedUSD))
 		_ = tw.Flush()
+		if len(r.Users) > 0 {
+			fmt.Fprintf(w, "%d of %d users active (spent at least $0.01)\n", r.ActiveUsers, len(r.Users))
+		}
 	}
 	if s.Tracked {
 		if r.OtherIDsUSD >= MinUSD {
 			fmt.Fprintf(w, "Other setups in this account (personal roles of other ids): %s\n", cents(r.OtherIDsUSD))
 		}
+	}
+	if len(r.ProductFilter) > 0 {
+		fmt.Fprintln(w, "\nUntracked spend has no product; run without --product to see it.")
+		return
 	}
 	if s.Untracked {
 		fmt.Fprintln(w)
@@ -361,9 +380,9 @@ func (r MonthReport) Write(w io.Writer, s Sections) {
 func (r MonthReport) writeProducts(w io.Writer) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if r.Current {
-		fmt.Fprintln(tw, "PRODUCTS\tUSERS\tLIMIT\tSPENT\tUSED\tFORECAST")
+		fmt.Fprintln(tw, "PRODUCTS\tACTIVE\tLIMIT\tSPENT\tUSED\tFORECAST")
 	} else {
-		fmt.Fprintln(tw, "PRODUCTS\tUSERS\tLIMIT\tSPENT\tUSED")
+		fmt.Fprintln(tw, "PRODUCTS\tACTIVE\tLIMIT\tSPENT\tUSED")
 	}
 	for _, p := range r.Products {
 		used := fmt.Sprintf("%.0f%%", p.UsedPercent)
@@ -372,15 +391,15 @@ func (r MonthReport) writeProducts(w io.Writer) {
 			if p.ForecastUSD != nil {
 				fc = dollars(*p.ForecastUSD)
 			}
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n", p.Product, p.Users, dollars(p.LimitUSD), cents(p.SpentUSD), used, fc)
+			fmt.Fprintf(tw, "%s\t%d/%d\t%s\t%s\t%s\t%s\n", p.Product, p.ActiveUsers, p.Users, dollars(p.LimitUSD), cents(p.SpentUSD), used, fc)
 		} else {
-			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", p.Product, p.Users, dollars(p.LimitUSD), cents(p.SpentUSD), used)
+			fmt.Fprintf(tw, "%s\t%d/%d\t%s\t%s\t%s\n", p.Product, p.ActiveUsers, p.Users, dollars(p.LimitUSD), cents(p.SpentUSD), used)
 		}
 	}
 	if len(r.Products) == 0 {
 		fmt.Fprintln(tw, "(no users)")
 	}
-	fmt.Fprintf(tw, "Tracked total\t\t\t%s\n", cents(r.TrackedUSD))
+	fmt.Fprintf(tw, "Tracked total\t%d/%d\t\t%s\n", r.ActiveUsers, len(r.Users), cents(r.TrackedUSD))
 	_ = tw.Flush()
 }
 
@@ -399,6 +418,8 @@ type Series struct {
 	UsedVia  string             `json:"used_via,omitempty"`
 	ByMonth  map[string]float64 `json:"by_month"`
 	TotalUSD float64            `json:"total_usd"`
+	// ActiveByMonth is a product's active users per month.
+	ActiveByMonth map[string]int `json:"active_by_month,omitempty"`
 }
 
 // MultiReport is usage over several months: one row per user and per untracked caller.
@@ -409,6 +430,7 @@ type MultiReport struct {
 	Untracked      []Series           `json:"untracked"`
 	TrackedTotals  map[string]float64 `json:"tracked_totals"`
 	UntrackedTotal map[string]float64 `json:"untracked_totals"`
+	ProductFilter  []string           `json:"product_filter,omitempty"`
 }
 
 // Combine builds the multi-month table from monthly reports (oldest first).
@@ -418,6 +440,7 @@ func Combine(reports []MonthReport) MultiReport {
 	callers := map[[2]string]*Series{}
 	for _, r := range reports {
 		m.Months = append(m.Months, r.Month)
+		m.ProductFilter = r.ProductFilter
 		m.TrackedTotals[r.Month] = r.TrackedUSD
 		m.UntrackedTotal[r.Month] = r.UntrackedUSD
 		for _, u := range r.Users {
@@ -431,11 +454,14 @@ func Combine(reports []MonthReport) MultiReport {
 			p := productOf(u)
 			ps := products[p]
 			if ps == nil {
-				ps = &Series{Who: p, ByMonth: map[string]float64{}}
+				ps = &Series{Who: p, ByMonth: map[string]float64{}, ActiveByMonth: map[string]int{}}
 				products[p] = ps
 			}
 			ps.ByMonth[r.Month] = round2(ps.ByMonth[r.Month] + u.SpentUSD)
 			ps.TotalUSD = round2(ps.TotalUSD + u.SpentUSD)
+			if u.Active() {
+				ps.ActiveByMonth[r.Month]++
+			}
 		}
 		for _, c := range r.Untracked {
 			k := [2]string{c.Who, c.UsedVia}
@@ -487,7 +513,9 @@ func (m MultiReport) Write(w io.Writer, s Sections) {
 		for _, r := range rows {
 			row := []string{seriesName(r)}
 			for _, mo := range m.Months {
-				if v, ok := r.ByMonth[mo]; ok {
+				if v, ok := r.ByMonth[mo]; ok && r.ActiveByMonth != nil {
+					row = append(row, fmt.Sprintf("%.2f (%d)", v, r.ActiveByMonth[mo]))
+				} else if ok {
 					row = append(row, fmt.Sprintf("%.2f", v))
 				} else {
 					row = append(row, "-")
@@ -521,11 +549,19 @@ func (m MultiReport) Write(w io.Writer, s Sections) {
 			fmt.Fprintln(w, b.String())
 		}
 	}
+	if len(m.ProductFilter) > 0 {
+		fmt.Fprintf(w, "Product %s\n", strings.Join(m.ProductFilter, ", "))
+	}
 	switch {
 	case s.Tracked && s.ByProduct:
 		section("PRODUCTS", m.Products, m.TrackedTotals, "Tracked total")
+		fmt.Fprintln(w, "(n): users who spent at least $0.01 that month")
 	case s.Tracked:
 		section("USERS", m.Users, m.TrackedTotals, "Tracked total")
+	}
+	if len(m.ProductFilter) > 0 {
+		fmt.Fprintln(w, "\nUntracked spend has no product; run without --product to see it.")
+		return
 	}
 	if s.Untracked {
 		if s.Tracked {
