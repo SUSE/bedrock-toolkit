@@ -142,6 +142,13 @@ month. A report from a version before v1.2.0 has no products and shows `-` until
 with a newer one. `--json` prints the full reports, with emails where sent.
 Objects that aren't valid reports, or whose content doesn't match their key, are listed as problems.
 
+When the profile may list the organization's accounts (the management account or a delegated
+administrator), a `NAME` column shows each account's name first, and `--json` adds them as
+`account_names`. Without that permission the column is left out.
+
+A setup whose users have product `bedrock`, the old default of `configure`, is listed below the
+tables (also with `--by`): ask that team to set `product:` to their team or product and apply.
+
 A `REPORTED` older than a day means the setup's Lambda didn't run or couldn't write: ask the team
 to run `bedrock-admin doctor` and `apply`.
 

@@ -570,7 +570,9 @@ admins.
   the users' files. `apply` deletes the old `bedrock-daily-report-<id>` schedule of earlier versions.
 - **Reading**: `fleet report` lists the bucket and shows the latest report of each setup; it skips
   objects whose content doesn't match their key, and keys below `<account>/<id>/`. Its `ACTIVE`
-  column is the active and onboarded users of the setup's usage file for this month.
+  column is the active and onboarded users of the setup's usage file for this month. It adds a
+  `NAME` column when `organizations:ListAccounts` works, and notes setups with product `bedrock`, the
+  old default of `configure`, which now requires `--product`.
   `--by product` and `--by day` (with `--product` and `--month`) read every setup's usage file for the
   month, including uninstalled setups', and sum them per product or per day; days from the oldest
   setup's `as_of` day on are partial. Active setups without a file are listed.

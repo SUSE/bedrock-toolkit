@@ -127,6 +127,7 @@ func writeFleetUsage(a *App, by, product, month string, reports []fleet.Report, 
 		}
 	}
 	writeNoData(a, out.NoData)
+	writeOldDefaultProduct(a, reports)
 	return nil
 }
 

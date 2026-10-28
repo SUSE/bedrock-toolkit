@@ -56,7 +56,7 @@ func (e *Env) Plan(ctx context.Context) ([]*plan.Item, error) {
 	var out []*plan.Item
 	steps := []func(context.Context) ([]*plan.Item, error){
 		e.costExport, e.denyPolicy, e.budgetActionsRole, e.monthlyLambda, e.models, e.costTag, e.blockDirectCalls,
-		e.webSearch, e.iamUsersPolicy,
+		e.webSearch, e.iamUsersPolicy, e.product,
 	}
 	for _, s := range steps {
 		items, err := s(ctx)

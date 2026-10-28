@@ -18,6 +18,7 @@ import (
 	stypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/spf13/cobra"
 
+	"github.com/SUSE/bedrock-toolkit/internal/account"
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
@@ -482,8 +483,10 @@ func putPolicy(ctx context.Context, s3c *s3.Client, bucket, pol string) error {
 type FleetJSON struct {
 	Reports []fleet.Report `json:"reports"`
 	// Usage is each setup's daily usage of this month, keyed by account/id.json, when it sends one.
-	Usage    map[string]*usage.FleetUsage `json:"usage,omitempty"`
-	Problems []string                     `json:"problems,omitempty"`
+	Usage map[string]*usage.FleetUsage `json:"usage,omitempty"`
+	// AccountNames are the accounts' names in AWS Organizations, when the profile may list them.
+	AccountNames map[string]string `json:"account_names,omitempty"`
+	Problems     []string          `json:"problems,omitempty"`
 }
 
 func (a *App) fleetReportCmd() *cobra.Command {
@@ -545,15 +548,16 @@ Without --bucket it reads the bucket fleet init tagged.`,
 				}()
 				return writeFleetUsage(a, by, product, month, reports, us, now)
 			}
+			names := accountNames(ctx, c)
 			if a.JSON {
 				if reports == nil {
 					reports = []fleet.Report{}
 				}
 				enc := json.NewEncoder(a.Out)
 				enc.SetIndent("", "  ")
-				return enc.Encode(FleetJSON{Reports: reports, Usage: us, Problems: problems})
+				return enc.Encode(FleetJSON{Reports: reports, Usage: us, AccountNames: names, Problems: problems})
 			}
-			writeFleet(a, reports, us, now)
+			writeFleet(a, reports, us, names, now)
 			for _, p := range problems {
 				_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
 			}
@@ -569,15 +573,47 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	return cmd
 }
 
+// accountNames maps account IDs to their names in AWS Organizations. Listing accounts needs the
+// management account or a delegated administrator; without that it returns nil.
+func accountNames(ctx context.Context, c *awsx.Clients) map[string]string {
+	names := map[string]string{}
+	pg := organizations.NewListAccountsPaginator(organizations.NewFromConfig(c.Cfg), &organizations.ListAccountsInput{})
+	for pg.HasMorePages() {
+		page, err := pg.NextPage(ctx)
+		if err != nil {
+			return nil
+		}
+		for _, acc := range page.Accounts {
+			if acc.Id != nil && acc.Name != nil {
+				names[*acc.Id] = *acc.Name
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
+}
+
 // writeFleet prints one line per setup, then the installed setups' totals by product and overall.
-// us is this month's daily usage, for ACTIVE.
-func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, now time.Time) {
+// us is this month's daily usage, for ACTIVE; names are the accounts' names, if known.
+func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, names map[string]string, now time.Time) {
 	if len(reports) == 0 {
 		a.printf("No reports yet.\n")
 		return
 	}
 	month := now.UTC().Format("2006-01")
 	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
+	nameCol := func(acct string) string { return "" }
+	if len(names) > 0 {
+		nameCol = func(acct string) string {
+			if n := names[acct]; n != "" {
+				return n + "\t"
+			}
+			return "-\t"
+		}
+		_, _ = fmt.Fprint(w, "NAME\t")
+	}
 	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tPRODUCTS\tONBOARDED\tSET UP\tPAUSED\tACTIVE\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
 	var total fleet.Counts
 	var spend float64
@@ -591,16 +627,16 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 	known := false
 	for _, r := range reports {
 		products := reportProducts(r)
-		names := make([]string, 0, len(products))
+		pnames := make([]string, 0, len(products))
 		if r.Product != "" {
-			names = append(names, r.Product)
+			pnames = append(pnames, r.Product)
 		}
 		for _, p := range products {
 			if p.Product != r.Product && p.Product != noProduct {
-				names = append(names, p.Product)
+				pnames = append(pnames, p.Product)
 			}
 		}
-		list := strings.Join(names, ", ")
+		list := strings.Join(pnames, ", ")
 		if list == "" {
 			list = noProduct
 		}
@@ -613,7 +649,7 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 			}
 			active = fmt.Sprintf("%d/%d", n, of)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%.2f\t%s\t%s\t%s\n", r.Account, r.ID, r.Region, r.Version, list,
+		_, _ = fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%.2f\t%s\t%s\t%s\n", nameCol(r.Account), r.Account, r.ID, r.Region, r.Version, list,
 			r.Users.Onboarded, r.Users.SetUp, r.Users.Paused, active, r.SpendUSD, r.Month, ago(now, r.ReportedAt), r.Status)
 		if r.Status != fleet.StatusActive {
 			continue
@@ -661,6 +697,25 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 	a.printf("\n%d installed setups: %s; $%.2f this month.\n", setups, total.Text(), spend)
 	if len(us) > 0 {
 		a.printf("ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.\n")
+	}
+	writeOldDefaultProduct(a, reports)
+}
+
+// writeOldDefaultProduct notes the setups whose users have product bedrock, the old default of
+// configure, which names no team.
+func writeOldDefaultProduct(a *App, reports []fleet.Report) {
+	var setups []string
+	for _, r := range reports {
+		for _, p := range reportProducts(r) {
+			if p.Product == account.OldDefaultProduct {
+				setups = append(setups, r.Account+"/"+r.ID)
+				break
+			}
+		}
+	}
+	if len(setups) > 0 {
+		a.printf("Product %s is the old default and names no team: set product in the file of %s, then apply.\n",
+			account.OldDefaultProduct, strings.Join(setups, ", "))
 	}
 }
 

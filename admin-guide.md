@@ -219,7 +219,9 @@ users out is IAM: their credentials have no rights to change the setup.
 bedrock-admin configure --profile bedrock-admin
 ```
 
-`configure` asks a few questions and writes everything except your users. Then add them:
+`configure` asks a few questions and writes everything except your users. For the product, give
+your team or product name (for example `rancher`): central fleet reports group usage by it. Then add
+your users:
 
 ```yaml
 users:
@@ -294,7 +296,8 @@ Step 1.9 policy.
 <details>
 <summary>configure without questions, and its flags</summary>
 
-With `--yes`, or without a terminal, it asks nothing and takes the flags and defaults:
+With `--yes`, or without a terminal, it asks nothing and takes the flags and defaults. `--product`
+has no default: name the team or product whose users these are, so fleet reports tell setups apart.
 
 ```bash
 bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product genai-tools --limit 50
@@ -305,7 +308,7 @@ bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product ge
 | `--id` | `bedrock` |
 | `--account` | The profile's account |
 | `--region` | The profile's region |
-| `--product` | `bedrock` |
+| `--product` | None: required |
 | `--limit` | 100 |
 | `--model` (repeatable) | Claude Opus, Sonnet and Haiku 5.5 through the region's `us.` or `eu.` inference profiles, or `global.` in other regions |
 | `--bucket` | `bedrock-cur-<account>-<id>` |
@@ -374,7 +377,7 @@ users:                          # or: users: !include users.yaml
 | --- | --- |
 | `id` | 1–20 lowercase letters and digits. Default `bedrock`. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
 | `account` | 12 digits, in quotes |
-| `product` | Required. The `product` tag on every personal role, to charge spend to a team or product, like `owner` charges it to a person. Billing only shows it once your org admin activates it as a cost allocation tag, as in Step 1.6. Letters, digits, spaces and `_.:/=+@-`, up to 128. A user's own `product:` overrides it for that user. |
+| `product` | Required. The `product` tag on every personal role, to charge spend to a team or product, like `owner` charges it to a person. Billing only shows it once your org admin activates it as a cost allocation tag, as in Step 1.6. Letters, digits, spaces and `_.:/=+@-`, up to 128. A user's own `product:` overrides it for that user. `plan` warns about `bedrock`, the old default, which names no team. |
 | `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those plus the baseline models (see [Choosing models](#choosing-models)); `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` still enables every baseline model and `doctor` tests the region's. Only Claude models other than Fable may be listed. |
 | `limit_usd` | More than 0, at most 1,000,000, at most 2 decimals. Each user needs one, or `defaults.limit_usd`. |
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |

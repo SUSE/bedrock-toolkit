@@ -24,7 +24,7 @@ func TestWriteFleet(t *testing.T) {
 		{Account: "222222222222", ID: "old", Status: fleet.StatusUninstalled, ReportedAt: now.Add(-72 * time.Hour), Month: "2025-10",
 			SpendUSD: 99, Users: fleet.Counts{Onboarded: 0}},
 	}, map[string]*usage.FleetUsage{"111111111111/bedrock.json": {Month: "2025-10",
-		Products: []usage.FleetProduct{{Product: "a", ActiveUsers: 2, Onboarded: 3}, {Product: "b", ActiveUsers: 1, Onboarded: 2}}}}, now)
+		Products: []usage.FleetProduct{{Product: "a", ActiveUsers: 2, Onboarded: 3}, {Product: "b", ActiveUsers: 1, Onboarded: 2}}}}, nil, now)
 	s := out.String()
 	for _, want := range []string{"2h ago", "3d ago", "uninstalled", "1 installed setups: 5 onboarded, 3 set up, 1 paused; $12.50 this month.",
 		"ACTIVE", " 3/5 ", "ACTIVE: users who spent"} {
@@ -34,6 +34,26 @@ func TestWriteFleet(t *testing.T) {
 	}
 	if strings.Contains(s, "PRODUCT ") {
 		t.Errorf("no product section when no report has a product:\n%s", s)
+	}
+	if strings.Contains(s, "NAME") || strings.Contains(s, "old default") {
+		t.Errorf("no NAME column without names, no old default note:\n%s", s)
+	}
+}
+
+func TestWriteFleetNamesAndOldDefault(t *testing.T) {
+	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	a := &App{Out: &out}
+	writeFleet(a, []fleet.Report{
+		{Account: "111111111111", ID: "bedrock", Product: "bedrock", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
+		{Account: "222222222222", ID: "team", Product: "longhorn", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
+	}, nil, map[string]string{"111111111111": "harvester-dev"}, now)
+	s := out.String()
+	for _, want := range []string{"NAME           ACCOUNT", "harvester-dev  111111111111", "-              222222222222",
+		"Product bedrock is the old default and names no team: set product in the file of 111111111111/bedrock, then apply."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lacks %q:\n%s", want, s)
+		}
 	}
 }
 
@@ -52,7 +72,7 @@ func TestWriteFleetProducts(t *testing.T) {
 			SpendUSD: 7, Users: fleet.Counts{Onboarded: 2, SetUp: 2}},
 		{Account: "333333333333", ID: "old", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10",
 			SpendUSD: 1, Users: fleet.Counts{Onboarded: 1}},
-	}, nil, now)
+	}, nil, nil, now)
 	s := out.String()
 	for _, want := range []string{
 		"harvester, longhorn",

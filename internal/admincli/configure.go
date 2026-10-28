@@ -46,7 +46,7 @@ Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 	fl.StringVar(&f.id, "id", "", "id that tags everything apply creates")
 	fl.StringVar(&f.account, "account", "", "AWS account ID (default: the profile's)")
 	fl.StringVar(&f.region, "region", "", "Bedrock region (default: the profile's)")
-	fl.StringVar(&f.product, "product", "", "product tag on users' roles")
+	fl.StringVar(&f.product, "product", "", "product tag on users' roles: the team or product whose users these are (required)")
 	fl.StringSliceVar(&f.models, "model", nil, "model (inference profile ID); repeat for more")
 	fl.Float64Var(&f.limit, "limit", 0, "default monthly limit in USD")
 	fl.StringVar(&f.bucket, "bucket", "", "cost export bucket (default: bedrock-cur-<account>-<id>)")
@@ -123,7 +123,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		cur.ID = policy.DefaultID
 	}
 	if cur.Product == "" {
-		cur.Product = "bedrock"
+		return errors.New("no product: pass --product with the team or product whose users these are (for example rancher); fleet reports group usage by it")
 	}
 	if cur.Defaults.LimitUSD == nil {
 		l := config.DefaultLimitUSD
@@ -197,8 +197,14 @@ func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) err
 	if err := q("region", "Bedrock region", &c.Region, ""); err != nil {
 		return err
 	}
-	if err := q("product", "product tag", &c.Product, "bedrock"); err != nil {
+	const productQ = "product (the team or product whose users these are, for example rancher; fleet reports group usage by it)"
+	if err := q("product", productQ, &c.Product, ""); err != nil {
 		return err
+	}
+	for c.Product == "" && !changed("product") {
+		if err := q("product", productQ, &c.Product, ""); err != nil {
+			return err
+		}
 	}
 	if !changed("model") {
 		def := c.Models
