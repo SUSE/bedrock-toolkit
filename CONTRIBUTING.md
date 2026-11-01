@@ -39,6 +39,28 @@ You need Go (the version in `go.mod`) and, for linting, `golangci-lint`.
 Run `make generate` once before `go vet`, `go test` or `go build` in a fresh clone. Without it,
 the build works, but `bedrock-admin` has no Lambda to deploy.
 
+### Docs and e2e suites
+
+`internal/docs` tests the Markdown docs against both CLIs' command trees, with `go test`:
+
+- each command is in the command tables of `README.md`, `admin-guide.md` (all but `fleet`),
+  `user-guide.md` and the CLI rows of `design.md`, and each table row is a real command;
+- every `bedrock` or `bedrock-admin` line in a `bash` or `sh` code block, or after a `$ ` prompt in
+  another block, parses: known command and flags, valid arguments, required flags set;
+- commands in inline code have known flags.
+
+A flag a command requires in its `RunE`, not through cobra, goes in `oneRequired` in that test.
+
+The test can't tell whether prose is still true. When a change touches a command, a flag, an
+error or an output, search for it before committing:
+
+```sh
+grep -rn -- '--old-flag\|old wording' *.md tests/e2e/
+```
+
+Then update every guide that mentions it (also the cheat sheets and `design.md`), and the e2e
+suites that run it. E2e checks cover behaviour only, never output layout.
+
 CI (`.github/workflows/ci.yml`) runs `go generate`, `go vet`, `golangci-lint` and
 `go test -race ./...` on pull requests and on `main`. It does not run the end-to-end tests. Run
 them by hand with `tests/e2e/run.sh`, as described in [tests/e2e/README.md](tests/e2e/README.md).
