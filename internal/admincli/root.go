@@ -32,6 +32,8 @@ type App struct {
 
 	// fleetCfg is the file given with -f to a fleet command, for its profile and region.
 	fleetCfg *config.Config
+	// fleetFormat is fleet report's --format: "" or text, csv or markdown.
+	fleetFormat string
 }
 
 // New returns an App on the process's streams.

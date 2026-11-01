@@ -203,6 +203,21 @@ The numbers come from the setups' cost exports, not their budgets, so they can d
 are listed below the table; uninstalled setups count for the months they sent. `--json` prints the
 same.
 
+### Share a report
+
+To paste a view into a spreadsheet, a wiki page or a chat, add `--format csv` or `--format markdown`
+to any of the commands above:
+
+```console
+$ bedrock-admin fleet report --by product --format markdown > usage.md
+$ bedrock-admin fleet report --by month --months 12 --format csv > months.csv
+```
+
+Both print plain numbers without bars: `ACTIVE` is split into `ACTIVE` and `ONBOARDED`, a `PARTIAL`
+column (`yes`) replaces the `*`, and `REPORTED` is a UTC time. `csv` is the main table only, so a
+spreadsheet opens it as is; `markdown` adds the title, the product totals and the notes. Neither
+includes users' emails, unlike `--json`. `--format` can't be used with `--json`.
+
 ## What a report holds
 
 `s3://<bucket>/<account>/<id>.json`, overwritten each time (versioning keeps the old ones):
@@ -264,6 +279,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | Each team's active users and spend | `bedrock-admin fleet report --by product` |
 | The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
 | The fleet, or one team, per month | `bedrock-admin fleet report --by month` (`--months N`, `--product NAME`) |
+| A view to share, as CSV or Markdown | `bedrock-admin fleet report ... --format csv` (or `markdown`) |
 | An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |
 | Use your team setup's profile and region | Add `-f bedrock.yaml` to any of these |

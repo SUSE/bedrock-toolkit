@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -490,7 +491,7 @@ type FleetJSON struct {
 }
 
 func (a *App) fleetReportCmd() *cobra.Command {
-	var bucket, region, by, product, month string
+	var bucket, region, by, product, month, format string
 	var months int
 	cmd := &cobra.Command{
 		Use:   "report",
@@ -506,17 +507,31 @@ day per day and --by month per month (the last --months, 6 by default), with a b
 --product to keep one product and --month for an earlier month (with --by month: the last one).
 They count every setup that sent daily usage that month, also uninstalled ones.
 
+--format csv or markdown prints the same view to share: plain numbers, no bars, ACTIVE split into
+ACTIVE and ONBOARDED, a PARTIAL column instead of *, and no emails. csv is the main table only, for
+spreadsheets; markdown adds the title, the product totals and the notes, for wikis and chat.
 --json prints the full reports, with users' emails for setups that send them, and the daily usage.
 Without --bucket it reads the bucket fleet init tagged.`,
 		Example: `  bedrock-admin fleet report
   bedrock-admin fleet report --by product
   bedrock-admin fleet report --by day --product rancher
   bedrock-admin fleet report --by product --month 2026-04
-  bedrock-admin fleet report --by month --months 12 --product rancher`,
+  bedrock-admin fleet report --by month --months 12 --product rancher
+  bedrock-admin fleet report --by product --format markdown > usage.md
+  bedrock-admin fleet report --format csv > setups.csv`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			now := a.Now().UTC()
+			switch format {
+			case "text", "csv", "markdown":
+			default:
+				return fmt.Errorf("--format must be text, csv or markdown (got %q)", format)
+			}
+			if format != "text" && a.JSON {
+				return errors.New("--format and --json can't be used together")
+			}
+			a.fleetFormat = format
 			if err := checkFleetUsageFlags(by, product, month, months, cmd.Flags().Changed("months"), now); err != nil {
 				return err
 			}
@@ -574,11 +589,12 @@ Without --bucket it reads the bucket fleet init tagged.`,
 				enc.SetIndent("", "  ")
 				return enc.Encode(FleetJSON{Reports: reports, Usage: us, AccountNames: names, Problems: problems})
 			}
-			writeFleet(a, reports, us, names, now)
-			for _, p := range problems {
-				_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
-			}
-			return nil
+			defer func() {
+				for _, p := range problems {
+					_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
+				}
+			}()
+			return writeFleet(a, reports, us, names, now)
 		},
 	}
 	fl := cmd.Flags()
@@ -588,6 +604,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl.StringVar(&product, "product", "", "with --by product, day or month: only this product")
 	fl.StringVar(&month, "month", "", "with --by product, day or month: this month (YYYY-MM) instead of the current one (with --by month: the last month)")
 	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
+	fl.StringVar(&format, "format", "text", "text, csv or markdown (to share: plain numbers, no emails)")
 	return cmd
 }
 
@@ -615,24 +632,20 @@ func accountNames(ctx context.Context, c *awsx.Clients) map[string]string {
 
 // writeFleet prints one line per setup, then the installed setups' totals by product and overall.
 // us is this month's daily usage, for ACTIVE; names are the accounts' names, if known.
-func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, names map[string]string, now time.Time) {
+func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, names map[string]string, now time.Time) error {
 	if len(reports) == 0 {
+		if a.fleetFormat == "csv" {
+			return nil
+		}
 		a.printf("No reports yet.\n")
-		return
+		return nil
 	}
 	month := now.UTC().Format("2006-01")
-	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-	nameCol := func(acct string) string { return "" }
+	header := []string{"ACCOUNT", "ID", "REGION", "VERSION", "PRODUCTS", "ONBOARDED", "SET UP", "PAUSED", "ACTIVE", "SPEND (USD)", "MONTH", "REPORTED", "STATUS"}
 	if len(names) > 0 {
-		nameCol = func(acct string) string {
-			if n := names[acct]; n != "" {
-				return n + "\t"
-			}
-			return "-\t"
-		}
-		_, _ = fmt.Fprint(w, "NAME\t")
+		header = append([]string{"NAME"}, header...)
 	}
-	_, _ = fmt.Fprintln(w, "ACCOUNT\tID\tREGION\tVERSION\tPRODUCTS\tONBOARDED\tSET UP\tPAUSED\tACTIVE\tSPEND (USD)\tMONTH\tREPORTED\tSTATUS")
+	var rows, shareRows [][]string
 	var total fleet.Counts
 	var spend float64
 	setups := 0
@@ -658,17 +671,29 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 		if list == "" {
 			list = noProduct
 		}
-		active := "-"
+		active, shareActive := "-", ""
 		if u := us[fleet.Key(r.Account, r.ID)]; u != nil && u.Month == month {
 			n, of := 0, 0
 			for _, p := range u.Products {
 				n += p.ActiveUsers
 				of += p.Onboarded
 			}
-			active = fmt.Sprintf("%d/%d", n, of)
+			active, shareActive = fmt.Sprintf("%d/%d", n, of), fmt.Sprint(n)
 		}
-		_, _ = fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%.2f\t%s\t%s\t%s\n", nameCol(r.Account), r.Account, r.ID, r.Region, r.Version, list,
-			r.Users.Onboarded, r.Users.SetUp, r.Users.Paused, active, r.SpendUSD, r.Month, ago(now, r.ReportedAt), r.Status)
+		row := []string{r.Account, r.ID, r.Region, r.Version, list, fmt.Sprint(r.Users.Onboarded), fmt.Sprint(r.Users.SetUp),
+			fmt.Sprint(r.Users.Paused), active, usd(r.SpendUSD), r.Month, ago(now, r.ReportedAt), r.Status}
+		shareRow := slices.Clone(row)
+		shareRow[8] = shareActive
+		shareRow[11] = r.ReportedAt.UTC().Format("2006-01-02 15:04")
+		if len(names) > 0 {
+			n := names[r.Account]
+			if n == "" {
+				n = "-"
+			}
+			row = append([]string{n}, row...)
+			shareRow = append([]string{n}, shareRow...)
+		}
+		rows, shareRows = append(rows, row), append(shareRows, shareRow)
 		if r.Status != fleet.StatusActive {
 			continue
 		}
@@ -691,32 +716,58 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 			}
 		}
 	}
-	_ = w.Flush()
+	var productRows [][]string
 	if known {
-		names := make([]string, 0, len(byProduct))
+		pnames := make([]string, 0, len(byProduct))
 		for p := range byProduct {
-			names = append(names, p)
+			pnames = append(pnames, p)
 		}
-		sort.Slice(names, func(i, j int) bool {
-			if byProduct[names[i]].spend != byProduct[names[j]].spend {
-				return byProduct[names[i]].spend > byProduct[names[j]].spend
+		sort.Slice(pnames, func(i, j int) bool {
+			if byProduct[pnames[i]].spend != byProduct[pnames[j]].spend {
+				return byProduct[pnames[i]].spend > byProduct[pnames[j]].spend
 			}
-			return names[i] < names[j]
+			return pnames[i] < pnames[j]
 		})
-		a.printf("\n")
-		w = tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "PRODUCT\tSETUPS\tONBOARDED\tSET UP\tPAUSED\tSPEND (USD)")
-		for _, p := range names {
+		for _, p := range pnames {
 			t := byProduct[p]
-			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%d\t%d\t%.2f\n", p, t.setups, t.users.Onboarded, t.users.SetUp, t.users.Paused, t.spend)
+			productRows = append(productRows, []string{p, fmt.Sprint(t.setups), fmt.Sprint(t.users.Onboarded), fmt.Sprint(t.users.SetUp),
+				fmt.Sprint(t.users.Paused), usd(t.spend)})
 		}
-		_ = w.Flush()
 	}
-	a.printf("\n%d installed setups: %s; $%.2f this month.\n", setups, total.Text(), spend)
+	productHeader := []string{"PRODUCT", "SETUPS", "ONBOARDED", "SET UP", "PAUSED", "SPEND (USD)"}
+	summary := fmt.Sprintf("%d installed setups: %s; $%.2f this month.", setups, total.Text(), spend)
+	if a.sharing() {
+		tables := []shareTable{{Header: header, Rows: shareRows}}
+		if known {
+			tables = append(tables, shareTable{Title: "Installed setups by product", Header: productHeader, Rows: productRows})
+		}
+		notes := []string{summary, "SPEND is for MONTH, the month of the last report; REPORTED is in UTC."}
+		if len(us) > 0 {
+			notes = append(notes, "ACTIVE: users who spent at least $0.01 this month; empty when the setup sends no daily usage yet.")
+		}
+		return a.writeShare("Fleet report, "+now.UTC().Format("January 2, 2006"), tables, notes)
+	}
+	writeTabs(a, header, rows)
+	if known {
+		a.printf("\n")
+		writeTabs(a, productHeader, productRows)
+	}
+	a.printf("\n%s\n", summary)
 	if len(us) > 0 {
 		a.printf("ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.\n")
 	}
 	writeOldDefaultProduct(a, reports)
+	return nil
+}
+
+// writeTabs prints a table aligned with a tabwriter.
+func writeTabs(a *App, header []string, rows [][]string) {
+	w := tabwriter.NewWriter(a.Out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, strings.Join(header, "\t"))
+	for _, r := range rows {
+		_, _ = fmt.Fprintln(w, strings.Join(r, "\t"))
+	}
+	_ = w.Flush()
 }
 
 // writeOldDefaultProduct notes the setups whose users have product bedrock, the old default of

@@ -86,6 +86,9 @@ func writeFleetUsage(a *App, by, product, month string, reports []fleet.Report, 
 	if t, err := time.Parse(time.RFC3339, out.AsOf); err == nil {
 		asOf = "cost export as of " + t.UTC().Format("Jan 2 15:04 MST")
 	}
+	if a.sharing() {
+		return writeFleetUsageShare(a, by, product, title, asOf, out)
+	}
 	a.printf("%s (%d setups, %s)\n", title, len(out.Setups), asOf)
 	if len(us) == 0 {
 		a.printf("No setup sent daily usage for %s yet: setups send it daily at 07:00 UTC once applied with this version.\n", month)
@@ -172,6 +175,16 @@ func writeFleetMonths(a *App, product string, months []string, reports []fleet.R
 	if product != "" {
 		title += ", product " + product
 	}
+	if a.sharing() {
+		rows := [][]string{}
+		for _, m := range out.Months {
+			rows = append(rows, []string{m.Month, fmt.Sprint(m.Setups), fmt.Sprint(m.ActiveUsers), fmt.Sprint(m.Onboarded), usd(m.TrackedUSD), yes(m.Partial)})
+		}
+		return a.writeShare(title, []shareTable{{Header: []string{"MONTH", "SETUPS", "ACTIVE", "ONBOARDED", "SPEND (USD)", "PARTIAL"}, Rows: rows}}, []string{
+			"ACTIVE: users who spent at least $0.01 in the month. SPEND is tracked spend of personal roles.",
+			"PARTIAL: the current month, still being billed.",
+		})
+	}
 	a.printf("%s\n\n", title)
 	top, partial := 0.0, false
 	for _, m := range out.Months {
@@ -198,4 +211,32 @@ func writeFleetMonths(a *App, product string, months []string, reports []fleet.R
 	}
 	writeOldDefaultProduct(a, reports)
 	return nil
+}
+
+// writeFleetUsageShare prints fleet report --by product or day as csv or markdown.
+func writeFleetUsageShare(a *App, by, product, title, asOf string, out FleetUsageJSON) error {
+	notes := []string{fmt.Sprintf("%d setups sent daily usage; %s.", len(out.Setups), asOf)}
+	if len(out.NoData) > 0 {
+		notes = append(notes, "No daily data from "+strings.Join(out.NoData, ", ")+".")
+	}
+	if by == "product" {
+		rows := [][]string{}
+		active, onboarded, total := 0, 0, 0.0
+		for _, p := range out.Products {
+			rows = append(rows, []string{p.Product, fmt.Sprint(p.Setups), fmt.Sprint(p.ActiveUsers), fmt.Sprint(p.Onboarded), usd(p.TrackedUSD)})
+			active, onboarded, total = active+p.ActiveUsers, onboarded+p.Onboarded, total+p.TrackedUSD
+		}
+		if product == "" && len(rows) > 0 {
+			rows = append(rows, []string{"total", fmt.Sprint(len(out.Setups)), fmt.Sprint(active), fmt.Sprint(onboarded), usd(total)})
+		}
+		notes = append(notes, "ACTIVE: users who spent at least $0.01 in the month. SPEND is tracked spend of personal roles.")
+		return a.writeShare(title, []shareTable{{Header: []string{"PRODUCT", "SETUPS", "ACTIVE", "ONBOARDED", "SPEND (USD)"}, Rows: rows}}, notes)
+	}
+	rows := [][]string{}
+	for _, d := range out.Days {
+		rows = append(rows, []string{d.Date, fmt.Sprint(d.ActiveUsers), usd(d.TrackedUSD), yes(d.Partial)})
+	}
+	notes = append(notes, "ACTIVE: users who spent at least $0.01 that day. SPEND is tracked spend of personal roles.",
+		"PARTIAL: still being billed; AWS adds spend up to a day late.")
+	return a.writeShare(title, []shareTable{{Header: []string{"DATE", "ACTIVE", "SPEND (USD)", "PARTIAL"}, Rows: rows}}, notes)
 }

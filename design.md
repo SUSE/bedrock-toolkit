@@ -578,6 +578,8 @@ admins.
   setup's `as_of` day on are partial. Active setups without a file are listed. `--by month` reads
   the usage files of the last `--months` months (6 by default, up to 24, ending at `--month`) and
   sums each month's products; the current month is partial.
+  `--format csv|markdown` prints any of these views to share: plain numbers, no bars, `ACTIVE`
+  split into active and onboarded, a `PARTIAL` column, no emails; csv is the main table only.
 - The report's `region` is in the file so neither the CLI nor the Lambda needs to read the bucket's
   location across accounts.
 

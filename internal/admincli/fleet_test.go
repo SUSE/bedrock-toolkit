@@ -18,7 +18,7 @@ func TestWriteFleet(t *testing.T) {
 	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
 	a := &App{Out: &out}
-	writeFleet(a, []fleet.Report{
+	_ = writeFleet(a, []fleet.Report{
 		{Account: "111111111111", ID: "bedrock", Region: "us-east-1", Version: "v1.1.0", Status: fleet.StatusActive,
 			ReportedAt: now.Add(-2 * time.Hour), Month: "2025-10", SpendUSD: 12.5, Users: fleet.Counts{Onboarded: 5, SetUp: 3, Paused: 1}},
 		{Account: "222222222222", ID: "old", Status: fleet.StatusUninstalled, ReportedAt: now.Add(-72 * time.Hour), Month: "2025-10",
@@ -44,7 +44,7 @@ func TestWriteFleetNamesAndOldDefault(t *testing.T) {
 	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
 	a := &App{Out: &out}
-	writeFleet(a, []fleet.Report{
+	_ = writeFleet(a, []fleet.Report{
 		{Account: "111111111111", ID: "bedrock", Product: "bedrock", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
 		{Account: "222222222222", ID: "team", Product: "longhorn", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
 	}, nil, map[string]string{"111111111111": "harvester-dev"}, now)
@@ -61,7 +61,7 @@ func TestWriteFleetProducts(t *testing.T) {
 	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
 	a := &App{Out: &out}
-	writeFleet(a, []fleet.Report{
+	_ = writeFleet(a, []fleet.Report{
 		{Account: "111111111111", ID: "bedrock", Product: "harvester", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10",
 			SpendUSD: 30, Users: fleet.Counts{Onboarded: 5, SetUp: 3},
 			Products: []fleet.ProductSummary{
@@ -239,5 +239,65 @@ func TestWriteFleetMonths(t *testing.T) {
 	}
 	if err := writeFleetMonths(a, "nope", []string{"2026-05"}, reports, byMonth, now); err == nil || !strings.Contains(err.Error(), "known products: rancher, suma") {
 		t.Errorf("unknown product: %v", err)
+	}
+}
+
+func TestFleetReportShare(t *testing.T) {
+	now := time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)
+	reports, us := fleetUsageFixture()
+	reports[0].Product, reports[0].Month, reports[0].SpendUSD, reports[0].ReportedAt = "rancher", "2026-05", 11, now
+	reports[0].Users = fleet.Counts{Onboarded: 4, SetUp: 3}
+	byMonth := map[string]map[string]*usage.FleetUsage{"2026-05": us}
+	cases := []struct {
+		name, format string
+		write        func(a *App) error
+		want         []string
+		not          []string
+	}{
+		{"setup csv", "csv", func(a *App) error { return writeFleet(a, reports, us, nil, now) },
+			[]string{"ACCOUNT,ID,REGION,VERSION,PRODUCTS,ONBOARDED,SET UP,PAUSED,ACTIVE,SPEND (USD),MONTH,REPORTED,STATUS\n",
+				"1,a,,,rancher,4,3,0,3,11.00,2026-05,2026-05-14 09:00,active\n", "2,b,,,-,0,0,0,,0.00,,"},
+			[]string{"PRODUCT,", "installed setups", "ACTIVE:", "##"}},
+		{"setup markdown", "markdown", func(a *App) error { return writeFleet(a, reports, us, nil, now) },
+			[]string{"## Fleet report, May 14, 2026\n\n| ACCOUNT | ID |", "| --- | --- | --- | --- | --- | ---: |",
+				"### Installed setups by product", "| rancher | 1 | 4 | 3 | 0 | 11.00 |", "- 2 installed setups:"},
+			[]string{"ago", "3/4"}},
+		{"product csv", "csv", func(a *App) error { return writeFleetUsage(a, "product", "", "2026-05", reports, us, now) },
+			[]string{"PRODUCT,SETUPS,ACTIVE,ONBOARDED,SPEND (USD)\nrancher,2,3,4,15.00\nsuma,1,1,1,1.00\ntotal,2,4,5,16.00\n"},
+			[]string{"█", "Fleet usage"}},
+		{"day markdown", "markdown", func(a *App) error { return writeFleetUsage(a, "day", "", "2026-05", reports, us, now) },
+			[]string{"## Fleet usage in May 2026\n", "| DATE | ACTIVE | SPEND (USD) | PARTIAL |\n| --- | ---: | ---: | --- |",
+				"| 2026-05-13 | 1 | 7.00 | yes |", "| 2026-05-01 | 2 | 4.00 |  |", "- No daily data from 2/b."},
+			[]string{"█", "*"}},
+		{"month csv", "csv", func(a *App) error {
+			return writeFleetMonths(a, "", []string{"2026-04", "2026-05"}, reports, byMonth, now)
+		},
+			[]string{"MONTH,SETUPS,ACTIVE,ONBOARDED,SPEND (USD),PARTIAL\n2026-04,0,0,0,0.00,\n2026-05,2,4,5,16.00,yes\n"}, []string{"█"}},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		a := &App{Out: &out, fleetFormat: c.format}
+		if err := c.write(a); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(out.String(), w) {
+				t.Errorf("%s: lacks %q:\n%s", c.name, w, out.String())
+			}
+		}
+		for _, w := range c.not {
+			if strings.Contains(out.String(), w) {
+				t.Errorf("%s: has %q:\n%s", c.name, w, out.String())
+			}
+		}
+	}
+}
+
+func TestFleetReportFormatFlag(t *testing.T) {
+	for _, args := range [][]string{{"--format", "html"}, {"--format", "csv", "--json"}} {
+		code, _, errs := run(t, append([]string{"fleet", "report"}, args...)...)
+		if code == 0 || !strings.Contains(errs, "--format") {
+			t.Errorf("%v: %d %s", args, code, errs)
+		}
 	}
 }
