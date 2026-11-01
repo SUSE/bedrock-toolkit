@@ -1124,6 +1124,7 @@ file; with `-f`, the profile's account must be the file's, and the file's id is 
 
 ```text
 Setups in account 111122223333 (profile bedrock-admin)
+
 ID        PRODUCT   USERS  PAUSED  LAST USED   SPEND (USD)  BUDGET (USD)
 bedrock   bedrock   5      0       never       0.00         500.00        idle
 team1 *   rancher   12     1       2026-10-31  210.40       1200.00

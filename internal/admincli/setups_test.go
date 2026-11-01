@@ -57,3 +57,17 @@ func TestIdleNotes(t *testing.T) {
 		t.Fatalf("live tenants: %q", got)
 	}
 }
+
+func TestWriteSetupsLayout(t *testing.T) {
+	var b strings.Builder
+	_ = writeSetups(&b, SetupsJSON{Account: "111122223333", Current: "team1", Setups: []fleet.SetupSummary{{ID: "team1", Product: "rancher", Users: 1}}}, "default credentials")
+	lines := strings.Split(b.String(), "\n")
+	if lines[1] != "" || !strings.HasPrefix(lines[2], "ID") || lines[4] != "" {
+		t.Errorf("want blank lines around the table:\n%s", b.String())
+	}
+	for _, l := range lines {
+		if strings.HasSuffix(l, " ") {
+			t.Errorf("trailing space in %q", l)
+		}
+	}
+}

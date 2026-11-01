@@ -1,6 +1,7 @@
 package admincli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -85,12 +86,13 @@ func (a *App) profileLabel(cfg *config.Config) string {
 }
 
 func writeSetups(w io.Writer, v SetupsJSON, profile string) error {
-	_, _ = fmt.Fprintf(w, "Setups in account %s (%s)\n", v.Account, profile)
+	_, _ = fmt.Fprintf(w, "Setups in account %s (%s)\n\n", v.Account, profile)
 	if len(v.Setups) == 0 {
 		_, err := fmt.Fprintln(w, "None: no bedrock-deny-<id> policy in this account.")
 		return err
 	}
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	var table bytes.Buffer
+	tw := tabwriter.NewWriter(&table, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "ID\tPRODUCT\tUSERS\tPAUSED\tLAST USED\tSPEND (USD)\tBUDGET (USD)\t")
 	var idle []string
 	current := false
@@ -118,6 +120,10 @@ func writeSetups(w io.Writer, v SetupsJSON, profile string) error {
 	if err := tw.Flush(); err != nil {
 		return err
 	}
+	for _, line := range strings.Split(strings.TrimSuffix(table.String(), "\n"), "\n") {
+		_, _ = io.WriteString(w, strings.TrimRight(line, " ")+"\n")
+	}
+	_, _ = fmt.Fprintln(w)
 	if current {
 		_, _ = fmt.Fprintln(w, "* the id of the loaded bedrock.yaml.")
 	}
