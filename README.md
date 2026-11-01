@@ -142,7 +142,7 @@ bedrock models                       # the models you may use
 | `unpause` | Restores a paused user's access |
 | `usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 when it finds untracked spend |
 | `users` | Who is onboarded, who has run `bedrock setup`, and who is paused |
-| `fleet` | For a central admin only: creates the report bucket and shows every setup's report, and each team's active users and spend per product or day; see the [central admin guide](central-admin-guide.md) |
+| `fleet` | For a central admin only: creates the report bucket and shows every setup's report, and each team's active users and spend per product, day or month, also as CSV or Markdown to share; see the [central admin guide](central-admin-guide.md) |
 | `uninstall` | Removes the account setup. Refuses while users remain |
 
 `bedrock`, for users:

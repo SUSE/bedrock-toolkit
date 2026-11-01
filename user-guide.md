@@ -144,10 +144,10 @@ when you're paused the access key is denied too.
 
 ### Step 2. Write your Bedrock profile
 
-Run the command your admin sent you. Usually it is:
+Run the command your admin sent you. It always has `--id`, the id of your admin's setup:
 
 ```bash
-bedrock setup
+bedrock setup --id <id>
 ```
 
 It writes a `[profile bedrock]` block in `~/.aws/config` (or `$AWS_CONFIG_FILE`) for your personal role, then runs
@@ -514,6 +514,7 @@ the fix under it:
 
 | Message | Fix |
 | --- | --- |
+| `no --id: pass the id of your admin's setup ...` | Run the exact command your admin sent; ask them for the id if you lost it |
 | `no SSO profile in <file>` | Run `aws configure sso` first, or pass `--source-profile` |
 | `several SSO profiles in <file> (...)` | Pass `--source-profile <profile>` (it asks when run in a terminal) |
 | `IAM user <name> has no owner tag ...` | Ask your admin to onboard you with `iam_user: <name>`, or pass `--email <your email>` |

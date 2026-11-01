@@ -38,7 +38,7 @@ There are two CLIs:
 
 | CLI | For | Commands |
 | --- | --- | --- |
-| `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `pause`, `unpause`, `usage` |
+| `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`; `fleet` for the central admin |
 | `bedrock` | Users | `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
@@ -744,7 +744,7 @@ and a real AWS account:
 | Suite | Covers |
 | --- | --- |
 | `cli` | A smoke test of the built binaries, with no AWS |
-| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` and `--by product` |
+| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
 | `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file), `bedrock models`, direct SSO calls denied, a pause seen by the user |
 | `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (with `block_direct_calls` on, even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |

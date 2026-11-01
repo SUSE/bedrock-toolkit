@@ -1166,9 +1166,9 @@ the account from the SSO profile it signs in with, so they need an SSO profile f
 (`aws configure sso` once per account, with any role they have there). The messages you send differ
 per account:
 
-- First account: `bedrock setup --source-profile <SSO profile for account A>`. It writes the `bedrock`
-  profile.
-- Second account: `bedrock setup --source-profile <SSO profile for account B> --profile-name
+- First account: `bedrock setup --id <id> --source-profile <SSO profile for account A>`. It writes
+  the `bedrock` profile.
+- Second account: `bedrock setup --id <id> --source-profile <SSO profile for account B> --profile-name
   bedrock-<product>`, for example `--profile-name bedrock-harvester`, so it doesn't replace the
   first one.
 
