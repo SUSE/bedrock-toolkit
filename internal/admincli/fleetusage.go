@@ -3,6 +3,7 @@ package admincli
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -15,14 +16,20 @@ import (
 // fleetBarWidth is the width of the largest bar in fleet usage views.
 const fleetBarWidth = 24
 
-func checkFleetUsageFlags(by, product, month string, now time.Time) error {
+func checkFleetUsageFlags(by, product, month string, months int, monthsSet bool, now time.Time) error {
 	switch by {
-	case "setup", "product", "day":
+	case "setup", "product", "day", "month":
 	default:
-		return fmt.Errorf("--by must be setup, product or day (got %q)", by)
+		return fmt.Errorf("--by must be setup, product, day or month (got %q)", by)
 	}
 	if by == "setup" && (product != "" || month != "") {
-		return errors.New("--product and --month go with --by product or --by day")
+		return errors.New("--product and --month go with --by product, day or month")
+	}
+	if monthsSet && by != "month" {
+		return errors.New("--months goes with --by month")
+	}
+	if months < 1 || months > 24 {
+		return fmt.Errorf("--months must be 1 to 24 (got %d)", months)
 	}
 	if month != "" {
 		if _, err := time.Parse("2006-01", month); err != nil {
@@ -135,4 +142,60 @@ func writeNoData(a *App, names []string) {
 	if len(names) > 0 {
 		a.printf("No daily data from %s (older version, reporting off, or the daily run hasn't happened yet).\n", strings.Join(names, ", "))
 	}
+}
+
+// FleetMonthsJSON is fleet report --by month as JSON.
+type FleetMonthsJSON struct {
+	Product string             `json:"product,omitempty"`
+	Months  []fleet.MonthUsage `json:"months"`
+}
+
+// writeFleetMonths prints the setups' usage per month of months, oldest first.
+func writeFleetMonths(a *App, product string, months []string, reports []fleet.Report, byMonth map[string]map[string]*usage.FleetUsage, now time.Time) error {
+	if product != "" {
+		known := map[string]bool{}
+		for _, us := range byMonth {
+			for _, p := range fleet.UsageProducts(us) {
+				known[p] = true
+			}
+		}
+		if len(known) > 0 && !known[product] {
+			return fmt.Errorf("no setup has users with product %s in %s to %s; known products: %s", product, months[0], months[len(months)-1],
+				strings.Join(slices.Sorted(maps.Keys(known)), ", "))
+		}
+	}
+	out := FleetMonthsJSON{Product: product, Months: fleet.UsageByMonth(byMonth, months, product, now)}
+	if a.JSON {
+		return cli.WriteJSON(a.Out, out)
+	}
+	title := "Fleet usage per month"
+	if product != "" {
+		title += ", product " + product
+	}
+	a.printf("%s\n", title)
+	top, partial := 0.0, false
+	for _, m := range out.Months {
+		top = max(top, m.TrackedUSD)
+	}
+	rows, bars := [][]string{{"MONTH", "SETUPS", "ACTIVE", "SPEND (USD)"}}, []string{""}
+	for _, m := range out.Months {
+		mark := " "
+		if m.Partial {
+			mark, partial = "*", true
+		}
+		active := "-"
+		if m.Setups > 0 {
+			active = fmt.Sprintf("%d/%d", m.ActiveUsers, m.Onboarded)
+		}
+		rows = append(rows, []string{m.Month, fmt.Sprint(m.Setups), active, fmt.Sprintf("%.2f", m.TrackedUSD) + mark})
+		bars = append(bars, usage.Bar(m.TrackedUSD, top, fleetBarWidth))
+	}
+	usage.WriteTable(a.Out, rows, bars)
+	a.printf("ACTIVE: users who spent at least $0.01 in the month, of those onboarded; - when no setup sent daily usage that month.\n")
+	a.printf("SPEND is tracked spend of personal roles. Setups send daily usage from v1.2.0 on.\n")
+	if partial {
+		a.printf("* this month, still being billed.\n")
+	}
+	writeOldDefaultProduct(a, reports)
+	return nil
 }

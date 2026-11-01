@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,5 +59,28 @@ func TestUsageAggregates(t *testing.T) {
 	}
 	if UsageAsOf(us) != "2026-05-12T20:00:00Z" {
 		t.Fatal(UsageAsOf(us))
+	}
+}
+
+func TestUsageByMonth(t *testing.T) {
+	if got := LastMonths("2026-02", 3); strings.Join(got, ",") != "2025-12,2026-01,2026-02" {
+		t.Fatal(got)
+	}
+	byMonth := map[string]map[string]*usage.FleetUsage{
+		"2026-04": {"1/a.json": fleetUsage("1", "a", "", []usage.FleetProduct{{Product: "rancher", ActiveUsers: 1, Onboarded: 2, TrackedUSD: 3.5}})},
+		"2026-05": {
+			"1/a.json": fleetUsage("1", "a", "", []usage.FleetProduct{{Product: "rancher", ActiveUsers: 2, Onboarded: 3, TrackedUSD: 10}, {Product: "suma", ActiveUsers: 1, Onboarded: 1, TrackedUSD: 1}}),
+			"2/b.json": fleetUsage("2", "b", "", []usage.FleetProduct{{Product: "suma", ActiveUsers: 1, Onboarded: 4, TrackedUSD: 5}}),
+		},
+	}
+	now := time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)
+	m := UsageByMonth(byMonth, LastMonths("2026-05", 3), "", now)
+	if len(m) != 3 || m[0] != (MonthUsage{Month: "2026-03"}) || m[1] != (MonthUsage{"2026-04", 1, 1, 2, 3.5, false}) ||
+		m[2] != (MonthUsage{"2026-05", 2, 4, 8, 16, true}) {
+		t.Fatalf("%+v", m)
+	}
+	if m = UsageByMonth(byMonth, []string{"2026-04", "2026-05"}, "suma", now); m[0] != (MonthUsage{Month: "2026-04"}) ||
+		m[1] != (MonthUsage{"2026-05", 2, 2, 5, 6, true}) {
+		t.Fatalf("product: %+v", m)
 	}
 }

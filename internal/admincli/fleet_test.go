@@ -209,10 +209,35 @@ func TestWriteFleetUsage(t *testing.T) {
 
 func TestFleetUsageFlags(t *testing.T) {
 	for _, args := range [][]string{{"--by", "user"}, {"--product", "x"}, {"--month", "2026-04"}, {"--by", "day", "--month", "26-04"},
-		{"--by", "day", "--month", "2999-01"}} {
+		{"--by", "day", "--month", "2999-01"}, {"--by", "day", "--months", "3"}, {"--by", "month", "--months", "0"}, {"--by", "month", "--months", "25"}} {
 		code, _, errs := run(t, append([]string{"fleet", "report"}, args...)...)
 		if code == 0 || !strings.Contains(errs, "--") {
 			t.Errorf("%v: %d %s", args, code, errs)
 		}
+	}
+}
+
+func TestWriteFleetMonths(t *testing.T) {
+	now := time.Date(2026, 5, 14, 9, 0, 0, 0, time.UTC)
+	reports, us := fleetUsageFixture()
+	byMonth := map[string]map[string]*usage.FleetUsage{"2026-05": us}
+	var out bytes.Buffer
+	a := &App{Out: &out}
+	if err := writeFleetMonths(a, "", []string{"2026-04", "2026-05"}, reports, byMonth, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{"Fleet usage per month\n", "MONTH    SETUPS  ACTIVE  SPEND (USD)", "2026-04       0       -        0.00 ",
+		"2026-05       2     4/5       16.00*  ████████████████████████", "* this month, still being billed."} {
+		if !strings.Contains(out.String(), w) {
+			t.Errorf("lacks %q:\n%s", w, out.String())
+		}
+	}
+	out.Reset()
+	if err := writeFleetMonths(a, "suma", []string{"2026-05"}, reports, byMonth, now); err != nil || !strings.Contains(out.String(), ", product suma") ||
+		!strings.Contains(out.String(), "2026-05       1     1/1        1.00*") {
+		t.Errorf("product: %v\n%s", err, out.String())
+	}
+	if err := writeFleetMonths(a, "nope", []string{"2026-05"}, reports, byMonth, now); err == nil || !strings.Contains(err.Error(), "known products: rancher, suma") {
+		t.Errorf("unknown product: %v", err)
 	}
 }

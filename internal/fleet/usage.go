@@ -153,3 +153,49 @@ func UsageAsOf(us map[string]*usage.FleetUsage) string {
 	}
 	return oldest
 }
+
+// MonthUsage is one month across setups.
+type MonthUsage struct {
+	Month       string  `json:"month"`
+	Setups      int     `json:"setups"`
+	ActiveUsers int     `json:"active_users"`
+	Onboarded   int     `json:"onboarded"`
+	TrackedUSD  float64 `json:"tracked_usd"`
+	// Partial is the current month, still being billed.
+	Partial bool `json:"partial"`
+}
+
+// UsageByMonth sums each month's setups (byMonth: month to ReadUsage's result), in months' order;
+// product counts only that product. A month without data has zeros.
+func UsageByMonth(byMonth map[string]map[string]*usage.FleetUsage, months []string, product string, now time.Time) []MonthUsage {
+	out := make([]MonthUsage, 0, len(months))
+	for _, m := range months {
+		mu := MonthUsage{Month: m, Partial: m == now.UTC().Format("2006-01")}
+		for _, p := range UsageByProduct(byMonth[m], product) {
+			mu.ActiveUsers += p.ActiveUsers
+			mu.Onboarded += p.Onboarded
+			mu.TrackedUSD += p.TrackedUSD
+		}
+		for _, u := range byMonth[m] {
+			if product == "" || slices.ContainsFunc(u.Products, func(p usage.FleetProduct) bool { return p.Product == product }) {
+				mu.Setups++
+			}
+		}
+		mu.TrackedUSD = cents(mu.TrackedUSD)
+		out = append(out, mu)
+	}
+	return out
+}
+
+// LastMonths is the n months up to and including last (YYYY-MM), oldest first.
+func LastMonths(last string, n int) []string {
+	t, err := time.Parse("2006-01", last)
+	if err != nil || n < 1 {
+		return nil
+	}
+	out := make([]string, n)
+	for i := range n {
+		out[n-1-i] = t.AddDate(0, -i, 0).Format("2006-01")
+	}
+	return out
+}

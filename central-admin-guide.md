@@ -179,6 +179,23 @@ ACTIVE: users who spent at least $0.01 that day. SPEND is tracked spend of perso
 * still being billed: AWS adds spend up to a day late.
 ```
 
+`--by month` shows the trend: one row per month, the last 6 by default (`--months N`, up to 24),
+ending this month or at `--month`. It also takes `--product`:
+
+```text
+$ bedrock-admin fleet report --by month --months 3
+Fleet usage per month
+MONTH    SETUPS  ACTIVE  SPEND (USD)
+2026-09       0       -        0.00
+2026-10       2   10/37      469.40   ████████████████████████
+2026-11       2    3/37       41.20*  ██
+ACTIVE: users who spent at least $0.01 in the month, of those onboarded; - when no setup sent daily usage that month.
+SPEND is tracked spend of personal roles. Setups send daily usage from v1.2.0 on.
+* this month, still being billed.
+```
+
+Months before a setup ran v1.2.0 have no daily usage, so they show `-`.
+
 The numbers come from the setups' cost exports, not their budgets, so they can differ a little from
 `SPEND` in the setup table. Setups that send no daily usage (before v1.2.0, or not applied since)
 are listed below the table; uninstalled setups count for the months they sent. `--json` prints the
@@ -244,6 +261,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | Full reports as JSON | `bedrock-admin fleet report --json` |
 | Each team's active users and spend | `bedrock-admin fleet report --by product` |
 | The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
+| The fleet, or one team, per month | `bedrock-admin fleet report --by month` (`--months N`, `--product NAME`) |
 | An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |
 | Use your team setup's profile and region | Add `-f bedrock.yaml` to any of these |

@@ -491,6 +491,7 @@ type FleetJSON struct {
 
 func (a *App) fleetReportCmd() *cobra.Command {
 	var bucket, region, by, product, month string
+	var months int
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Show the latest report of every setup",
@@ -500,8 +501,9 @@ whether it is still installed, then the installed setups' users and spend per pr
 ACTIVE is the users who spent at least $0.01 this month, of those onboarded, from the setup's daily
 usage file ("-" when the setup doesn't send one yet).
 
---by product sums the setups' daily usage per product (each team's active users and spend) and --by
-day per day, with a bar; both take --product to keep one product and --month for an earlier month.
+--by product sums the setups' daily usage per product (each team's active users and spend), --by
+day per day and --by month per month (the last --months, 6 by default), with a bar. They take
+--product to keep one product and --month for an earlier month (with --by month: the last one).
 They count every setup that sent daily usage that month, also uninstalled ones.
 
 --json prints the full reports, with users' emails for setups that send them, and the daily usage.
@@ -509,12 +511,13 @@ Without --bucket it reads the bucket fleet init tagged.`,
 		Example: `  bedrock-admin fleet report
   bedrock-admin fleet report --by product
   bedrock-admin fleet report --by day --product rancher
-  bedrock-admin fleet report --by product --month 2026-04`,
+  bedrock-admin fleet report --by product --month 2026-04
+  bedrock-admin fleet report --by month --months 12 --product rancher`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			now := a.Now().UTC()
-			if err := checkFleetUsageFlags(by, product, month, now); err != nil {
+			if err := checkFleetUsageFlags(by, product, month, months, cmd.Flags().Changed("months"), now); err != nil {
 				return err
 			}
 			if month == "" {
@@ -535,6 +538,20 @@ Without --bucket it reads the bucket fleet init tagged.`,
 			reports, problems, err := fleet.Read(ctx, s3c, rb.Name)
 			if err != nil {
 				return err
+			}
+			if by == "month" {
+				byMonth := map[string]map[string]*usage.FleetUsage{}
+				for _, m := range fleet.LastMonths(month, months) {
+					if byMonth[m], err = fleet.ReadUsage(ctx, s3c, rb.Name, m, reports); err != nil {
+						return err
+					}
+				}
+				defer func() {
+					for _, p := range problems {
+						_, _ = fmt.Fprintf(a.Err, "warning: %s\n", p)
+					}
+				}()
+				return writeFleetMonths(a, product, fleet.LastMonths(month, months), reports, byMonth, now)
 			}
 			us, err := fleet.ReadUsage(ctx, s3c, rb.Name, month, reports)
 			if err != nil {
@@ -567,9 +584,10 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl := cmd.Flags()
 	fl.StringVar(&bucket, "bucket", "", "name of the central report bucket (default: the one fleet init tagged)")
 	fl.StringVar(&region, "region", "", "region of the bucket (default: the bucket's own)")
-	fl.StringVar(&by, "by", "setup", "setup, product or day")
-	fl.StringVar(&product, "product", "", "with --by product or day: only this product")
-	fl.StringVar(&month, "month", "", "with --by product or day: this month (YYYY-MM) instead of the current one")
+	fl.StringVar(&by, "by", "setup", "setup, product, day or month")
+	fl.StringVar(&product, "product", "", "with --by product, day or month: only this product")
+	fl.StringVar(&month, "month", "", "with --by product, day or month: this month (YYYY-MM) instead of the current one (with --by month: the last month)")
+	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
 	return cmd
 }
 
