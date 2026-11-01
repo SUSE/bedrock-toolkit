@@ -1,7 +1,7 @@
 *** Settings ***
 Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
 ...                 doctor, models, export, central reporting (fleet init, apply, the daily Lambda report,
-...                 fleet report), a second setup in the same account, and uninstall. The run's setup has
+...                 fleet report, by month), a second setup in the same account (setups lists both), and uninstall. The run's setup has
 ...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
 Resource            ../resources/common.resource
 Suite Setup         Start Account Run
@@ -180,6 +180,12 @@ Fleet Report Shows The Setup
     ${p}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --by    product
     ...    --json    config=none
     Should Contain    ${p}[setups]    ${ACCOUNT}/${ID}
+    # The month view reads the usage files the daily Lambda wrote to the run's own report bucket.
+    ${m}=    Admin    fleet    report    --bucket    ${N}[report_bucket]    --region    ${REGION}    --by    month
+    ...    --months    1    --json    config=none
+    Length Should Be    ${m}[months]    1
+    Should Be Equal As Integers    ${m}[months][0][setups]    1
+    Should Be True    ${m}[months][0][partial]
 
 Export Keeps The Report Settings
     ${yaml}=    Admin    export    --id    ${ID}    --region    ${REGION}    --product    ${PRODUCT}    config=none
@@ -237,6 +243,20 @@ A Second Setup In The Same Account Is Separate
     ${roles}=    Personal Roles
     Should Be Equal    ${roles}    ${{ [$r1] }}
     Plan Should Show No Changes
+    ${s}=    Admin    setups    --json
+    Should Be Equal    ${s}[account]    ${ACCOUNT}
+    Should Be Equal    ${s}[current]    ${ID}
+    ${mine}=    Evaluate    {x["id"]: x for x in $s["setups"] if x["id"] in ($ID, $other)}
+    Should Be Equal As Integers    ${mine}[${other}][users]    1
+    Should Be True    ${mine}[${ID}][users] >= 1
+    Should Not Be True    ${mine}[${ID}][idle] or ${mine}[${other}][idle]
+    Should Be True    ${mine}[${other}][limit_usd] == 1
+    # Without a file it lists the profile's account the same way, with no current id.
+    ${s}=    Admin    setups    --json    config=none
+    Should Not Contain    ${s}    current
+    ${ids}=    Evaluate    [x["id"] for x in $s["setups"]]
+    Should Contain    ${ids}    ${ID}
+    Should Contain    ${ids}    ${other}
     ${r}=    Admin    export    --region    ${REGION}    config=none    rc=1    output=result
     Should Contain    ${r.stderr}    pass --id
     ${result}=    Invoke Monthly Lambda
