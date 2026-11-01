@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
@@ -51,6 +52,12 @@ that). To remove a leftover setup:
 				}
 			} else if a.File != "" {
 				return err
+			}
+			if base.Region == "" {
+				// setups calls only global services (STS, IAM, Budgets): any region works.
+				if l, err := awsx.Load(ctx, a.profile(base), ""); err == nil && l.Region == "" {
+					base.Region = "us-east-1"
+				}
 			}
 			c, err := a.connect(ctx, base, base.Region, base.Account)
 			if err != nil {
