@@ -137,7 +137,7 @@ const wantBlock = "[profile bedrock]\nrole_arn = arn:aws:iam::111122223333:role/
 
 func TestSetupWritesProfile(t *testing.T) {
 	f := newFake()
-	code, out, path := run(t, f, ssoConfig, "", "setup")
+	code, out, path := run(t, f, ssoConfig, "", "setup", "--id", "bedrock")
 	if code != cli.OK {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
@@ -158,7 +158,10 @@ func TestSetupWritesProfile(t *testing.T) {
 	}
 
 	// Again: nothing to change.
-	code, out, _ = run(t, f, read(t, path), "", "setup")
+	if code, out, _ := run(t, newFake(), ssoConfig, "", "setup"); code == cli.OK || !strings.Contains(out, "no --id") {
+		t.Fatalf("without --id: %d\n%s", code, out)
+	}
+	code, out, _ = run(t, f, read(t, path), "", "setup", "--id", "bedrock")
 	if code != cli.OK || !strings.Contains(out, "already set up") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
@@ -183,19 +186,19 @@ func TestSetupFlags(t *testing.T) {
 
 func TestSetupAsksBeforeReplacing(t *testing.T) {
 	old := ssoConfig + "\n[profile bedrock]\nrole_arn = x\n"
-	code, out, path := run(t, newFake(), old, "", "setup")
+	code, out, path := run(t, newFake(), old, "", "setup", "--id", "bedrock")
 	if code != cli.Error || !strings.Contains(out, "--yes") || read(t, path) != old {
 		t.Fatalf("no terminal: exit %d\n%s", code, out)
 	}
-	code, _, path = run(t, newFake(), old, "n\n", "setup")
+	code, _, path = run(t, newFake(), old, "n\n", "setup", "--id", "bedrock")
 	if code != cli.Error || read(t, path) != old {
 		t.Fatalf("answered no: exit %d", code)
 	}
-	code, out, path = run(t, newFake(), old, "y\n", "setup")
+	code, out, path = run(t, newFake(), old, "y\n", "setup", "--id", "bedrock")
 	if code != cli.OK || !strings.HasSuffix(read(t, path), wantBlock) || read(t, path+".bak") != old {
 		t.Fatalf("answered yes: exit %d\n%s", code, out)
 	}
-	code, _, path = run(t, newFake(), old, "", "setup", "--yes")
+	code, _, path = run(t, newFake(), old, "", "setup", "--id", "bedrock", "--yes")
 	if code != cli.OK || !strings.HasSuffix(read(t, path), wantBlock) {
 		t.Fatalf("--yes: exit %d", code)
 	}
@@ -203,19 +206,19 @@ func TestSetupAsksBeforeReplacing(t *testing.T) {
 
 func TestSetupChoosesSignInProfile(t *testing.T) {
 	two := ssoConfig + "\n[profile sso2]\nsso_start_url = https://y\n"
-	code, out, _ := run(t, newFake(), two, "", "setup")
+	code, out, _ := run(t, newFake(), two, "", "setup", "--id", "bedrock")
 	if code != cli.Error || !strings.Contains(out, "--source-profile") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	code, out, path := run(t, newFake(), two, "nope\nsso\n", "setup")
+	code, out, path := run(t, newFake(), two, "nope\nsso\n", "setup", "--id", "bedrock")
 	if code != cli.OK || !strings.Contains(read(t, path), "source_profile = sso\n") || !strings.Contains(out, "Not one of") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	code, out, _ = run(t, newFake(), "[default]\nregion = us-west-2\n", "", "setup")
+	code, out, _ = run(t, newFake(), "[default]\nregion = us-west-2\n", "", "setup", "--id", "bedrock")
 	if code != cli.Error || !strings.Contains(out, "no SSO profile") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
-	code, out, _ = run(t, newFake(), "[profile sso]\nsso_session = corp\n", "", "setup")
+	code, out, _ = run(t, newFake(), "[profile sso]\nsso_session = corp\n", "", "setup", "--id", "bedrock")
 	if code != cli.Error || !strings.Contains(out, "--region") {
 		t.Fatalf("no region: exit %d\n%s", code, out)
 	}
@@ -224,13 +227,13 @@ func TestSetupChoosesSignInProfile(t *testing.T) {
 func TestSetupNotSignedIn(t *testing.T) {
 	f := newFake()
 	delete(f.identity, "sso")
-	code, out, _ := run(t, f, ssoConfig, "", "setup")
+	code, out, _ := run(t, f, ssoConfig, "", "setup", "--id", "bedrock")
 	if code != cli.Error || !strings.Contains(out, "aws sso login --profile sso") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	f = newFake()
 	f.identity["sso"] = "arn:aws:iam::111122223333:root"
-	if code, out, _ = run(t, f, ssoConfig, "", "setup"); code != cli.Error || !strings.Contains(out, "use your IAM user's access key") {
+	if code, out, _ = run(t, f, ssoConfig, "", "setup", "--id", "bedrock"); code != cli.Error || !strings.Contains(out, "use your IAM user's access key") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 }
@@ -469,7 +472,7 @@ func iamFake() *fakeAWS {
 
 func TestSetupIAMUser(t *testing.T) {
 	f := iamFake()
-	code, out, path := run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	code, out, path := run(t, f, keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys")
 	if code != cli.OK {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
@@ -482,17 +485,17 @@ func TestSetupIAMUser(t *testing.T) {
 	}
 
 	// The access key may be only in the credentials file: no section in the config, region from the flag.
-	code, out, _ = run(t, iamFake(), "", "", "setup", "--sso-profile", "keys", "--region", "us-west-2")
+	code, out, _ = run(t, iamFake(), "", "", "setup", "--id", "bedrock", "--sso-profile", "keys", "--region", "us-west-2")
 	if code != cli.OK {
 		t.Fatalf("credentials-only profile: exit %d\n%s", code, out)
 	}
 
 	// No region in the key profile: --default-region applies; the profile's own region wins over it.
-	code, out, path = run(t, iamFake(), "", "", "setup", "--source-profile", "keys", "--default-region", "us-east-1")
+	code, out, path = run(t, iamFake(), "", "", "setup", "--id", "bedrock", "--source-profile", "keys", "--default-region", "us-east-1")
 	if code != cli.OK || !strings.Contains(read(t, path), "region = us-east-1\n") {
 		t.Fatalf("--default-region: exit %d\n%s", code, out)
 	}
-	code, out, path = run(t, iamFake(), keyConfig, "", "setup", "--source-profile", "keys", "--default-region", "us-east-1")
+	code, out, path = run(t, iamFake(), keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys", "--default-region", "us-east-1")
 	if code != cli.OK || !strings.HasSuffix(read(t, path), want) {
 		t.Fatalf("profile region over --default-region: exit %d\n%s", code, out)
 	}
@@ -500,11 +503,11 @@ func TestSetupIAMUser(t *testing.T) {
 	// Not onboarded: the tags can't be read; --email works around it.
 	f = iamFake()
 	f.userEmail = nil
-	code, out, _ = run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	code, out, _ = run(t, f, keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys")
 	if code != cli.Error || !strings.Contains(out, "iam_user: achen.dev") {
 		t.Fatalf("no tags: exit %d\n%s", code, out)
 	}
-	code, out, path = run(t, f, keyConfig, "", "setup", "--source-profile", "keys", "--email", email)
+	code, out, path = run(t, f, keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys", "--email", email)
 	if code != cli.OK || !strings.HasSuffix(read(t, path), want) {
 		t.Fatalf("--email: exit %d\n%s", code, out)
 	}
@@ -512,7 +515,7 @@ func TestSetupIAMUser(t *testing.T) {
 	// Bad key: no SSO login hint.
 	f = iamFake()
 	delete(f.identity, "keys")
-	code, out, _ = run(t, f, keyConfig, "", "setup", "--source-profile", "keys")
+	code, out, _ = run(t, f, keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys")
 	if code != cli.Error || !strings.Contains(out, "aws configure --profile keys") {
 		t.Fatalf("bad key: exit %d\n%s", code, out)
 	}

@@ -120,7 +120,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		return errors.New("no region: the profile has none; pass --region")
 	}
 	if cur.ID == "" {
-		cur.ID = policy.DefaultID
+		return errors.New("no id: pass --id, 1-20 lowercase letters and digits naming this setup (for example rancher); it names and tags everything bedrock-admin creates and users pass it to bedrock setup")
 	}
 	if cur.Product == "" {
 		return errors.New("no product: pass --product with the team or product whose users these are (for example rancher); fleet reports group usage by it")
@@ -188,8 +188,14 @@ func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) err
 		}
 		return err
 	}
-	if err := q("id", "id (names and tags everything bedrock-admin creates; 1-20 lowercase letters and digits)", &c.ID, policy.DefaultID); err != nil {
+	const idQ = "id (names and tags everything bedrock-admin creates; 1-20 lowercase letters and digits, for example rancher)"
+	if err := q("id", idQ, &c.ID, ""); err != nil {
 		return err
+	}
+	for c.ID == "" && !changed("id") {
+		if err := q("id", idQ, &c.ID, ""); err != nil {
+			return err
+		}
 	}
 	if err := q("account", "AWS account ID", &c.Account, ""); err != nil {
 		return err

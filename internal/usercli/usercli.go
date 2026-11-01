@@ -124,7 +124,7 @@ sets role_session_name to your email and takes the region from the profile you s
 
 You sign in with SSO (aws sso login) or, when your admin onboarded your IAM user,
 with its access key: pass that profile with --source-profile. setup reads your email from the IAM
-user's tags. Your admin tells you when you need --id, --region or --role-arn. The previous file is kept as config.bak; an existing bedrock profile is replaced only
+user's tags. Your admin sends the command with your --id (or --role-arn) and, when needed, --region. The previous file is kept as config.bak; an existing bedrock profile is replaced only
 after asking (or with --yes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.setup(cmd.Context(), f) },
@@ -135,7 +135,7 @@ after asking (or with --yes).`,
 	_ = fl.MarkHidden("sso-profile")
 	fl.StringVar(&f.email, "email", "", "your email, when you sign in as an IAM user (default: read from the IAM user's tags)")
 	fl.StringVar(&f.roleArn, "role-arn", "", "personal role ARN, when your admin gave you one")
-	fl.StringVar(&f.id, "id", policy.DefaultID, "id of your admin's setup")
+	fl.StringVar(&f.id, "id", "", "id of your admin's setup (required unless --role-arn)")
 	fl.StringVar(&f.region, "region", "", "Bedrock region (default: the SSO profile's region)")
 	fl.StringVar(&f.defRegion, "default-region", "", "region to use when neither --region nor the sign-in profile sets one")
 	fl.StringVar(&f.profile, "profile-name", DefaultProfile, "name of the profile to write")
@@ -144,7 +144,10 @@ after asking (or with --yes).`,
 }
 
 func (a *App) setup(ctx context.Context, f setupFlags) error {
-	if !config.ValidID(f.id) {
+	if f.id == "" && f.roleArn == "" {
+		return errors.New("no --id: pass the id of your admin's setup, as in the bedrock setup command your admin sent")
+	}
+	if f.id != "" && !config.ValidID(f.id) {
 		return fmt.Errorf("--id %q: must be 1-20 lowercase letters and digits", f.id)
 	}
 	path, err := awsconf.Path()

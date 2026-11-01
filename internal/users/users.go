@@ -78,7 +78,7 @@ func SetupCommand(cfg *config.Config, account, profileRegion string, u config.Re
 	}
 	if u.CustomName {
 		cmd += " --role-arn " + policy.UserRoleArn(account, cfg.ID, u.RoleName)
-	} else if cfg.ID != policy.DefaultID {
+	} else {
 		cmd += " --id " + cfg.ID
 	}
 	if u.IAMUser != "" {

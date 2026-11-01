@@ -152,7 +152,7 @@ users:
 - Which file: `-f`, then `$BEDROCK_ADMIN_CONFIG`, then `./bedrock.yaml`, then
   `~/.config/bedrock-admin/bedrock.yaml`. Flags win over environment variables, which win over the
   file.
-- The `id` is 1 to 20 lowercase letters and digits, default `bedrock`. Each file is one setup; see
+- The `id` is 1 to 20 lowercase letters and digits, required (`configure` asks for it). Each file is one setup; see
   [section 10](#10-the-id-several-setups-in-one-account).
 - The user's name is derived from the email unless `name:` is set, at most 30 characters. It names
   the role (`bedrock-user-<id>-<name>`) and the budget (`bedrock-<id>-<name>`).
@@ -660,7 +660,7 @@ for teams with their own admins, models or settings.
 | Another id's resources | Not looked at (except by `usage`, below) |
 
 - One person can be a user of several setups, with a role and a budget in each. `bedrock setup
-  --id <id>` picks the role; `apply` prints the command with `--id` when the id isn't `bedrock`.
+  --id <id>` picks the role and is required unless `--role-arn` is given; `apply` always prints it.
 - Each setup's cost export covers the whole account. `usage` counts spend through other ids'
   personal roles as neither tracked nor untracked and prints it as one line, "Other setups in this
   account".

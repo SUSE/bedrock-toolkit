@@ -219,8 +219,9 @@ users out is IAM: their credentials have no rights to change the setup.
 bedrock-admin configure --profile bedrock-admin
 ```
 
-`configure` asks a few questions and writes everything except your users. For the product, give
-your team or product name (for example `rancher`): central fleet reports group usage by it. Then add
+`configure` asks a few questions and writes everything except your users. For the id and the product,
+give your team or product name (for example `rancher`): the id names everything `apply` creates and
+users pass it to `bedrock setup`; central fleet reports group usage by the product. Then add
 your users:
 
 ```yaml
@@ -296,8 +297,9 @@ Step 1.9 policy.
 <details>
 <summary>configure without questions, and its flags</summary>
 
-With `--yes`, or without a terminal, it asks nothing and takes the flags and defaults. `--product`
-has no default: name the team or product whose users these are, so fleet reports tell setups apart.
+With `--yes`, or without a terminal, it asks nothing and takes the flags and defaults. `--id` and
+`--product` have no default: the id names this setup, and the product names the team or product whose
+users these are, so fleet reports tell setups apart.
 
 ```bash
 bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product genai-tools --limit 50
@@ -305,7 +307,7 @@ bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product ge
 
 | Flag | Default |
 | --- | --- |
-| `--id` | `bedrock` |
+| `--id` | None: required |
 | `--account` | The profile's account |
 | `--region` | The profile's region |
 | `--product` | None: required |
@@ -327,7 +329,7 @@ bedrock-admin plan and bedrock-admin apply."
 <summary>A full bedrock.yaml</summary>
 
 ```yaml
-id: acmeprod                    # names and tags what apply creates; default bedrock
+id: acmeprod                    # names and tags what apply creates; required
 account: "111122223333"         # in quotes
 region: us-west-2               # an opt-in region (e.g. ap-east-1) must be enabled in the account first
 profile: bedrock-admin          # AWS profile; --profile and $AWS_PROFILE win over it
@@ -375,7 +377,7 @@ users:                          # or: users: !include users.yaml
 
 | Key | Notes |
 | --- | --- |
-| `id` | 1–20 lowercase letters and digits. Default `bedrock`. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
+| `id` | Required. 1–20 lowercase letters and digits. Every name `apply` creates ends in it, and it tags everything. See [the id](#the-id-several-setups-in-one-account). |
 | `account` | 12 digits, in quotes |
 | `product` | Required. The `product` tag on every personal role, to charge spend to a team or product, like `owner` charges it to a person. Billing only shows it once your org admin activates it as a cost allocation tag, as in Step 1.6. Letters, digits, spaces and `_.:/=+@-`, up to 128. A user's own `product:` overrides it for that user. `plan` warns about `bedrock`, the old default, which names no team. |
 | `models` | Optional. Inference profile IDs (or foundation model IDs) personal roles may call, and only those plus the baseline models (see [Choosing models](#choosing-models)); `apply` enables each and `doctor` tests each. Empty: personal roles may call any Claude model except the Claude Fable family, and `apply` still enables every baseline model and `doctor` tests the region's. Only Claude models other than Fable may be listed. |
@@ -508,10 +510,10 @@ bedrock-admin apply    # creates what is missing; safe to re-run
 
 ```
 Send each new user their setup command (after aws sso login, or with their access key profile for IAM users):
-  achen@example.com: bedrock setup
-  bkim@example.com: bedrock setup
-  cdiaz@example.com: bedrock setup
-  dlee@example.com: bedrock setup --source-profile <your dlee-bedrock access key profile> --default-region us-west-2
+  achen@example.com: bedrock setup --id acmeprod
+  bkim@example.com: bedrock setup --id acmeprod
+  cdiaz@example.com: bedrock setup --id acmeprod
+  dlee@example.com: bedrock setup --id acmeprod --source-profile <your dlee-bedrock access key profile> --default-region us-west-2
 ```
 
 Send it, and point them to the [user guide](user-guide.md). Step 1.6 clears by itself within 24
@@ -583,8 +585,8 @@ summary such as `Done: 11 created. 1 still pending.`, then a `Failed:` and a `Pe
 the reason under each item. If a step fails, fix the cause and run `apply` again; users wait until
 the account setup succeeds.
 
-The `bedrock setup` command it prints has `--region` when your profile's region differs from the file's region, and
-`--id <id>` when the id isn't `bedrock`, or `--role-arn` when the user has a custom `name:`. Send it
+The `bedrock setup` command it prints has `--id <id>`, or `--role-arn` when the user has a custom
+`name:`, and `--region` when your profile's region differs from the file's region. Send it
 as printed: users can't look up their role, so they need these flags from you. A message to a new
 user:
 
@@ -1063,7 +1065,7 @@ AWS account could claim it. In a terminal, `uninstall` asks again before deletin
 
 ## The `id`: several setups in one account
 
-Each `bedrock.yaml` is one setup, named by its `id` (default `bedrock`). Every name `apply` creates
+Each `bedrock.yaml` is one setup, named by its `id`. Every name `apply` creates
 ends in the id, and everything is tagged `bedrock-admin:id` with it (schedules can't be tagged, so
 the id is in the schedule's description). So several setups can share one AWS account, each with its
 own users, budgets, `models:`, pause policy, monthly Lambda, cost export and bucket:
@@ -1109,8 +1111,7 @@ from another setup's file.
   prints it as one line, "Other setups in this account".
 - Shared by every setup in the account: the cost allocation tag (Step 1.6) and the Step 1.7 deny
   your org admin adds to the permission sets.
-- Users of a setup whose id isn't `bedrock` run `bedrock setup --id <id>`; `apply` prints that
-  command. Someone in two setups runs `bedrock setup` once per setup, and adds
+- Users run `bedrock setup --id <id>`; `apply` prints that command. Someone in two setups runs `bedrock setup` once per setup, and adds
   `--profile-name <name>` to the second so it doesn't replace the first `bedrock` profile, for
   example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
   and `usage` take the same `--profile-name`.
@@ -1142,7 +1143,7 @@ per account:
   bedrock-<product>`, for example `--profile-name bedrock-harvester`, so it doesn't replace the
   first one.
 
-`apply` prints only `bedrock setup` (with `--id`, `--region` or `--role-arn` when needed); add
+`apply` prints only `bedrock setup` with `--id` (or `--role-arn`) and, when needed, `--region`; add
 `--source-profile` and `--profile-name` yourself for someone already in another account. They then use
 `bedrock doctor --profile-name bedrock-harvester`, and the same flag for `claude` and `usage`, or
 `AWS_PROFILE=bedrock-harvester` for Claude Code and other tools.
@@ -1223,4 +1224,4 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |
 | Check my setup | `bedrock-admin doctor` |
 | Remove everything | `users: []`, `bedrock-admin apply --yes`, then `bedrock-admin uninstall` |
-| Set up a user's machine | `bedrock setup` (the user runs it) |
+| Set up a user's machine | `bedrock setup --id <id>` (the user runs it) |

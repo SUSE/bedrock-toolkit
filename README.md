@@ -29,7 +29,7 @@ reach it. Admins manage everyone from one file; users set up their machine with 
 - **Usage reports**: spend per user or per product, and spend that bypasses personal roles, and who has set up.
 - **Central reporting** (optional): each setup can send a short report (user counts, spend, settings)
   to one S3 bucket that a central admin owns, to follow many teams' setups.
-- **Several setups**: each `bedrock.yaml` has an `id` (default `bedrock`) that every AWS name carries,
+- **Several setups**: each `bedrock.yaml` has an `id` (required) that every AWS name carries,
   so several setups, each with its own users, budgets and models, can share one AWS account, and
   one admin can run setups in several accounts.
 - **Web search** (optional): Claude Code's and the desktop app's own search doesn't work on Bedrock,
@@ -119,7 +119,7 @@ Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 
 ```bash
 aws sso login                        # or nothing, with an IAM user access key
-bedrock setup                        # write the bedrock profile and check it
+bedrock setup --id <id>              # the command your admin sent: write the bedrock profile, check it
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget, per day and per model
 bedrock models                       # the models you may use

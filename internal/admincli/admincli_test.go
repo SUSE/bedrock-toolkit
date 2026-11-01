@@ -90,7 +90,7 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 	f := filepath.Join(dir, "bedrock.yaml")
 	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
-	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", f, "--account", "123456789012", "--region", "ap-northeast-1", "--product", "rancher")
+	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", f, "--id", "rancher", "--account", "123456789012", "--region", "ap-northeast-1", "--product", "rancher")
 	if code != 0 {
 		t.Fatalf("code %d\n%s", code, errs)
 	}
@@ -107,13 +107,17 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 	}
 }
 
-func TestConfigureNeedsProduct(t *testing.T) {
+func TestConfigureNeedsIDAndProduct(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
-	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--account", "123456789012", "--region", "eu-west-1")
+	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--id", "rancher", "--account", "123456789012", "--region", "eu-west-1")
 	if code == 0 || !strings.Contains(errs, "no product: pass --product") {
 		t.Fatalf("without --product: %d\n%s\n%s", code, out, errs)
+	}
+	code, out, errs = run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher")
+	if code == 0 || !strings.Contains(errs, "no id: pass --id") {
+		t.Fatalf("without --id: %d\n%s\n%s", code, out, errs)
 	}
 }
 
@@ -299,7 +303,7 @@ func TestConfigureBaselineModels(t *testing.T) {
 	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
 	code, out, errs := run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
-		"--account", "123456789012", "--region", "eu-west-1", "--product", "rancher")
+		"--id", "rancher", "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher")
 	if code != 0 {
 		t.Fatalf("code %d\n%s", code, errs)
 	}
@@ -311,7 +315,7 @@ func TestConfigureBaselineModels(t *testing.T) {
 		t.Fatalf("baseline models:\n%s", out)
 	}
 	code, out, errs = run(t, "configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
-		"--account", "123456789012", "--region", "eu-west-1", "--product", "rancher", "--model", "eu.anthropic.claude-opus-5-5")
+		"--id", "rancher", "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher", "--model", "eu.anthropic.claude-opus-5-5")
 	if code != 0 || !strings.Contains(out, "models:\n  - eu.anthropic.claude-opus-5-5\n") || strings.Contains(out, "global.") {
 		t.Fatalf("--model: %d\n%s\n%s", code, out, errs)
 	}
@@ -321,7 +325,7 @@ func TestConfigureReport(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("AWS_PROFILE", "bedrock-admin-test-none")
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "none"))
-	args := []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher"}
+	args := []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--id", "rancher", "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher"}
 	code, out, errs := run(t, append(args, "--report-bucket", "central-reports", "--report-region", "us-east-1")...)
 	if code != 0 || !strings.Contains(out, "report:\n  bucket: central-reports\n  region: us-east-1\n") {
 		t.Fatalf("report: %d\n%s\n%s", code, out, errs)

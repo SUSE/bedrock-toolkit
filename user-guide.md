@@ -4,7 +4,7 @@ For anyone who uses Claude through Amazon Bedrock, for example in Claude Code. S
 minutes.
 
 > Before you begin, your admin must have set up the AWS account and onboarded you. They send you
-> the command to run, usually just `bedrock setup`. Until you are onboarded, setup fails at the
+> the command to run, such as `bedrock setup --id rancher`. Until you are onboarded, setup fails at the
 > `permission-set access` check.
 
 ## Contents
@@ -31,7 +31,7 @@ minutes.
 
 ```bash
 aws sso login --profile <your-sso-profile>   # skip with an IAM user access key
-bedrock setup                                # the command your admin sent you
+bedrock setup --id <id>                      # the command your admin sent you
 bedrock claude                               # test Claude Code, print the settings to add
 ```
 
@@ -129,7 +129,7 @@ profile, then pass that profile to the setup command your admin sent you (it alr
 
 ```bash
 aws configure --profile my-key          # access key ID, secret, and the region
-bedrock setup --source-profile my-key --default-region us-east-1
+bedrock setup --id <id> --source-profile my-key --default-region us-east-1
 ```
 
 The region comes from `--region`, else the `my-key` profile, else `--default-region` (your admin's
@@ -167,10 +167,10 @@ region = us-west-2
 - It reads your SSO identity to find the account and your SSO email, and derives your personal role
   from the email.
 - `role_session_name` is set to your exact SSO email. The role only trusts that session name.
-- The region comes from your SSO profile. Your admin adds `--region` to the command when Bedrock
-  runs in another region, `--id <id>` when your admin's setup has another id than `bedrock`
+- The region comes from your SSO profile. The command your admin sends always has `--id <id>`, the id of their setup
   (one AWS account can hold several setups; you may be in more than one, with a role in each: use
-  `--profile-name` to keep their profiles apart), and `--role-arn` when your role has a custom name.
+  `--profile-name` to keep their profiles apart), or `--role-arn` when your role has a custom name. It
+  has `--region` when Bedrock runs in another region.
   Outside a US or EU region the default models are `global.` ones, and `setup` prints a note: if your
   admin allows only `us.` or `eu.` models, pass a matching `--region`. Opt-in regions (for example
   `ap-east-1` or `ap-east-2`) work only when your admin's account has enabled them.
@@ -506,9 +506,9 @@ the fix under it:
 > `bedrock setup --yes` here means the command your admin sent you, plus `--yes`. Setup doesn't read
 > the old profile, so keep every option you first used: `--id`, `--role-arn`, `--source-profile`
 > (always with an IAM user) and `--profile-name`. For example, if your admin's setup id is `team1`
-> and you leave out `--id team1`, setup uses the default id `bedrock` and points the profile at a
-> role that doesn't exist (`.../bedrock-user-bedrock-<you>` instead of
-> `.../bedrock-user-team1-<you>`). The `permission-set access` check then fails with AccessDenied.
+> and you pass `--id team2` instead, setup points the profile at a role that doesn't exist
+> (`.../bedrock-user-team2-<you>` instead of `.../bedrock-user-team1-<you>`). The
+> `permission-set access` check then fails with AccessDenied.
 
 `bedrock setup` itself can stop with:
 

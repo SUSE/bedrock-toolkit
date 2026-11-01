@@ -132,7 +132,7 @@ func TestMissingBudget(t *testing.T) {
 func TestSetupCommand(t *testing.T) {
 	cfg := &config.Config{ID: "bedrock", Region: "us-west-2"}
 	u := want(50, 100)
-	if got := SetupCommand(cfg, "123456789012", "us-west-2", u); got != "bedrock setup" {
+	if got := SetupCommand(cfg, "123456789012", "us-west-2", u); got != "bedrock setup --id bedrock" {
 		t.Fatalf("got %q", got)
 	}
 	cfg.ID = "acme"
@@ -237,12 +237,12 @@ func TestSetupCommandIAMUser(t *testing.T) {
 	u := want(50, 100)
 	u.IAMUser = "dave.dev"
 	got := SetupCommand(&config.Config{ID: "bedrock", Region: "us-west-2"}, "123456789012", "us-west-2", u)
-	if got != "bedrock setup --source-profile <your dave.dev access key profile> --default-region us-west-2" {
+	if got != "bedrock setup --id bedrock --source-profile <your dave.dev access key profile> --default-region us-west-2" {
 		t.Fatalf("got %q", got)
 	}
 	// With --region already in the command, no --default-region.
 	got = SetupCommand(&config.Config{ID: "bedrock", Region: "us-east-1"}, "123456789012", "us-west-2", u)
-	if got != "bedrock setup --region us-east-1 --source-profile <your dave.dev access key profile>" {
+	if got != "bedrock setup --region us-east-1 --id bedrock --source-profile <your dave.dev access key profile>" {
 		t.Fatalf("got %q", got)
 	}
 }

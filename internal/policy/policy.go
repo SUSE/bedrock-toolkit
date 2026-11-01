@@ -14,8 +14,6 @@ import (
 // Paths and fixed names. Every account resource name ends in the setup's id (see Names below), so
 // several setups can share an account.
 const (
-	// DefaultID is the id configure suggests and bedrock setup assumes.
-	DefaultID           = "bedrock"
 	Path                = "/bedrock/"
 	UsersPath           = "/bedrock-users/"
 	BudgetActionsPolicy = "attach-bedrock-deny"
