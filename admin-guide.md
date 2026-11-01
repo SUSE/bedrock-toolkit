@@ -222,7 +222,8 @@ bedrock-admin configure --profile bedrock-admin
 
 `configure` asks a few questions and writes everything except your users. For the id and the product,
 give your team or product name (for example `rancher`): the id names everything `apply` creates and
-users pass it to `bedrock setup`; central fleet reports group usage by the product. Then add
+users pass it to `bedrock setup` (see [choosing an id](#choosing-an-id)); central fleet reports group
+usage by the product. Then add
 your users:
 
 ```yaml
@@ -1117,6 +1118,20 @@ from another setup's file.
   `--profile-name <name>` to the second so it doesn't replace the first `bedrock` profile, for
   example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
   and `usage` take the same `--profile-name`.
+
+### Choosing an id
+
+Users type the id once, in `bedrock setup --id <id>`, and see it in their role's name. It can't be
+renamed. So pick:
+
+- the name of the team or product the users belong to, such as `rancher` or `harvester`: users
+  recognize it, and a typo is easy to spot;
+- something that lasts: not a person, a quarter, or a state such as `test` or `new`;
+- a name unique in the account. Other accounts may use the same id; fleet reports tell them apart by
+  account.
+
+It must be 1–20 lowercase letters and digits. If a user mistypes it, `bedrock setup` finds no role
+and stops without changing their profile.
 
 ### List, change or remove a setup
 

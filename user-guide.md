@@ -4,8 +4,8 @@ For anyone who uses Claude through Amazon Bedrock, for example in Claude Code. S
 minutes.
 
 > Before you begin, your admin must have set up the AWS account and onboarded you. They send you
-> the command to run, such as `bedrock setup --id rancher`. Until you are onboarded, setup fails at the
-> `permission-set access` check.
+> the command to run, such as `bedrock setup --id rancher`. Until you are onboarded, setup stops with
+> `you can't use <role>` and leaves your AWS config unchanged.
 
 ## Contents
 
@@ -170,7 +170,10 @@ region = us-west-2
 - The region comes from your SSO profile. The command your admin sends always has `--id <id>`, the id of their setup
   (one AWS account can hold several setups; you may be in more than one, with a role in each: use
   `--profile-name` to keep their profiles apart), or `--role-arn` when your role has a custom name. It
-  has `--region` when Bedrock runs in another region.
+  has `--region` when Bedrock runs in another region. You need `--id` only the first time: run again,
+  `bedrock setup` takes it (or the `--role-arn`) from the existing profile.
+- Before writing, it checks that you can use your personal role. If you can't (a mistyped `--id`, or
+  you aren't onboarded yet), it stops and leaves the profile unchanged.
   Outside a US or EU region the default models are `global.` ones, and `setup` prints a note: if your
   admin allows only `us.` or `eu.` models, pass a matching `--region`. Opt-in regions (for example
   `ap-east-1` or `ap-east-2`) work only when your admin's account has enabled them.
@@ -481,8 +484,8 @@ the fix under it:
 
 | Failed check | Message | Fix |
 | --- | --- | --- |
-| `profile` | `no profile bedrock in <file>` | `bedrock setup` |
-| `profile` | `missing role_arn, ...` | `bedrock setup --yes` |
+| `profile` | `no profile bedrock in <file>` | Run the `bedrock setup` command your admin sent |
+| `profile` | `missing role_arn, ...` | The command `doctor` prints, or the one your admin sent plus `--yes` |
 | `profile` | `<key> has a comment at the end of the line` | Put comments on their own line, or run `bedrock setup --yes` |
 | `SSO sign-in` | Your SSO session expired or you are not signed in | `aws sso login --profile <profile>` |
 | `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with aws sso login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
@@ -491,7 +494,7 @@ the fix under it:
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. With an IAM user: ask them to onboard your email with `iam_user: <name>`. |
 | `personal role` | The profile can't get credentials | `bedrock setup --yes` |
-| `personal role` | `region <region> rejects your credentials: it's an opt-in region ...` | The account hasn't enabled that region. Run your setup command again with another region, e.g. `--region us-east-1 --yes`, or ask your admin to enable the region. |
+| `personal role` | `region <region> rejects your credentials: it's an opt-in region ...` | The account hasn't enabled that region. Run the command `doctor` prints, with another region if you like, or ask your admin to enable the region. |
 | `model <id>` | `AccessDeniedException ...`, and the fix starts with `PAUSED` | Your Bedrock access is paused: `doctor` read this from your budget. It comes back on the 1st, or ask your admin to unpause you. See [When you're paused](#when-youre-paused). |
 | `model <id>` | `AccessDeniedException ... explicit deny in an identity-based policy` | A policy other than the pause denies the call: send your admin the message. |
 | `model <id>` | `AccessDeniedException (AWS gave no reason)` | Your admin doesn't allow this model, or a policy denies it: ask your admin. If the model starts with `global.`, try a US or EU region: `bedrock setup --region us-east-1 --yes`, with the options your admin sent you. |
@@ -503,18 +506,16 @@ the fix under it:
 | `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |
 
 > [!NOTE]
-> `bedrock setup --yes` here means the command your admin sent you, plus `--yes`. Setup doesn't read
-> the old profile, so keep every option you first used: `--id`, `--role-arn`, `--source-profile`
-> (always with an IAM user) and `--profile-name`. For example, if your admin's setup id is `team1`
-> and you pass `--id team2` instead, setup points the profile at a role that doesn't exist
-> (`.../bedrock-user-team2-<you>` instead of `.../bedrock-user-team1-<you>`). The
-> `permission-set access` check then fails with AccessDenied.
+> `doctor` prints the fix with your profile's `--id` (or `--role-arn`) and `--profile-name`, such as
+> `bedrock setup --id rancher --yes`. Without `--id`, setup takes it from the existing profile. Keep
+> any other option you first used, such as `--source-profile` (always with an IAM user).
 
 `bedrock setup` itself can stop with:
 
 | Message | Fix |
 | --- | --- |
-| `no --id: pass the id of your admin's setup ...` | Run the exact command your admin sent; ask them for the id if you lost it |
+| `no --id: pass the id of your admin's setup ...` | Run the exact command your admin sent; ask them for the id if you lost it. Setup needs `--id` only when the profile doesn't exist yet. |
+| `you can't use <role ARN>, so the profile is unchanged` | Check `--id` (or `--role-arn`) against the command your admin sent: a wrong id points at a role that doesn't exist. If it matches, ask your admin to onboard the email shown. A user added by `apply` can use the role a minute or so later. |
 | `no SSO profile in <file>` | Run `aws configure sso` first, or pass `--source-profile` |
 | `several SSO profiles in <file> (...)` | Pass `--source-profile <profile>` (it asks when run in a terminal) |
 | `IAM user <name> has no owner tag ...` | Ask your admin to onboard you with `iam_user: <name>`, or pass `--email <your email>` |

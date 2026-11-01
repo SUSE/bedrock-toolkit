@@ -63,7 +63,7 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	s := file.Profile(profile)
 	if s == nil {
 		return append(out, cli.Check{Name: "profile", Detail: fmt.Sprintf("no profile %s in %s", profile, path),
-			Fix: "bedrock setup"})
+			Fix: "run the bedrock setup command your admin sent (bedrock setup --id <id>)"})
 	}
 	var missing []string
 	for _, k := range []string{"role_arn", "source_profile", "role_session_name", "region"} {
@@ -72,15 +72,20 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 		}
 	}
 	if len(missing) > 0 {
-		return append(out, cli.Check{Name: "profile", Detail: "missing " + strings.Join(missing, ", "), Fix: "bedrock setup --yes"})
+		fix := setupArgs(s.Keys["role_arn"], profile) + " --yes"
+		if s.Keys["role_arn"] == "" {
+			fix = "run the bedrock setup command your admin sent, with --yes"
+		}
+		return append(out, cli.Check{Name: "profile", Detail: "missing " + strings.Join(missing, ", "), Fix: fix})
 	}
 	for k, v := range s.Keys {
 		if strings.Contains(v, " #") || strings.Contains(v, " ;") {
 			return append(out, cli.Check{Name: "profile", Detail: k + " has a comment at the end of the line",
-				Fix: "put comments on their own line, or run bedrock setup --yes"})
+				Fix: "put comments on their own line, or run " + setupArgs(s.Keys["role_arn"], profile) + " --yes"})
 		}
 	}
 	roleArn, src, session, region := s.Keys["role_arn"], s.Keys["source_profile"], s.Keys["role_session_name"], s.Keys["region"]
+	rerun := setupArgs(roleArn, profile)
 	out = append(out, cli.Check{Name: "profile", OK: true, Detail: fmt.Sprintf("%s in %s", profile, path)})
 
 	signIn := "SSO sign-in"
@@ -98,14 +103,14 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	id, err := parseIdentity(arn)
 	if err != nil {
 		return append(out, cli.Check{Name: signIn, Detail: err.Error(),
-			Fix: "set source_profile to your SSO or IAM user profile, or run bedrock setup --source-profile <profile>"})
+			Fix: "set source_profile to your SSO or IAM user profile, or run " + rerun + " --source-profile <profile> --yes"})
 	}
 	email := id.email
 	if id.iamUser != "" {
 		out = append(out, cli.Check{Name: "sign-in", OK: true, Detail: "IAM user " + id.iamUser + " (profile " + src + ")"})
 		if !config.IsEmail(session) {
 			return append(out, cli.Check{Name: "session name",
-				Detail: fmt.Sprintf("role_session_name is %s, but it must be your email", session), Fix: "bedrock setup --yes"})
+				Detail: fmt.Sprintf("role_session_name is %s, but it must be your email", session), Fix: rerun + " --yes"})
 		}
 		email = session
 	} else {
@@ -115,7 +120,7 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	if session != email {
 		return append(out, cli.Check{Name: "session name",
 			Detail: fmt.Sprintf("role_session_name is %s, but it must be exactly your SSO email %s", session, email),
-			Fix:    "bedrock setup --yes"})
+			Fix:    rerun + " --yes"})
 	}
 	if err := a.AWS.AssumeRole(ctx, src, roleArn, session); err != nil {
 		c := cli.Check{Name: "permission-set access", Detail: fmt.Sprintf("cannot use %s: %v", roleArn, short(err))}
@@ -131,12 +136,12 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 
 	arn, err = a.AWS.Identity(ctx, profile)
 	if err != nil {
-		c := cli.Check{Name: "personal role", Detail: short(err).Error(), Fix: "bedrock setup --yes"}
+		c := cli.Check{Name: "personal role", Detail: short(err).Error(), Fix: rerun + " --yes"}
 		// Your sign-in worked above, so a rejected token here comes from the profile's region:
 		// an opt-in region the account hasn't enabled.
 		if awsx.ErrorCode(err) == "InvalidClientTokenId" {
 			c.Detail = fmt.Sprintf("region %s rejects your credentials: it's an opt-in region this account hasn't enabled", region)
-			c.Fix = "run your bedrock setup command again with another region, e.g. --region us-east-1 --yes, " +
+			c.Fix = "run " + rerun + " --region us-east-1 --yes (or another region), " +
 				"or ask your admin to enable " + region
 		}
 		return append(out, c)

@@ -376,7 +376,10 @@ statement stays, so the user may use either:
   group first.
 
 `bedrock setup` writes an AWS CLI profile that uses the SSO profile as `source_profile` and sets
-`role_session_name` to the SSO email. `bedrock doctor` checks each part. `bedrock claude` runs
+`role_session_name` to the SSO email. It first assumes the role once and, if that's denied (a wrong `--id`,
+or a user not onboarded yet), writes nothing. Without `--id` or `--role-arn`, it reuses the existing
+profile's role: the id when the ARN is `/bedrock-users/<id>/bedrock-user-<id>-...`, else the ARN.
+`bedrock doctor` prints its fixes as that command (`bedrock setup --id <id> --yes`). `bedrock doctor` checks each part. `bedrock claude` runs
 `claude -p` once with the profile, in a temporary empty `CLAUDE_CONFIG_DIR` (no tools, MCP servers,
 hooks or plugins), to show it works, then prints the Claude Code settings (`env` block, and
 `awsAuthRefresh` when the source profile signs in with SSO; an access key profile
@@ -746,7 +749,7 @@ and a real AWS account:
 | `cli` | A smoke test of the built binaries, with no AWS |
 | `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
-| `user-access` | The user flow: `bedrock setup`, calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file), `bedrock models`, direct SSO calls denied, a pause seen by the user |
+| `user-access` | The user flow: `bedrock setup` (a wrong id writes nothing; a rerun reuses the id), calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file), `bedrock models`, direct SSO calls denied, a pause seen by the user |
 | `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (with `block_direct_calls` on, even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket; the Lambda's daily usage files, read only by their own role, deleted at offboarding |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |

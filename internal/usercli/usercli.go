@@ -119,13 +119,17 @@ func (a *App) setupCmd() *cobra.Command {
 		Long: `setup writes the [profile bedrock] block in ~/.aws/config (or $AWS_CONFIG_FILE).
 
 It reads your identity to find the account and your email, derives your personal role
-(arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>, id bedrock by default),
+(arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>),
 sets role_session_name to your email and takes the region from the profile you sign in with.
 
 You sign in with SSO (aws sso login) or, when your admin onboarded your IAM user,
 with its access key: pass that profile with --source-profile. setup reads your email from the IAM
-user's tags. Your admin sends the command with your --id (or --role-arn) and, when needed, --region. The previous file is kept as config.bak; an existing bedrock profile is replaced only
-after asking (or with --yes).`,
+user's tags. Your admin sends the command with your --id (or --role-arn) and, when needed, --region.
+Run again without them, setup takes them from the existing profile.
+
+Before writing, setup checks that you can use the role: a wrong --id, or a user not onboarded
+yet, leaves the profile unchanged. The previous file is kept as config.bak; an existing profile is
+replaced only after asking (or with --yes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return a.setup(cmd.Context(), f) },
 	}
@@ -144,9 +148,6 @@ after asking (or with --yes).`,
 }
 
 func (a *App) setup(ctx context.Context, f setupFlags) error {
-	if f.id == "" && f.roleArn == "" {
-		return errors.New("no --id: pass the id of your admin's setup, as in the bedrock setup command your admin sent")
-	}
 	if f.id != "" && !config.ValidID(f.id) {
 		return fmt.Errorf("--id %q: must be 1-20 lowercase letters and digits", f.id)
 	}
@@ -157,6 +158,20 @@ func (a *App) setup(ctx context.Context, f setupFlags) error {
 	file, err := awsconf.Read(path)
 	if err != nil {
 		return err
+	}
+	if f.id == "" && f.roleArn == "" {
+		old := file.Profile(f.profile)
+		if old == nil || old.Keys["role_arn"] == "" {
+			return errors.New("no --id: pass the id of your admin's setup, as in the bedrock setup command your admin sent")
+		}
+		if f.id = setupID(old.Keys["role_arn"]); f.id == "" {
+			f.roleArn = old.Keys["role_arn"]
+		}
+		reuse := "--id " + f.id
+		if f.id == "" {
+			reuse = "its role_arn"
+		}
+		a.printf("Using %s from profile %s.\n\n", reuse, f.profile)
 	}
 	p := cli.NewPrompter(a.In, a.Out)
 
@@ -208,6 +223,22 @@ func (a *App) setup(ctx context.Context, f setupFlags) error {
 	roleArn := f.roleArn
 	if roleArn == "" {
 		roleArn = policy.UserRoleArn(account, f.id, policy.UserRoleName(f.id, config.NameFromEmail(email)))
+	}
+	if err := a.AWS.AssumeRole(ctx, src, roleArn, email); err != nil {
+		if !awsx.IsAccessDenied(err) {
+			return fmt.Errorf("checking %s: %w", roleArn, short(err))
+		}
+		check := "--id " + f.id
+		if f.roleArn != "" {
+			check = "--role-arn"
+		}
+		onboard := email
+		if id.iamUser != "" {
+			onboard += " with iam_user: " + id.iamUser
+		}
+		return fmt.Errorf("you can't use %s, so the profile is unchanged.\n"+
+			"Check %s against the bedrock setup command your admin sent. If it matches, ask your admin to onboard %s\n"+
+			"(a new user can use the role a minute or so after apply)", roleArn, check, onboard)
 	}
 	kvs := []awsconf.KV{{Key: "role_arn", Value: roleArn}, {Key: "source_profile", Value: src},
 		{Key: "role_session_name", Value: email}, {Key: "region", Value: region}}
@@ -333,4 +364,30 @@ func signInFix(file *awsconf.File, profile string) string {
 
 func loginCommand(profile string) string {
 	return "aws sso login --profile " + profile
+}
+
+// setupID is the setup id in a personal role ARN that setup --id builds
+// (role/bedrock-users/<id>/bedrock-user-<id>-<name>), or "" for any other ARN.
+func setupID(roleArn string) string {
+	_, rest, ok := strings.Cut(roleArn, ":role"+policy.UsersPath)
+	if !ok {
+		return ""
+	}
+	id, role, ok := strings.Cut(rest, "/")
+	if !ok || !config.ValidID(id) || !strings.HasPrefix(role, policy.UserRoleName(id, "")) {
+		return ""
+	}
+	return id
+}
+
+// setupArgs is the bedrock setup command that writes the profile with roleArn again.
+func setupArgs(roleArn, profile string) string {
+	cmd := "bedrock setup --id " + setupID(roleArn)
+	if setupID(roleArn) == "" {
+		cmd = "bedrock setup --role-arn " + roleArn
+	}
+	if profile != DefaultProfile {
+		cmd += " --profile-name " + profile
+	}
+	return cmd
 }

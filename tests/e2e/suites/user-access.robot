@@ -28,6 +28,23 @@ Setup Writes A Working Profile
     Should Contain    ${text}    source_profile = ${SSO_PROFILE}
     Should Contain    ${text}    role_arn = ${ROLE_ARN}
 
+Setup With A Wrong Id Changes Nothing
+    [Documentation]    STS denies a role that doesn't exist, so setup stops before writing.
+    ${before}=    User Aws Config Text
+    ${r}=    Bedrock    setup    --source-profile    ${SSO_PROFILE}    --id    ${ID}x    --region    ${REGION}
+    ...    --profile-name    ${PROFILE}    --yes    output=result    rc=any
+    Should Not Be Equal As Integers    ${r.rc}    0
+    Should Contain    ${r.stderr}    so the profile is unchanged
+    ${after}=    User Aws Config Text
+    Should Be Equal    ${after}    ${before}
+
+Setup Again Reuses The Profile's Id
+    ${r}=    Bedrock    setup    --source-profile    ${SSO_PROFILE}    --region    ${REGION}
+    ...    --profile-name    ${PROFILE}    --yes    output=result    rc=any
+    Should Be Equal As Integers    ${r.rc}    0    setup or its doctor failed:\n${r.stdout}\n${r.stderr}
+    ${text}=    User Aws Config Text
+    Should Contain    ${text}    role_arn = ${ROLE_ARN}
+
 The Personal Role Works
     ${arn}=    Identity    ${PROFILE}
     ${role}=    Role Of    me

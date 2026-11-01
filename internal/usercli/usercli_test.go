@@ -165,6 +165,54 @@ func TestSetupWritesProfile(t *testing.T) {
 	if code != cli.OK || !strings.Contains(out, "already set up") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
+	// Again without --id: the profile's role gives it.
+	code, out, _ = run(t, f, read(t, path), "", "setup")
+	if code != cli.OK || !strings.Contains(out, "Using --id bedrock from profile bedrock") || !strings.Contains(out, "already set up") {
+		t.Fatalf("reusing the id: exit %d\n%s", code, out)
+	}
+}
+
+func TestSetupReusesRoleArn(t *testing.T) {
+	custom := "arn:aws:iam::111122223333:role/bedrock-users/bedrock/achen-custom"
+	old := ssoConfig + "\n[profile bedrock]\nrole_arn = " + custom + "\nsource_profile = sso\n"
+	code, out, path := run(t, newFake(), old, "", "setup", "--yes")
+	if code != cli.OK || !strings.Contains(out, "Using its role_arn") || !strings.Contains(read(t, path), "role_arn = "+custom+"\n") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+}
+
+func TestSetupWrongID(t *testing.T) {
+	f := newFake()
+	f.assumeErr = &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized"}
+	old := ssoConfig + "\n" + wantBlock
+	code, out, path := run(t, f, old, "", "setup", "--id", "bedrok", "--yes")
+	if code != cli.Error || read(t, path) != old {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	for _, want := range []string{"bedrock-user-bedrok-achen", "profile is unchanged", "Check --id bedrok", "onboard achen@example.com"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	f.assumeErr = errors.New("connection refused")
+	if code, out, _ = run(t, f, ssoConfig, "", "setup", "--id", "bedrock"); code != cli.Error || !strings.Contains(out, "connection refused") {
+		t.Fatalf("other error: exit %d\n%s", code, out)
+	}
+}
+
+func TestSetupArgs(t *testing.T) {
+	for arn, want := range map[string]string{
+		"arn:aws:iam::111122223333:role/bedrock-users/rancher/bedrock-user-rancher-achen": "bedrock setup --id rancher",
+		"arn:aws:iam::111122223333:role/bedrock-users/rancher/achen":                      "bedrock setup --role-arn arn:aws:iam::111122223333:role/bedrock-users/rancher/achen",
+		"arn:aws:iam::111122223333:role/other":                                            "bedrock setup --role-arn arn:aws:iam::111122223333:role/other",
+	} {
+		if got := setupArgs(arn, DefaultProfile); got != want {
+			t.Errorf("%s: %q, want %q", arn, got, want)
+		}
+	}
+	if got := setupArgs("arn:aws:iam::1:role/bedrock-users/x/bedrock-user-x-a", "br"); got != "bedrock setup --id x --profile-name br" {
+		t.Errorf("profile name: %q", got)
+	}
 }
 
 func TestSetupFlags(t *testing.T) {
@@ -245,12 +293,12 @@ func TestDoctorFailures(t *testing.T) {
 		change       func(*fakeAWS)
 		want         []string
 	}{
-		{"no profile", ssoConfig, nil, []string{"FAIL  profile: no profile bedrock", "fix: bedrock setup"}},
+		{"no profile", ssoConfig, nil, []string{"FAIL  profile: no profile bedrock", "fix: run the bedrock setup command your admin sent"}},
 		{"inline comment", strings.Replace(setUp, "achen@example.com\n", "achen@example.com # me\n", 1), nil,
 			[]string{"comment at the end of the line"}},
 		{"signed out", setUp, func(f *fakeAWS) { delete(f.identity, "sso") }, []string{"FAIL  SSO sign-in", "fix: aws sso login --profile sso"}},
 		{"session name", strings.Replace(setUp, "role_session_name = achen@example.com", "role_session_name = alex.chen@example.com", 1),
-			nil, []string{"must be exactly your SSO email achen@example.com"}},
+			nil, []string{"must be exactly your SSO email achen@example.com", "fix: bedrock setup --id bedrock --yes"}},
 		{"not onboarded", setUp, func(f *fakeAWS) {
 			f.assumeErr = &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized"}
 		},
