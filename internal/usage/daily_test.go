@@ -47,7 +47,7 @@ func TestDaily(t *testing.T) {
 	var out bytes.Buffer
 	d.Write(&out, Sections{Tracked: true, Untracked: true})
 	s := out.String()
-	for _, want := range []string{"DATE", "UNTRACKED", "2026-10-01   ", "2026-10-03*", "████████████████████", "Total", "14.50", "*: still growing", "(2 of 3 users)"} {
+	for _, want := range []string{"DATE", "UNTRACKED", "2026-10-01   ", "2026-10-03*", "████████████████████", "Total", "14.50", "\n\nACTIVE: users", "*: still growing", "(2 of 3 users)"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("missing %q in\n%s", want, s)
 		}

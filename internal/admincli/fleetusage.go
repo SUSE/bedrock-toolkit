@@ -172,7 +172,7 @@ func writeFleetMonths(a *App, product string, months []string, reports []fleet.R
 	if product != "" {
 		title += ", product " + product
 	}
-	a.printf("%s\n", title)
+	a.printf("%s\n\n", title)
 	top, partial := 0.0, false
 	for _, m := range out.Months {
 		top = max(top, m.TrackedUSD)
@@ -191,7 +191,7 @@ func writeFleetMonths(a *App, product string, months []string, reports []fleet.R
 		bars = append(bars, usage.Bar(m.TrackedUSD, top, fleetBarWidth))
 	}
 	usage.WriteTable(a.Out, rows, bars)
-	a.printf("ACTIVE: users who spent at least $0.01 in the month, of those onboarded; - when no setup sent daily usage that month.\n")
+	a.printf("\nACTIVE: users who spent at least $0.01 in the month, of those onboarded; - when no setup sent daily usage that month.\n")
 	a.printf("SPEND is tracked spend of personal roles. Setups send daily usage from v1.2.0 on.\n")
 	if partial {
 		a.printf("* this month, still being billed.\n")

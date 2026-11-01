@@ -204,6 +204,9 @@ func (d DayReport) Write(w io.Writer, s Sections) {
 	bars = append(bars, "")
 	fmt.Fprintln(w)
 	WriteTable(w, rows, bars)
+	if tracked || partial || len(d.ProductFilter) > 0 {
+		fmt.Fprintln(w)
+	}
 	if tracked {
 		fmt.Fprintf(w, "ACTIVE: users who spent at least $0.01 that day; Total: in the month (%d of %d users)\n", d.ActiveUsers, d.Users)
 	}
@@ -252,6 +255,6 @@ func WriteTable(w io.Writer, rows [][]string, bars []string) {
 		if bars[n] != "" {
 			b.WriteString("  " + bars[n])
 		}
-		fmt.Fprintln(w, b.String())
+		fmt.Fprintln(w, strings.TrimRight(b.String(), " "))
 	}
 }

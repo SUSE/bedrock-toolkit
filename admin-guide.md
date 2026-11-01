@@ -786,6 +786,7 @@ DATE         ACTIVE  TRACKED  UNTRACKED  TOTAL
 2026-10-07        3    21.40       0.00  21.40  ████████████████████
 2026-10-08*       2     6.30       0.00   6.30  █████▉
 Total             3   148.50       9.60  158.10
+
 ACTIVE: users who spent at least $0.01 that day; Total: in the month (3 of 3 users)
 *: still growing; billing lags up to ~16 h
 ```

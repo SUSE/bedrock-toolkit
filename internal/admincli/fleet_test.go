@@ -226,7 +226,7 @@ func TestWriteFleetMonths(t *testing.T) {
 	if err := writeFleetMonths(a, "", []string{"2026-04", "2026-05"}, reports, byMonth, now); err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{"Fleet usage per month\n", "MONTH    SETUPS  ACTIVE  SPEND (USD)", "2026-04       0       -        0.00 ",
+	for _, w := range []string{"Fleet usage per month\n\nMONTH", "MONTH    SETUPS  ACTIVE  SPEND (USD)", "2026-04       0       -        0.00\n", "████\n\nACTIVE:",
 		"2026-05       2     4/5       16.00*  ████████████████████████", "* this month, still being billed."} {
 		if !strings.Contains(out.String(), w) {
 			t.Errorf("lacks %q:\n%s", w, out.String())

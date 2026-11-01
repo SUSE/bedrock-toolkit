@@ -185,10 +185,12 @@ ending this month or at `--month`. It also takes `--product`:
 ```text
 $ bedrock-admin fleet report --by month --months 3
 Fleet usage per month
+
 MONTH    SETUPS  ACTIVE  SPEND (USD)
 2026-09       0       -        0.00
 2026-10       2   10/37      469.40   ████████████████████████
 2026-11       2    3/37       41.20*  ██
+
 ACTIVE: users who spent at least $0.01 in the month, of those onboarded; - when no setup sent daily usage that month.
 SPEND is tracked spend of personal roles. Setups send daily usage from v1.2.0 on.
 * this month, still being billed.
