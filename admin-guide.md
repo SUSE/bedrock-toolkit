@@ -85,6 +85,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
+| `bedrock-admin setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones | [id](#list-change-or-remove-a-setup) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
@@ -1116,6 +1117,32 @@ from another setup's file.
   example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
   and `usage` take the same `--profile-name`.
 
+### List, change or remove a setup
+
+`bedrock-admin setups` lists every setup in the profile's account, whatever its id. It needs no
+file; with `-f`, the profile's account must be the file's, and the file's id is marked `*`:
+
+```text
+Setups in account 111122223333 (profile bedrock-admin)
+ID        PRODUCT   USERS  PAUSED  LAST USED   SPEND (USD)  BUDGET (USD)
+bedrock   bedrock   5      0       never       0.00         500.00        idle
+team1 *   rancher   12     1       2026-10-31  210.40       1200.00
+```
+
+A setup is `idle` when none of its personal roles has been used for 30 days and it is older than
+that. `plan` also prints a `Note:` for other idle setups in the account. Tenants that are in use are
+never flagged.
+
+An id can't be renamed. To move to a new id, set `id:` to it and `apply`, have users run
+`bedrock setup --id <new> --yes`, then remove the old setup:
+
+```sh
+bedrock-admin export --id <old> > <old>.yaml
+# set users: [] in <old>.yaml
+bedrock-admin apply -f <old>.yaml --yes
+bedrock-admin uninstall -f <old>.yaml
+```
+
 ## Several accounts
 
 Each AWS account has its own `bedrock.yaml`, for example `bedrock-longhorn.yaml` and
@@ -1220,6 +1247,7 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Block a user now | `bedrock-admin pause <email> --reason "..."` |
 | See spend | `bedrock-admin usage` |
 | See who has set up | `bedrock-admin users` |
+| List the setups (ids) in the account | `bedrock-admin setups` |
 | Report to a central bucket | Add `report:` to `bedrock.yaml`, then `apply` |
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |
 | Check my setup | `bedrock-admin doctor` |

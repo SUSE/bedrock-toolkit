@@ -73,6 +73,8 @@ type Item struct {
 type Plan struct {
 	Header string  `json:"-"`
 	Items  []*Item `json:"items"`
+	// Notes are informational lines shown after the items.
+	Notes []string `json:"notes,omitempty"`
 }
 
 func (p *Plan) Add(items ...*Item) { p.Items = append(p.Items, items...) }
@@ -176,14 +178,18 @@ func Render(w io.Writer, p *Plan, quiet bool) {
 		_ = tw.Flush()
 	}
 	_, _ = fmt.Fprintln(w)
+	for _, n := range p.Notes {
+		_, _ = fmt.Fprintln(w, "Note: "+n)
+	}
 	_, _ = fmt.Fprintln(w, p.Summary())
 }
 
 // JSON is the --json form of a plan.
 type JSON struct {
-	Changes int     `json:"changes"`
-	Summary string  `json:"summary"`
-	Items   []*Item `json:"items"`
+	Changes int      `json:"changes"`
+	Summary string   `json:"summary"`
+	Items   []*Item  `json:"items"`
+	Notes   []string `json:"notes,omitempty"`
 }
 
 func RenderJSON(w io.Writer, p *Plan) error {
@@ -193,5 +199,5 @@ func RenderJSON(w io.Writer, p *Plan) error {
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(JSON{Changes: p.Changes(), Summary: p.Summary(), Items: items})
+	return enc.Encode(JSON{Changes: p.Changes(), Summary: p.Summary(), Items: items, Notes: p.Notes})
 }

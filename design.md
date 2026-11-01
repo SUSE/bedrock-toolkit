@@ -666,6 +666,11 @@ for teams with their own admins, models or settings.
   account".
 - `export` without `--id` takes the id of the only `bedrock-deny-<id>` policy, and asks for `--id`
   when there are several.
+- `setups` lists every id in the profile's account (one per `bedrock-deny-<id>` policy) with its
+  users, paused count, latest personal-role use, spend and budget. A setup is idle when no personal
+  role has been used for 30 days and the policy is older than that; `plan` adds a best-effort note
+  for other idle ids. An id can't be renamed: apply the new id, users rerun `bedrock setup --id`,
+  then the old one is exported, emptied (`users: []`, `apply --yes`) and uninstalled.
 - Shared by every setup in the account (org level): the `iamPrincipal/owner` cost allocation tag
   (Step 1.6) and the Step 1.7 deny on the permission sets, and Identity Center itself.
 

@@ -137,6 +137,7 @@ bedrock models                       # the models you may use
 | `plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes |
 | `apply` | Makes the account and the users match `bedrock.yaml`. Removals need `--yes` |
 | `export` | Prints the current account, including its users, as a `bedrock.yaml` |
+| `setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones |
 | `pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place |
 | `unpause` | Restores a paused user's access |
 | `usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 when it finds untracked spend |

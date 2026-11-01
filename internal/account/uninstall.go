@@ -2,18 +2,17 @@ package account
 
 import (
 	"context"
-	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bcmdataexports"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
-	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
+	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/iamrole"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
@@ -44,20 +43,14 @@ func UserRoles(ctx context.Context, c *iam.Client, id string) ([]string, error) 
 
 // SetupIDs lists the ids that have a pause policy (bedrock-deny-<id>) in the account.
 func SetupIDs(ctx context.Context, c *iam.Client) ([]string, error) {
-	var out []string
-	p := iam.NewListPoliciesPaginator(c, &iam.ListPoliciesInput{Scope: iamtypes.PolicyScopeTypeLocal, PathPrefix: aws.String(policy.Path)})
-	for p.HasMorePages() {
-		r, err := p.NextPage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, pol := range r.Policies {
-			if id, ok := strings.CutPrefix(aws.ToString(pol.PolicyName), policy.DenyPolicyName("")); ok && id != "" {
-				out = append(out, id)
-			}
-		}
+	setups, err := fleet.ListSetups(ctx, c)
+	if err != nil {
+		return nil, err
 	}
-	sort.Strings(out)
+	out := make([]string, len(setups))
+	for i, s := range setups {
+		out[i] = s.ID
+	}
 	return out, nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
+	"github.com/SUSE/bedrock-toolkit/internal/pause"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
 // needsYes lists the targets of the changes apply makes only with --yes.
@@ -43,7 +46,33 @@ func (a *App) buildPlan(ctx context.Context, cfg *config.Config, c *awsx.Clients
 		return nil, err
 	}
 	p.Add(uitems...)
+	p.Notes = a.otherIdleSetups(ctx, cfg, c)
 	return p, nil
+}
+
+// otherIdleSetups notes the other setups in the account that are idle. It is best-effort: an error
+// only drops the notes. Setups younger than fleet.IdleAfter are skipped without reading their users.
+func (a *App) otherIdleSetups(ctx context.Context, cfg *config.Config, c *awsx.Clients) []string {
+	infos, err := fleet.ListSetups(ctx, c.IAM)
+	if err != nil {
+		return nil
+	}
+	now := a.now()
+	var old []fleet.SetupInfo
+	for _, s := range infos {
+		if s.ID != cfg.ID && fleet.Idle(s.Created, time.Time{}, now) {
+			old = append(old, s)
+		}
+	}
+	if len(old) == 0 {
+		return nil
+	}
+	a.info("Reading %d other setups...\n", len(old))
+	got, err := fleet.CollectSetups(ctx, old, func(id string) *pause.Manager { return users.NewPause(c, id) }, c.IAM, now)
+	if err != nil {
+		return nil
+	}
+	return idleNotes(cfg.ID, got)
 }
 
 func (a *App) showPlan(p *plan.Plan) error {
