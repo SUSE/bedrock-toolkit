@@ -42,7 +42,7 @@ func (s *Section) Profile() string {
 	return ""
 }
 
-// IsSSO reports whether the profile signs in with SSO (aws sso login).
+// IsSSO reports whether the profile signs in with SSO (bedrock login).
 func (s *Section) IsSSO() bool {
 	return s.Keys["sso_session"] != "" || s.Keys["sso_start_url"] != ""
 }

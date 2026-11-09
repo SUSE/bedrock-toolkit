@@ -151,7 +151,7 @@ func (a *App) usageMonth(ctx context.Context, profile, month string) error {
 	start, _ := time.Parse("2006-01", month)
 	d, err := a.readDaily(ctx, profile, role, month, usage.Dates(month, now), now)
 	if err != nil {
-		return fmt.Errorf("%w\nif your sign-in expired: aws sso login, then try again", short(err))
+		return fmt.Errorf("%w\nif your sign-in expired: bedrock login, then try again", short(err))
 	}
 	total := 0.0
 	for _, r := range d.Days {
@@ -180,7 +180,7 @@ func (a *App) usage(ctx context.Context, profile string, days int) error {
 		case awsx.IsNotFound(err):
 			return fmt.Errorf("no budget %s: ask your admin to onboard you", budget)
 		}
-		return fmt.Errorf("%w\nif your sign-in expired: aws sso login, then try again", short(err))
+		return fmt.Errorf("%w\nif your sign-in expired: bedrock login, then try again", short(err))
 	}
 	now := a.now().UTC()
 	trigger := b.PauseAt

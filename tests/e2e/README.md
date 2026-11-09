@@ -24,7 +24,7 @@ You need Docker (or `E2E_RUNTIME=podman`). Go is optional: without it, the CLIs 
 cd tests/e2e
 ./run.sh cli                 # no AWS: smoke test of the built binaries
 cp config/example.py config/$USER.py   # then fill it in
-aws sso login --profile <ADMIN_PROFILE>
+bedrock login --profile <ADMIN_PROFILE>
 ./run.sh account             # or users, user-access, iam-user, usage
 ./run.sh fast                # every suite but billing and web-search
 ./run.sh web-search          # opt-in: REGION us-east-1, eu-west-1 or ap-northeast-1

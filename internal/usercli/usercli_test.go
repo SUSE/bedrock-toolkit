@@ -277,7 +277,7 @@ func TestSetupNotSignedIn(t *testing.T) {
 	f := newFake()
 	delete(f.identity, "sso")
 	code, out, _ := run(t, f, ssoConfig, "", "setup", "--id", "bedrock")
-	if code != cli.Error || !strings.Contains(out, "aws sso login --profile sso") {
+	if code != cli.Error || !strings.Contains(out, "bedrock login --profile sso") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	f = newFake()
@@ -297,7 +297,7 @@ func TestDoctorFailures(t *testing.T) {
 		{"no profile", ssoConfig, nil, []string{"FAIL  profile: no profile bedrock", "fix: run the bedrock setup command your admin sent"}},
 		{"inline comment", strings.Replace(setUp, "achen@example.com\n", "achen@example.com # me\n", 1), nil,
 			[]string{"comment at the end of the line"}},
-		{"signed out", setUp, func(f *fakeAWS) { delete(f.identity, "sso") }, []string{"FAIL  SSO sign-in", "fix: aws sso login --profile sso"}},
+		{"signed out", setUp, func(f *fakeAWS) { delete(f.identity, "sso") }, []string{"FAIL  SSO sign-in", "fix: bedrock login --profile sso"}},
 		{"session name", strings.Replace(setUp, "role_session_name = achen@example.com", "role_session_name = alex.chen@example.com", 1),
 			nil, []string{"must be exactly your SSO email achen@example.com", "fix: bedrock setup --id bedrock --yes"}},
 		{"not onboarded", setUp, func(f *fakeAWS) {
@@ -380,7 +380,7 @@ func TestClaude(t *testing.T) {
 	code, out := runClaudeCmd(t, cfg, ok)
 	for _, want := range []string{"ok    Claude Code with eu.anthropic.claude-sonnet-5-5: answered OK",
 		`"CLAUDE_CODE_USE_BEDROCK": "1"`, `"AWS_PROFILE": "bedrock"`, `"AWS_REGION": "eu-central-1"`,
-		`"ANTHROPIC_DEFAULT_HAIKU_MODEL": "eu.anthropic.claude-haiku-5-5"`, `"awsAuthRefresh": "aws sso login --profile sso"`,
+		`"ANTHROPIC_DEFAULT_HAIKU_MODEL": "eu.anthropic.claude-haiku-5-5"`, `"awsAuthRefresh": "bedrock login --profile sso"`,
 		"CLAUDE_CONFIG_DIR=~/.claude-work claude", "/setup-bedrock",
 		"AWS region:        eu-central-1", "AWS profile name:  bedrock",
 		"Model list:        eu.anthropic.claude-sonnet-5-5  (the first is the default)\n                     eu.anthropic.claude-opus-5-5\n                     eu.anthropic.claude-haiku-5-5"} {

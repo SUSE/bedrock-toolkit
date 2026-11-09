@@ -30,7 +30,7 @@ minutes.
 ## Quick start
 
 ```bash
-aws sso login --profile <your-sso-profile>   # skip with an IAM user access key
+bedrock login --profile <your-sso-profile>   # skip with an IAM user access key
 bedrock setup --id <id>                      # the command your admin sent you
 bedrock claude                               # test Claude Code, print the settings to add
 ```
@@ -80,6 +80,7 @@ way in.
 
 | Command | What it does | Section |
 | --- | --- | --- |
+| `bedrock login` | Sign in to an AWS SSO profile using a browser | Step 1 |
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
 | `bedrock doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
@@ -91,9 +92,9 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 ## Before you start
 
 - You can sign in to the AWS account with SSO, and you have an SSO profile in `~/.aws/config`
-  (from `aws configure sso`). Without SSO, your admin gives you an
+  (configured as shown below). Without SSO, your admin gives you an
   IAM user's access key instead; see [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key).
-- The AWS CLI v2 is installed.
+- The AWS CLI is installed (openSUSE: `sudo zypper install aws-cli`).
 - The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
 
   ```bash
@@ -118,7 +119,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 ### Step 1. Sign in with SSO
 
 ```bash
-aws sso login --profile <your-sso-profile>
+bedrock login --profile <your-sso-profile>
 ```
 
 ### Sign in with an IAM user access key
@@ -246,7 +247,7 @@ ok    Claude Code with us.anthropic.claude-sonnet-5-5: answered OK
 Claude Code settings for the bedrock profile. bedrock doesn't write them; add them yourself:
 
   {
-    "awsAuthRefresh": "aws sso login --profile sso",
+    "awsAuthRefresh": "bedrock login --profile sso",
     "env": {
       "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-5-5",
       "ANTHROPIC_DEFAULT_OPUS_MODEL": "us.anthropic.claude-opus-5-5",
@@ -288,12 +289,12 @@ ones by themselves. What ends a session is the sign-in behind your source profil
 
 | You sign in with | Lasts | When it ends |
 | --- | --- | --- |
-| SSO (`aws sso login`) | Your organization's IAM Identity Center session length, 8 hours by default | Claude Code runs `awsAuthRefresh` (`aws sso login`) and opens the browser; or run it yourself |
+| SSO (`bedrock login`) | Your organization's IAM Identity Center session length, 8 hours by default | Claude Code runs `awsAuthRefresh` (`bedrock login`) and displays a browser URL and code; or run it yourself |
 | IAM user access key | Until the key is deactivated or rotated | Nothing to renew |
 
 A longer SSO session is set by whoever runs IAM Identity Center for your organization (up to 90
 days), not by your Bedrock admin. It applies only to SSO profiles with an `sso_session` (what
-`aws configure sso` writes). With Microsoft AD or an external IdP behind Identity Center, the
+the configuration example below uses). With Microsoft AD or an external IdP behind Identity Center, the
 shorter of the two sessions applies. The permission set's own 1 to 12 hour limit doesn't matter:
 the AWS CLI renews those credentials while the SSO session lasts. A pause stops both within seconds.
 
@@ -327,7 +328,7 @@ agent built on an AWS SDK) can use the `bedrock` profile the same way, if:
 - **Its sign-in outlives the run.** With an
   [IAM user access key](#sign-in-with-an-iam-user-access-key) there is nothing to renew, so this is
   the choice for runs of a day or more. With SSO the agent stops when the SSO session ends (8 hours
-  by default): `awsAuthRefresh` opens a browser that nobody answers. Run `aws sso login` right
+  by default): `awsAuthRefresh` opens a browser that nobody answers. Run `bedrock login` right
   before you start it, or ask whoever runs IAM Identity Center for a longer session.
 - **It stops on a pause.** When you reach your limit, every call fails with
   `AccessDeniedException` until your admin unpauses you or the month ends. Make sure the agent stops
@@ -489,8 +490,8 @@ the fix under it:
 | `profile` | `no profile bedrock in <file>` | Run the `bedrock setup` command your admin sent |
 | `profile` | `missing role_arn, ...` | The command `doctor` prints, or the one your admin sent plus `--yes` |
 | `profile` | `<key> has a comment at the end of the line` | Put comments on their own line, or run `bedrock setup --yes` |
-| `SSO sign-in` | Your SSO session expired or you are not signed in | `aws sso login --profile <profile>` |
-| `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with aws sso login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
+| `SSO sign-in` | Your SSO session expired or you are not signed in | `bedrock login --profile <profile>` |
+| `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with bedrock login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
 | `sign-in` | The access key of the IAM user profile doesn't work | `aws configure --profile <profile>` with a valid key; ask your admin for a new one |
 | `session name` | `role_session_name is ..., but it must be your email` (IAM user) | `bedrock setup --yes` |
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
@@ -519,7 +520,7 @@ the fix under it:
 | --- | --- |
 | `no --id: pass the id of your admin's setup ...` | Run the exact command your admin sent; ask them for the id if you lost it. Setup needs `--id` only when the profile doesn't exist yet. |
 | `you can't use <role ARN>, so the profile is unchanged` | Check `--id` (or `--role-arn`) against the command your admin sent: a wrong id points at a role that doesn't exist. If it matches, ask your admin to onboard the email shown. A user added by `apply` can use the role a minute or so later. |
-| `no SSO profile in <file>` | Run `aws configure sso` first, or pass `--source-profile` |
+| `no SSO profile in <file>` | Configure an SSO profile as shown in Step 1 first, or pass `--source-profile` |
 | `several SSO profiles in <file> (...)` | Pass `--source-profile <profile>` (it asks when run in a terminal) |
 | `IAM user <name> has no owner tag ...` | Ask your admin to onboard you with `iam_user: <name>`, or pass `--email <your email>` |
 | `profile <name> has no region` | Pass `--region`. Your admin knows the Bedrock region. |
@@ -572,3 +573,26 @@ The pause can come a few hours after you cross the limit, because billing runs b
   they remove it, also past the 1st.
 - Don't switch to another profile to keep working. That spend isn't counted against your budget,
   shows up in your admin's report, and may be blocked.
+
+### SSO configuration without AWS CLI v2
+
+Add the following to `~/.aws/config`, using your organization's SSO start URL,
+SSO region, account and permission-set role name:
+
+```ini
+[profile sso]
+sso_session = work
+sso_account_id = 111122223333
+sso_role_name = Developer
+region = us-west-2
+
+[sso-session work]
+sso_start_url = https://example.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+```
+
+Run `bedrock login --profile sso`, open the displayed URL and enter the code.
+The login writes the standard AWS SSO cache, including refresh credentials.
+Existing SSO profiles also work. Install `bedrock` on the host before signing in
+for container tests; the test container shares the host's SSO cache.

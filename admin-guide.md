@@ -34,8 +34,7 @@ Each step starts with the commands to run. Click the folded sections for sample 
 First-time setup of an account:
 
 ```bash
-aws configure sso --profile bedrock-admin         # once: pick the account and your admin permission set
-aws sso login --profile bedrock-admin
+bedrock login --profile bedrock-admin
 bedrock-admin configure --profile bedrock-admin   # write bedrock.yaml (step 2)
 #   ...add your users under users: in bedrock.yaml
 bedrock-admin doctor                              # check credentials and permissions (step 1)
@@ -111,13 +110,11 @@ release binary: a `go install` build has no monthly Lambda inside.
 Create an AWS CLI profile for your admin permission set once, then sign in and check:
 
 ```bash
-aws configure sso --profile bedrock-admin   # once; skip if you already have a profile
-aws sso login --profile bedrock-admin
+bedrock login --profile bedrock-admin
 bedrock-admin doctor --profile bedrock-admin
 ```
 
-`aws configure sso` asks for your SSO start URL and region, opens the browser, then lets you pick the
-account and your admin permission set. `bedrock-admin` is only a suggested name: any profile for the
+Create the profile using the [SSO configuration example](user-guide.md#sso-configuration-without-aws-cli-v2), with your admin account and permission-set role name. Install `bedrock` to run the login command. `bedrock-admin` is only a suggested name: any profile for the
 admin permission set works, so use its name in place of `bedrock-admin` after `--profile`.
 
 `doctor` prints `ok` or `FAIL` per check, with the fix under each failure, and exits 2 when one
@@ -130,7 +127,7 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | Check | Passes when |
 | --- | --- |
 | `config` | The file loads and is valid |
-| `credentials` | The profile has valid credentials. Fix: `aws sso login --profile <profile>` |
+| `credentials` | The profile has valid credentials. Fix: `bedrock login --profile <profile>` |
 | `permissions` | It could read every part of the account setup |
 | `Step 1.1` to `Step 1.9` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
@@ -504,7 +501,7 @@ bedrock-admin apply    # creates what is missing; safe to re-run
 `apply` prints each change and, for each new user, the command to send them:
 
 ```
-Send each new user their setup command (after aws sso login, or with their access key profile for IAM users):
+Send each new user their setup command (after bedrock login, or with their access key profile for IAM users):
   achen@example.com: bedrock setup --id acmeprod
   bkim@example.com: bedrock setup --id acmeprod
   cdiaz@example.com: bedrock setup --id acmeprod
@@ -583,7 +580,7 @@ as printed: users can't look up their role, so they need these flags from you. A
 user:
 
 1. Install the `bedrock` CLI and set up AWS SSO, as in the [user guide](user-guide.md).
-2. Run `aws sso login`, then the `bedrock setup ...` line `apply` printed for them.
+2. Run `bedrock login`, then the `bedrock setup ...` line `apply` printed for them.
 3. Run `bedrock claude` for the Claude Code and Claude desktop app settings.
 
 `apply` exits 2 when something is still pending, for example a conflict, or a removal without
@@ -1204,7 +1201,7 @@ own Step 1.6 and `block apply` from your org admin.
 
 The same person can be a user in several accounts; they get a role in each. `bedrock setup` takes
 the account from the SSO profile it signs in with, so they need an SSO profile for each account
-(`aws configure sso` once per account, with any role they have there). The messages you send differ
+(configure one SSO profile per account, with any role they have there). The messages you send differ
 per account:
 
 - First account: `bedrock setup --id <id> --source-profile <SSO profile for account A>`. It writes

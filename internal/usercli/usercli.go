@@ -91,7 +91,7 @@ func (a *App) Root() *cobra.Command {
 		Long: `bedrock sets up the AWS profile of your personal Bedrock role, the one that counts toward your
 monthly budget, and checks that it works.
 
-  aws sso login        (nothing when you use an IAM user's access key)
+  bedrock login        (nothing when you use an IAM user's access key)
   bedrock setup
   bedrock claude       (tests Claude Code, prints its settings)
   bedrock usage        (this month's spend against your budget)
@@ -102,7 +102,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed.`,
 	root.SetIn(a.In)
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
-	root.AddCommand(a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd(), a.modelsCmd())
+	root.AddCommand(a.loginCmd(), a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd(), a.modelsCmd())
 	return root
 }
 
@@ -122,7 +122,7 @@ It reads your identity to find the account and your email, derives your personal
 (arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>),
 sets role_session_name to your email and takes the region from the profile you sign in with.
 
-You sign in with SSO (aws sso login) or, when your admin onboarded your IAM user,
+You sign in with SSO (bedrock login) or, when your admin onboarded your IAM user,
 with its access key: pass that profile with --source-profile. setup reads your email from the IAM
 user's tags. Your admin sends the command with your --id (or --role-arn) and, when needed, --region.
 Run again without them, setup takes them from the existing profile.
@@ -306,7 +306,7 @@ func (a *App) signInProfile(file *awsconf.File, path string, f setupFlags, p *cl
 	case len(cands) == 1:
 		return cands[0], nil
 	case len(cands) == 0:
-		return "", fmt.Errorf("no SSO profile in %s: run aws configure sso first, or pass --source-profile", path)
+		return "", fmt.Errorf("no SSO profile in %s: configure an SSO profile in ~/.aws/config first, or pass --source-profile", path)
 	case !a.terminal():
 		return "", fmt.Errorf("several SSO profiles in %s (%s): pass --source-profile", path, strings.Join(cands, ", "))
 	}
@@ -345,7 +345,7 @@ func parseIdentity(arn string) (identity, error) {
 		return identity{account: parts[4], iamUser: parts[5][strings.LastIndex(parts[5], "/")+1:]}, nil
 	}
 	if len(parts) < 6 || !strings.HasPrefix(parts[5], "assumed-role/") {
-		return identity{}, fmt.Errorf("signed in as %s: sign in with aws sso login, or use your IAM user's access key", arn)
+		return identity{}, fmt.Errorf("signed in as %s: sign in with bedrock login, or use your IAM user's access key", arn)
 	}
 	email := awsx.Identity(arn)
 	if !config.IsEmail(email) {
@@ -363,7 +363,7 @@ func signInFix(file *awsconf.File, profile string) string {
 }
 
 func loginCommand(profile string) string {
-	return "aws sso login --profile " + profile
+	return "bedrock login --profile " + profile
 }
 
 // setupID is the setup id in a personal role ARN that setup --id builds
