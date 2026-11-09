@@ -120,7 +120,7 @@ bedrock-admin apply                  # set up the account and the users
 Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 
 ```bash
-aws sso login                        # or nothing, with an IAM user access key
+bedrock login                        # or nothing, with an IAM user access key
 bedrock setup --id <id>              # the command your admin sent: write the bedrock profile, check it
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget, per day and per model
@@ -152,6 +152,7 @@ bedrock models                       # the models you may use
 
 | Command | What it does |
 | --- | --- |
+| `login` | Sign in to an AWS SSO profile using a browser |
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
 | `doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |

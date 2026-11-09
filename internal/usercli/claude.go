@@ -207,7 +207,7 @@ func claudeFix(out string) string {
 	switch {
 	case strings.Contains(low, "token") && (strings.Contains(low, "expired") || strings.Contains(low, "invalid")),
 		strings.Contains(low, "sso"):
-		return "your SSO sign-in expired: aws sso login, then run bedrock claude again"
+		return "your SSO sign-in expired: bedrock login, then run bedrock claude again"
 	case strings.Contains(low, "accessdenied") || strings.Contains(low, "not authorized"):
 		return "run bedrock doctor: it shows whether you are paused or not onboarded"
 	}

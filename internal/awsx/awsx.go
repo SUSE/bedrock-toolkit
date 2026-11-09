@@ -107,7 +107,7 @@ func New(ctx context.Context, profile, region, account string) (*Clients, error)
 		}
 		hint := ""
 		if profile != "" {
-			hint = fmt.Sprintf(" (try: aws sso login --profile %s)", profile)
+			hint = fmt.Sprintf(" (try: bedrock login --profile %s)", profile)
 		}
 		return nil, fmt.Errorf("AWS credentials don't work%s: %w", hint, err)
 	}

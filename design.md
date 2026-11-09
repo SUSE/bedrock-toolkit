@@ -39,7 +39,7 @@ There are two CLIs:
 | CLI | For | Commands |
 | --- | --- | --- |
 | `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
-| `bedrock` | Users | `setup`, `doctor`, `claude`, `models`, `usage` |
+| `bedrock` | Users | `login`, `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
 
@@ -50,7 +50,7 @@ There are two CLIs:
 | Credentials | Temporary only | Password or long-lived access keys |
 | Lifecycle | Managed centrally from the identity provider; offboarding is automatic | Managed separately in each account |
 | Caller ARN | `...:assumed-role/AWSReservedSSO_<Set>_<id>/achen@example.com` | `...:user/achen` |
-| CLI sign-in | `aws sso login` | Access key (no console access needed) |
+| CLI sign-in | `bedrock login` | Access key (no console access needed) |
 
 SSO is the default. A user without SSO may sign in with an IAM user's access key instead (`iam_user:`
 on their entry, see [IAM users](#iam-users)); they still go through their personal role, with the

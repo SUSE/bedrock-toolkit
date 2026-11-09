@@ -941,7 +941,7 @@ class BedrockE2E:
         try:
             arn = self._session("sso").client("sts").get_caller_identity()["Arn"]
         except Exception as e:  # noqa: BLE001 - any failure means: sign in first
-            raise Failure(f"no SSO session for {s['SSO_PROFILE']}: run aws sso login --profile {s['SSO_PROFILE']} ({e})")
+            raise Failure(f"no SSO session for {s['SSO_PROFILE']}: run bedrock login --profile {s['SSO_PROFILE']} ({e})")
         m = re.match(r"^arn:aws:sts::(\d{12}):assumed-role/AWSReservedSSO_(.+)_[0-9a-f]+/(.+)$", arn)
         if not m:
             raise Failure(f"{s['SSO_PROFILE']} is not an SSO login: {arn}")

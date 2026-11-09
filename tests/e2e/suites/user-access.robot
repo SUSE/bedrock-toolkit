@@ -1,7 +1,7 @@
 *** Settings ***
 Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor, usage and models, the
 ...                 block on direct SSO calls (bedrock-admin block), and a manual pause seen from the user's side.
-...                 Needs SSO_PROFILE signed in (aws sso login) in the same account. The runner is added as
+...                 Needs SSO_PROFILE signed in (bedrock login) in the same account. The runner is added as
 ...                 a user of the run's own setup (id e2e<hex>); the user CLI writes to a copy of ~/.aws/config,
 ...                 never the real one.
 Resource            ../resources/common.resource

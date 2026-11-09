@@ -3,7 +3,7 @@
 # The cli suite needs no variable file. Every value is optional unless marked required.
 
 # Admin: an AWS CLI profile with admin rights in the test account (required for every suite but cli).
-# Sign in before the run, for example: aws sso login --profile <ADMIN_PROFILE>
+# Sign in before the run, for example: bedrock login --profile <ADMIN_PROFILE>
 ADMIN_PROFILE = "default"
 
 # Bedrock region of the test setups. The web-search suite needs us-east-1, eu-west-1 or ap-northeast-1.
@@ -31,7 +31,7 @@ KEEP_SETUP = False
 
 # SSO: the runner's own IAM Identity Center profile in the test account, used by user-access (it
 # onboards the runner as a user of the run's setup). Sign in before the run:
-# aws sso login --profile <SSO_PROFILE>
+# bedrock login --profile <SSO_PROFILE>
 SSO_PROFILE = ""
 
 # billing: a profile that is not an SSO login (for example an IAM user's access key), for the

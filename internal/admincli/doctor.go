@@ -143,7 +143,7 @@ func (a *App) doctor(ctx context.Context) []Check {
 	out = append(out, Check{Name: "config", OK: true, Detail: fmt.Sprintf("%s (id %s, %d users)", cfg.Path, cfg.ID, len(cfg.Users))})
 	c, err := a.clients(ctx, cfg)
 	if err != nil {
-		fix := "aws sso login"
+		fix := "bedrock login"
 		if p := a.profile(cfg); p != "" {
 			fix += " --profile " + p
 		}

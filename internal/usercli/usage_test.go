@@ -92,7 +92,7 @@ func TestUsageErrors(t *testing.T) {
 		{"not a personal role", ssoConfig + "\n[profile bedrock]\nrole_arn = arn:aws:iam::1:role/Admin\n", nil, "is not a personal Bedrock role"},
 		{"old role", cfg, &smithy.GenericAPIError{Code: "AccessDeniedException", Message: "no"}, "ask your admin to run bedrock-admin apply"},
 		{"no budget", cfg, &smithy.GenericAPIError{Code: "NotFoundException", Message: "no"}, "no budget bedrock-bedrock-achen"},
-		{"signed out", cfg, &smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}, "aws sso login"},
+		{"signed out", cfg, &smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}, "bedrock login"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

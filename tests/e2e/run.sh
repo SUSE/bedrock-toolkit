@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 here=$PWD
 repo=$(cd ../.. && pwd)
 runtime=${E2E_RUNTIME:-docker}
-image=bedrock-e2e:$(cat Dockerfile requirements.txt install-awscli.py | shasum | cut -c1-12)
+image=bedrock-e2e:$(cat Dockerfile requirements.txt | shasum | cut -c1-12)
 
 usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 die() { echo "error: $*" >&2; exit 1; }

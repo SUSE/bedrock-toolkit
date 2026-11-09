@@ -1,12 +1,7 @@
 # Everything the e2e tests need at runtime. Built and run by run.sh.
-# Downloads only from PyPI and awscli.amazonaws.com (no apt), and works with or without BuildKit.
+# Downloads only from PyPI (no apt), and works with or without BuildKit.
 # The CLIs under test are not in the image: run.sh builds them into tests/e2e/bin and mounts the repo.
 FROM python:3.13-slim-bookworm
-
-# AWS CLI v2 (for aws sso login inside the container and for debugging in ./run.sh shell),
-# unpacked with Python so the image needs no curl or unzip.
-COPY install-awscli.py /tmp/
-RUN python /tmp/install-awscli.py && rm -rf /tmp/aws /tmp/awscli.zip /tmp/install-awscli.py
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
