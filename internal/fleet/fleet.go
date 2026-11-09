@@ -377,3 +377,38 @@ func Read(ctx context.Context, r Reader, bucket string) ([]Report, []string, err
 	})
 	return out, problems, nil
 }
+
+// FilterIDs keeps the reports of setups with one of ids; with no ids it keeps all. An id that no
+// report has is an error that lists the known ones.
+func FilterIDs(reports []Report, ids []string) ([]Report, error) {
+	if len(ids) == 0 {
+		return reports, nil
+	}
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[id] = true
+	}
+	known := map[string]bool{}
+	var out []Report
+	for _, r := range reports {
+		known[r.ID] = true
+		if want[r.ID] {
+			out = append(out, r)
+		}
+	}
+	var missing []string
+	for _, id := range ids {
+		if !known[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		names := make([]string, 0, len(known))
+		for id := range known {
+			names = append(names, id)
+		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("no setup has id %s; known ids: %s", strings.Join(missing, ", "), strings.Join(names, ", "))
+	}
+	return out, nil
+}

@@ -493,6 +493,7 @@ type FleetJSON struct {
 func (a *App) fleetReportCmd() *cobra.Command {
 	var bucket, region, by, product, month, format string
 	var months int
+	var ids []string
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Show the latest report of every setup",
@@ -507,6 +508,8 @@ day per day and --by month per month (the last --months, 6 by default), with a b
 --product to keep one product and --month for an earlier month (with --by month: the last one).
 They count every setup that sent daily usage that month, also uninstalled ones.
 
+--id keeps only the setups with that id, in every view; repeat it for more.
+
 --format csv or markdown prints the same view to share: plain numbers, no bars, ACTIVE split into
 ACTIVE and ONBOARDED, a PARTIAL column instead of *, and no emails. csv is the main table only, for
 spreadsheets; markdown adds the title, the product totals and the notes, for wikis and chat.
@@ -518,7 +521,8 @@ Without --bucket it reads the bucket fleet init tagged.`,
   bedrock-admin fleet report --by product --month 2026-04
   bedrock-admin fleet report --by month --months 12 --product rancher
   bedrock-admin fleet report --by product --format markdown > usage.md
-  bedrock-admin fleet report --format csv > setups.csv`,
+  bedrock-admin fleet report --format csv > setups.csv
+  bedrock-admin fleet report --id mlm1 --id mlm2 --by day`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -552,6 +556,9 @@ Without --bucket it reads the bucket fleet init tagged.`,
 			s3c := c.S3In(rb.Region)
 			reports, problems, err := fleet.Read(ctx, s3c, rb.Name)
 			if err != nil {
+				return err
+			}
+			if reports, err = fleet.FilterIDs(reports, ids); err != nil {
 				return err
 			}
 			if by == "month" {
@@ -603,6 +610,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl.StringVar(&by, "by", "setup", "setup, product, day or month")
 	fl.StringVar(&product, "product", "", "with --by product, day or month: only this product")
 	fl.StringVar(&month, "month", "", "with --by product, day or month: this month (YYYY-MM) instead of the current one (with --by month: the last month)")
+	fl.StringSliceVar(&ids, "id", nil, "only the setups with this id; repeat for more")
 	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
 	fl.StringVar(&format, "format", "text", "text, csv or markdown (to share: plain numbers, no emails)")
 	return cmd

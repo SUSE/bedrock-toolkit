@@ -156,3 +156,17 @@ func TestRead(t *testing.T) {
 		t.Errorf("problems %v", problems)
 	}
 }
+
+func TestFilterIDs(t *testing.T) {
+	reports := []Report{{Account: "111111111111", ID: "bedrock"}, {Account: "222222222222", ID: "mlm1"}, {Account: "333333333333", ID: "bedrock"}}
+	if got, err := FilterIDs(reports, nil); err != nil || len(got) != 3 {
+		t.Fatalf("no ids: %v %v", got, err)
+	}
+	got, err := FilterIDs(reports, []string{"bedrock"})
+	if err != nil || len(got) != 2 || got[0].Account != "111111111111" || got[1].Account != "333333333333" {
+		t.Fatalf("bedrock: %v %v", got, err)
+	}
+	if _, err := FilterIDs(reports, []string{"mlm1", "nope"}); err == nil || err.Error() != "no setup has id nope; known ids: bedrock, mlm1" {
+		t.Fatalf("unknown: %v", err)
+	}
+}

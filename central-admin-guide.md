@@ -203,6 +203,15 @@ The numbers come from the setups' cost exports, not their budgets, so they can d
 are listed below the table; uninstalled setups count for the months they sent. `--json` prints the
 same.
 
+### One setup
+
+`--id` keeps only the setups with that id, in every view (repeat it for more). An id no setup has is
+an error that lists the known ones:
+
+```console
+$ bedrock-admin fleet report --id mlm1 --id mlm2 --by day
+```
+
 ### Share a report
 
 To paste a view into a spreadsheet, a wiki page or a chat, add `--format csv` or `--format markdown`
@@ -279,6 +288,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | Each team's active users and spend | `bedrock-admin fleet report --by product` |
 | The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
 | The fleet, or one team, per month | `bedrock-admin fleet report --by month` (`--months N`, `--product NAME`) |
+| Only some setups, in any view | `bedrock-admin fleet report --id ID` (repeatable) |
 | A view to share, as CSV or Markdown | `bedrock-admin fleet report ... --format csv` (or `markdown`) |
 | An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |
