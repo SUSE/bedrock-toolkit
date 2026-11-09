@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -378,37 +379,49 @@ func Read(ctx context.Context, r Reader, bucket string) ([]Report, []string, err
 	return out, problems, nil
 }
 
-// FilterIDs keeps the reports of setups with one of ids; with no ids it keeps all. An id that no
-// report has is an error that lists the known ones.
-func FilterIDs(reports []Report, ids []string) ([]Report, error) {
-	if len(ids) == 0 {
+// Filter keeps the reports of setups in one of accounts and with one of ids; an empty list keeps
+// all. An account or id that no report has is an error that lists the known ones.
+func Filter(reports []Report, accounts, ids []string) ([]Report, error) {
+	if err := checkKnown(reports, accounts, "account", func(r Report) string { return r.Account }); err != nil {
+		return nil, err
+	}
+	if err := checkKnown(reports, ids, "id", func(r Report) string { return r.ID }); err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 && len(ids) == 0 {
 		return reports, nil
 	}
-	want := map[string]bool{}
-	for _, id := range ids {
-		want[id] = true
-	}
-	known := map[string]bool{}
 	var out []Report
 	for _, r := range reports {
-		known[r.ID] = true
-		if want[r.ID] {
+		if (len(accounts) == 0 || slices.Contains(accounts, r.Account)) && (len(ids) == 0 || slices.Contains(ids, r.ID)) {
 			out = append(out, r)
 		}
 	}
-	var missing []string
-	for _, id := range ids {
-		if !known[id] {
-			missing = append(missing, id)
-		}
-	}
-	if len(missing) > 0 {
-		names := make([]string, 0, len(known))
-		for id := range known {
-			names = append(names, id)
-		}
-		sort.Strings(names)
-		return nil, fmt.Errorf("no setup has id %s; known ids: %s", strings.Join(missing, ", "), strings.Join(names, ", "))
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no setup has account %s and id %s", strings.Join(accounts, " or "), strings.Join(ids, " or "))
 	}
 	return out, nil
+}
+
+// checkKnown errors when a wanted value isn't any report's field, listing the known values.
+func checkKnown(reports []Report, want []string, what string, field func(Report) string) error {
+	known := map[string]bool{}
+	for _, r := range reports {
+		known[field(r)] = true
+	}
+	var missing []string
+	for _, w := range want {
+		if !known[w] {
+			missing = append(missing, w)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(known))
+	for k := range known {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return fmt.Errorf("no setup has %s %s; known %ss: %s", what, strings.Join(missing, ", "), what, strings.Join(names, ", "))
 }

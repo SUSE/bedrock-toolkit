@@ -157,16 +157,36 @@ func TestRead(t *testing.T) {
 	}
 }
 
-func TestFilterIDs(t *testing.T) {
-	reports := []Report{{Account: "111111111111", ID: "bedrock"}, {Account: "222222222222", ID: "mlm1"}, {Account: "333333333333", ID: "bedrock"}}
-	if got, err := FilterIDs(reports, nil); err != nil || len(got) != 3 {
-		t.Fatalf("no ids: %v %v", got, err)
+func TestFilter(t *testing.T) {
+	reports := []Report{{Account: "111111111111", ID: "bedrock"}, {Account: "222222222222", ID: "mlm1"}, {Account: "222222222222", ID: "bedrock"}}
+	accts := func(rs []Report) string {
+		var s []string
+		for _, r := range rs {
+			s = append(s, r.Account+"/"+r.ID)
+		}
+		return strings.Join(s, ",")
 	}
-	got, err := FilterIDs(reports, []string{"bedrock"})
-	if err != nil || len(got) != 2 || got[0].Account != "111111111111" || got[1].Account != "333333333333" {
-		t.Fatalf("bedrock: %v %v", got, err)
-	}
-	if _, err := FilterIDs(reports, []string{"mlm1", "nope"}); err == nil || err.Error() != "no setup has id nope; known ids: bedrock, mlm1" {
-		t.Fatalf("unknown: %v", err)
+	for _, tc := range []struct {
+		accounts, ids []string
+		want, err     string
+	}{
+		{want: "111111111111/bedrock,222222222222/mlm1,222222222222/bedrock"},
+		{ids: []string{"bedrock"}, want: "111111111111/bedrock,222222222222/bedrock"},
+		{accounts: []string{"222222222222"}, want: "222222222222/mlm1,222222222222/bedrock"},
+		{accounts: []string{"222222222222"}, ids: []string{"bedrock"}, want: "222222222222/bedrock"},
+		{accounts: []string{"111111111111"}, ids: []string{"mlm1"}, err: "no setup has account 111111111111 and id mlm1"},
+		{ids: []string{"mlm1", "nope"}, err: "no setup has id nope; known ids: bedrock, mlm1"},
+		{accounts: []string{"333333333333"}, err: "no setup has account 333333333333; known accounts: 111111111111, 222222222222"},
+	} {
+		got, err := Filter(reports, tc.accounts, tc.ids)
+		if tc.err != "" {
+			if err == nil || err.Error() != tc.err {
+				t.Errorf("%v %v: got error %v, want %q", tc.accounts, tc.ids, err, tc.err)
+			}
+			continue
+		}
+		if err != nil || accts(got) != tc.want {
+			t.Errorf("%v %v: got %s %v, want %s", tc.accounts, tc.ids, accts(got), err, tc.want)
+		}
 	}
 }
