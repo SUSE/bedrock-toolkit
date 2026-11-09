@@ -190,3 +190,38 @@ func TestFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestSortReports(t *testing.T) {
+	reports := func() []Report {
+		return []Report{
+			{Account: "2", ID: "a", SpendUSD: 5, Users: Counts{Onboarded: 3, SetUp: 1}},
+			{Account: "1", ID: "b", SpendUSD: 9, Users: Counts{Onboarded: 3, SetUp: 0}},
+			{Account: "1", ID: "a", SpendUSD: 5, Users: Counts{Onboarded: 7, SetUp: 2}},
+		}
+	}
+	keys := func(rs []Report) string {
+		var s []string
+		for _, r := range rs {
+			s = append(s, r.Account+"/"+r.ID)
+		}
+		return strings.Join(s, " ")
+	}
+	for by, want := range map[string]string{
+		"":          "1/a 1/b 2/a",
+		"account":   "1/a 1/b 2/a",
+		"spend":     "1/b 1/a 2/a",
+		"set-up":    "1/a 2/a 1/b",
+		"onboarded": "1/a 1/b 2/a",
+	} {
+		rs := reports()
+		if err := SortReports(rs, by); err != nil {
+			t.Fatal(err)
+		}
+		if got := keys(rs); got != want {
+			t.Errorf("%q: got %s, want %s", by, got, want)
+		}
+	}
+	if err := SortReports(reports(), "name"); err == nil || !strings.Contains(err.Error(), "--sort must be one of") {
+		t.Errorf("bad order: %v", err)
+	}
+}

@@ -584,7 +584,8 @@ admins.
   `--format csv|markdown` prints any of these views to share: plain numbers, no bars, `ACTIVE`
   split into active and onboarded, a `PARTIAL` column, no emails; csv is the main table only.
   `--account` and `--id` (repeatable, both must match) keep only those setups before any view; an
-  unknown account or id is an error listing the known ones.
+  unknown account or id is an error listing the known ones. `--sort spend|set-up|onboarded` orders
+  the setup table highest first instead of by account and id.
 - The report's `region` is in the file so neither the CLI nor the Lambda needs to read the bucket's
   location across accounts.
 

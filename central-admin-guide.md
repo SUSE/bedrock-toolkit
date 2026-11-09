@@ -214,6 +214,15 @@ $ bedrock-admin fleet report --id mlm1 --id mlm2 --by day
 $ bedrock-admin fleet report --account 111122223333 --by month
 ```
 
+### Order the setups
+
+The setup table is ordered by account and id. `--sort spend`, `--sort set-up` or
+`--sort onboarded` puts the highest first instead (only without `--by` or with `--by setup`):
+
+```console
+$ bedrock-admin fleet report --sort spend
+```
+
 ### Share a report
 
 To paste a view into a spreadsheet, a wiki page or a chat, add `--format csv` or `--format markdown`
@@ -291,6 +300,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
 | The fleet, or one team, per month | `bedrock-admin fleet report --by month` (`--months N`, `--product NAME`) |
 | Only some setups, in any view | `bedrock-admin fleet report --account ACCOUNT --id ID` (each repeatable) |
+| Setups with the highest spend first | `bedrock-admin fleet report --sort spend` (or `set-up`, `onboarded`) |
 | A view to share, as CSV or Markdown | `bedrock-admin fleet report ... --format csv` (or `markdown`) |
 | An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |
 | Several report buckets in the account | Add `--bucket NAME` to any of these |

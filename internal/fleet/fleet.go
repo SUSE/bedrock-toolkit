@@ -425,3 +425,33 @@ func checkKnown(reports []Report, want []string, what string, field func(Report)
 	sort.Strings(names)
 	return fmt.Errorf("no setup has %s %s; known %ss: %s", what, strings.Join(missing, ", "), what, strings.Join(names, ", "))
 }
+
+// Sort orders for SortReports.
+var SortOrders = []string{"account", "spend", "set-up", "onboarded"}
+
+// SortReports orders reports by account and id, or by spend, set-up or onboarded users, highest
+// first, then by account and id.
+func SortReports(reports []Report, by string) error {
+	var key func(Report) float64
+	switch by {
+	case "", "account":
+	case "spend":
+		key = func(r Report) float64 { return r.SpendUSD }
+	case "set-up":
+		key = func(r Report) float64 { return float64(r.Users.SetUp) }
+	case "onboarded":
+		key = func(r Report) float64 { return float64(r.Users.Onboarded) }
+	default:
+		return fmt.Errorf("--sort must be one of %s (got %q)", strings.Join(SortOrders, ", "), by)
+	}
+	sort.SliceStable(reports, func(i, j int) bool {
+		if key != nil && key(reports[i]) != key(reports[j]) {
+			return key(reports[i]) > key(reports[j])
+		}
+		if reports[i].Account != reports[j].Account {
+			return reports[i].Account < reports[j].Account
+		}
+		return reports[i].ID < reports[j].ID
+	})
+	return nil
+}

@@ -494,6 +494,7 @@ func (a *App) fleetReportCmd() *cobra.Command {
 	var bucket, region, by, product, month, format string
 	var months int
 	var ids, accounts []string
+	var sortBy string
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Show the latest report of every setup",
@@ -511,6 +512,9 @@ They count every setup that sent daily usage that month, also uninstalled ones.
 --account and --id keep only the setups in that account or with that id, in every view; repeat
 them for more. With both, a setup must match both.
 
+--sort orders the setups (by setup only): account (the default, then id), spend, set-up or
+onboarded, highest first.
+
 --format csv or markdown prints the same view to share: plain numbers, no bars, ACTIVE split into
 ACTIVE and ONBOARDED, a PARTIAL column instead of *, and no emails. csv is the main table only, for
 spreadsheets; markdown adds the title, the product totals and the notes, for wikis and chat.
@@ -524,7 +528,8 @@ Without --bucket it reads the bucket fleet init tagged.`,
   bedrock-admin fleet report --by product --format markdown > usage.md
   bedrock-admin fleet report --format csv > setups.csv
   bedrock-admin fleet report --id mlm1 --id mlm2 --by day
-  bedrock-admin fleet report --account 111122223333 --by month`,
+  bedrock-admin fleet report --account 111122223333 --by month
+  bedrock-admin fleet report --sort spend`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -539,6 +544,12 @@ Without --bucket it reads the bucket fleet init tagged.`,
 			}
 			a.fleetFormat = format
 			if err := checkFleetUsageFlags(by, product, month, months, cmd.Flags().Changed("months"), now); err != nil {
+				return err
+			}
+			if cmd.Flags().Changed("sort") && by != "setup" {
+				return errors.New("--sort works only with --by setup")
+			}
+			if err := fleet.SortReports(nil, sortBy); err != nil {
 				return err
 			}
 			if month == "" {
@@ -589,6 +600,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 				}()
 				return writeFleetUsage(a, by, product, month, reports, us, now)
 			}
+			_ = fleet.SortReports(reports, sortBy)
 			names := accountNames(ctx, c)
 			if a.JSON {
 				if reports == nil {
@@ -614,6 +626,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl.StringVar(&month, "month", "", "with --by product, day or month: this month (YYYY-MM) instead of the current one (with --by month: the last month)")
 	fl.StringSliceVar(&accounts, "account", nil, "only the setups in this AWS account; repeat for more")
 	fl.StringSliceVar(&ids, "id", nil, "only the setups with this id; repeat for more")
+	fl.StringVar(&sortBy, "sort", "account", "with --by setup: account, spend, set-up or onboarded (highest first)")
 	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
 	fl.StringVar(&format, "format", "text", "text, csv or markdown (to share: plain numbers, no emails)")
 	return cmd
