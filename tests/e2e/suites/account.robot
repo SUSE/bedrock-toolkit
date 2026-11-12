@@ -112,8 +112,10 @@ Block Status Reads The Permission Sets
     Block Policy File Should Exist
     ${s}=    Admin    block    status    --admin-permission-set    ${ADMIN_PERMISSION_SET}    --json
     Should Be Equal    ${s}[account]    ${ACCOUNT}
+    Should Not Be Empty    ${s}[permission_sets]
     ${deny}=    Evaluate    {p["name"]: p["deny"] for p in $s["permission_sets"]}
-    Should Be Equal    ${deny}[${ADMIN_PERMISSION_SET}]    exempt
+    ${bad}=    Evaluate    {n: d for n, d in $deny.items() if (d == "exempt") != (n == $ADMIN_PERMISSION_SET) or d not in ("yes", "no", "exempt")}
+    Should Be Empty    ${bad}    ${deny}
     IF    $BLOCK_TEST_PERMISSION_SET
         Should Be Equal    ${deny}[${BLOCK_TEST_PERMISSION_SET}]    yes
     END
