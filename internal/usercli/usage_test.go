@@ -204,3 +204,14 @@ func TestUsageFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestFileMissing(t *testing.T) {
+	for _, code := range []string{"NoSuchKey", "AccessDenied"} {
+		if !fileMissing(&smithy.GenericAPIError{Code: code}) {
+			t.Errorf("%s: want missing", code)
+		}
+	}
+	if fileMissing(&smithy.GenericAPIError{Code: "SlowDown"}) || fileMissing(nil) {
+		t.Error("SlowDown or nil: want not missing")
+	}
+}

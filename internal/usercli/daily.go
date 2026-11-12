@@ -19,6 +19,11 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/usage"
 )
 
+// fileMissing reports whether GetObject failed because the usage file isn't written yet. Roles
+// applied before s3:ListBucket on their prefix get AccessDenied rather than NoSuchKey for a missing
+// file, and the tag that led here comes with the GetObject permission, so a denial means missing.
+func fileMissing(err error) bool { return awsx.IsNotFound(err) || awsx.IsAccessDenied(err) }
+
 // errNoUsageTag means the personal role doesn't point at its usage files yet.
 var errNoUsageTag = errors.New("no " + policy.UsageTag + " tag on your role")
 
@@ -172,7 +177,7 @@ func (sdkAWS) UsageFiles(ctx context.Context, profile, role string, months []str
 	out := map[string]*usage.UserFile{}
 	for _, m := range months {
 		r, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(prefix + m + ".json")})
-		if awsx.IsNotFound(err) {
+		if fileMissing(err) {
 			continue
 		}
 		if err != nil {
