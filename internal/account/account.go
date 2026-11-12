@@ -16,7 +16,7 @@ import (
 type Env struct {
 	C   *awsx.Clients
 	Cfg *config.Config
-	// Out receives progress and the Step 1.7 instructions during apply.
+	// Out receives progress during apply.
 	Out io.Writer
 	// Dir is where apply writes bedrock-block-policy.json.
 	Dir string
@@ -55,7 +55,7 @@ func (e *Env) tags() map[string]string { return map[string]string{policy.IDTag: 
 func (e *Env) Plan(ctx context.Context) ([]*plan.Item, error) {
 	var out []*plan.Item
 	steps := []func(context.Context) ([]*plan.Item, error){
-		e.costExport, e.denyPolicy, e.budgetActionsRole, e.monthlyLambda, e.models, e.costTag, e.blockDirectCalls,
+		e.costExport, e.denyPolicy, e.budgetActionsRole, e.monthlyLambda, e.models, e.costTag,
 		e.webSearch, e.iamUsersPolicy, e.product,
 	}
 	for _, s := range steps {

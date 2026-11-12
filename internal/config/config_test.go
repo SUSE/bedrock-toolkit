@@ -45,8 +45,8 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.CostExport.Prefix != "cur" || c.CostExport.Name != "bedrock-cur-acmeprod" || c.BlockDirectCalls.AdminPermissionSet != "BedrockAdmin" {
-		t.Fatalf("defaults not applied: %+v %+v", c.CostExport, c.BlockDirectCalls)
+	if c.CostExport.Prefix != "cur" || c.CostExport.Name != "bedrock-cur-acmeprod" || c.LegacyBlock != nil {
+		t.Fatalf("defaults not applied: %+v %v", c.CostExport, c.LegacyBlock)
 	}
 	us := c.Resolve()
 	a, b, cc := us[0], us[1], us[2]
@@ -115,7 +115,6 @@ func TestValidation(t *testing.T) {
 		"bad user product":  {base + "users: [{email: a@x.io, product: \"a,b\"}]\n", "users[0] (a@x.io): product:"},
 		"bad account":       {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
 		"bad id":            {strings.Replace(base, "acmeprod", "Acme Prod", 1), "id:"},
-		"bad method":        {base + "block_direct_calls: {method: magic}\n", "method"},
 		"web search region": {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
 		"web search domain": {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},
 		"bad iam_user":      {base + "users: [{email: a@x.io, iam_user: \"a b\"}]\n", "iam_user: not an IAM user name"},

@@ -166,8 +166,6 @@ func (a *App) doctor(ctx context.Context) []Check {
 				ch.Detail = strings.Join(it.Details, ", ")
 			}
 			switch it.Op {
-			case plan.Handoff:
-				ch.Fix = "bedrock-admin apply writes bedrock-block-policy.json and the instructions for the org admin"
 			case plan.Conflict:
 				ch.Fix = "see the detail; bedrock-admin never takes over resources it didn't create"
 			case plan.Create, plan.Update, plan.Delete:
@@ -179,6 +177,7 @@ func (a *App) doctor(ctx context.Context) []Check {
 			out = append(out, ch)
 		}
 	}
+	out = append(out, blockCheck(ctx, c))
 	out = append(out, a.exportData(ctx, cfg, c))
 	for _, m := range cfg.TestModels() {
 		ch := Check{Name: "model " + m}

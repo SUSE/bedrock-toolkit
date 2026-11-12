@@ -38,7 +38,7 @@ There are two CLIs:
 
 | CLI | For | Commands |
 | --- | --- | --- |
-| `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`; `fleet` for the central admin |
+| `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
 | `bedrock` | Users | `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
@@ -127,11 +127,6 @@ defaults:
 cost_export:                    # optional; the default bucket is bedrock-cur-<account>-<id>
   bucket: bedrock-cur-111122223333-acmeprod
 
-block_direct_calls:
-  enabled: true
-  method: permission-set        # or scp
-  admin_permission_set: BedrockAdmin
-
 web_search:                     # optional: Step 1.8
   enabled: false                # true needs region us-east-1, eu-west-1 or ap-northeast-1
   exclude_domains: [example.com]
@@ -190,32 +185,46 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` (1024 MB), its schedule (06:00 UTC on the 1st) and the daily schedule `bedrock-daily-<id>` (07:00 UTC) | Re-arms every pause of the id's users each month, after saving a snapshot; writes each user's daily usage file and, with `report:`, sends the central report. See [section 8](#8-the-monthly-lambda-snapshots-and-central-reports). |
 | 1.5 | Model access: a first call to each model in `models:` and every baseline model (only those when `models:` is empty), from a region of the model's geography | Some models need a first call, from the account, before anyone can use them |
 | 1.6 | The `iamPrincipal/owner` cost allocation tag is active | Budgets can only filter on active tags. It can be activated only after a personal role has made a Bedrock call, so it may wait up to a day after the first user starts. Only the management account can read and activate it; from a member account Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning (`WARN` in `doctor`) that doesn't change the exit code. |
-| 1.7 | Model calls outside personal roles are blocked | See below |
 | 1.8 | Only with `web_search.enabled`: the web search gateway, its target and its role | Claude Code's built-in web search doesn't work on Bedrock. See [Step 1.8](#step-18-web-search). |
-| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` (path `/bedrock/`) | Lets those IAM users assume a personal role and read their own tags, and carries the Step 1.7 deny for them. `apply` attaches it per user. See [IAM users](#iam-users). |
+| 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` (path `/bedrock/`) | Lets those IAM users assume a personal role and read their own tags, and denies their direct model calls. `apply` attaches it per user. See [IAM users](#iam-users). |
 
 If an account step fails, `apply` skips the users. Step 1.6 shows "waiting for first use" until
-the tag can be activated. Steps that need the org admin (1.7) stay pending; the rest of `apply` continues, and `apply` exits 2 while something is pending.
+the tag can be activated. `apply` exits 2 while something is pending. Blocking direct model calls needs the org admin and is
+[its own command](#blocking-direct-model-calls-bedrock-admin-block).
 
-### Step 1.7: block direct model calls
+### Blocking direct model calls: `bedrock-admin block`
 
-`bedrock-admin` runs with account-level admin rights only. It has no AWS Organizations permission.
-Both ways to apply the deny are managed from the Organizations management account (or a delegated
-admin): a service control policy (SCP), or an inline policy on the permission sets. So Step 1.7 is
-a handoff:
+Without a block, anyone whose permission set allows Bedrock can call models from their SSO role,
+outside any budget or pause. The block is a deny on every SSO role except the admins' permission
+set. Both ways to apply it are managed from the Organizations management account (or a delegated
+admin): a service control policy (SCP), or an inline policy on the permission sets. Setup admins
+have account-level rights only, so the block is not a step of `plan` and `apply` (it was Step 1.7;
+the number is kept free) but its own command group:
 
-1. `plan` shows Step 1.7 as "needs org admin". `apply` writes the policy to
-   `bedrock-block-policy.json` in the current directory and prints instructions for the org admin,
-   for both methods:
-   - SCP on the Bedrock account. Preferred: it covers every permission set, including future ones.
-     It has no effect if the Bedrock account is the management account.
-   - Permission sets: add the statement to each permission set assigned to the account, except
-     `admin_permission_set`, and re-provision.
-2. The org admin applies it, and the admin sets `block_direct_calls.method` to match.
-3. With `method: permission-set`, `plan` and `doctor` read the inline policy of each
-   `AWSReservedSSO_*` role in the account and list any permission set missing the deny (other than
-   the admin set). With `method: scp`, SCPs can't be read from a member account, so `plan` shows it
-   as applied by SCP and not checkable.
+1. `block policy` writes `bedrock-block-policy.json` (default; `-o`) and prints instructions for the
+   org admin, for both methods. `--account` defaults to the profile's account and
+   `--admin-permission-set` to `BedrockAdmin`.
+2. The org admin runs `block apply --account <account> --method scp|permission-set`, or makes the
+   same change by hand:
+   - `scp`: creates or updates the SCP `bedrock-personal-role-only-<account>` (compacted, as SCPs
+     are limited to 5,120 characters) and attaches it to the account. Preferred: it covers every
+     permission set, including future ones. It refuses the management account, where SCPs have no
+     effect.
+   - `permission-set`: merges the deny into the inline policy of every permission set provisioned
+     to the account except `--admin-permission-set`, then re-provisions each to that account and
+     waits for it. An inline policy applies in every account the set is provisioned to, so the
+     statement carries `StringEquals aws:PrincipalAccount` with the accounts blocked so far; a
+     later run for another account adds it to the list. `--user-permission-set` also adds
+     `sts:AssumeRole` on `role/bedrock-users/*` to the named sets.
+
+   It confirms first unless `--yes`; `--dry-run` only shows the changes.
+3. `block status` reads the inline policy of each `AWSReservedSSO_*` role in the account and shows,
+   per permission set, whether it carries the deny (`yes`, `no` or `exempt` for the admin set) and
+   allows assuming personal roles. The admin set is detected from an existing deny, or taken from
+   `--admin-permission-set`. `doctor`'s `direct model calls` check warns (without failing) while a
+   set lacks the deny. SCPs can't be read from a member account, so neither sees an SCP.
+
+The `block_direct_calls` key of older files is ignored with a warning, and `configure` drops it.
 
 The policy:
 
@@ -241,10 +250,9 @@ The policy:
 
 The users' permission sets must also allow `sts:AssumeRole` on `role/bedrock-users/*`. The personal
 role trusts the account root, so the SSO role needs that permission itself. That is also an org
-admin change. `plan` and `doctor` check it the same way (`AdministratorAccess` and
-`PowerUserAccess` count as allowing it), and `apply` includes it in the handoff when it's missing.
-
-`enabled: false` only skips the step. Removing a deny that is in place is also the org admin's job.
+admin change: `block status` shows it (`AdministratorAccess` and `PowerUserAccess` count as
+allowing it) and `block apply --user-permission-set` adds it. Removing a deny that is in place is
+done by hand.
 
 The deny doesn't cover:
 
@@ -353,8 +361,7 @@ statement stays, so the user may use either:
   IAM users or keys. `aws:username` is case-sensitive, so `plan` warns when the name differs in case.
 - `apply` attaches the Step 1.9 policy `bedrock-iam-users-<id>` to the IAM user: `sts:AssumeRole`
   on the id's personal roles (each trust admits only its own IAM user), `iam:ListUserTags` on itself,
-  and with `block_direct_calls.enabled` the same deny as Step 1.7, so the access key can't call
-  models directly. This needs no org admin. One managed policy instead of an inline one per user,
+  and the same deny as `bedrock-admin block`, so the access key can't call models directly. This needs no org admin. One managed policy instead of an inline one per user,
   so removals are found with `ListEntitiesForPolicy`.
 - It tags the IAM user like the personal role, `owner=<email>`, `product` and `bedrock-admin:id`, so
   the budget's `iamPrincipal/owner` filter counts the IAM user's direct Bedrock calls, the same as an
@@ -680,7 +687,7 @@ for teams with their own admins, models or settings.
   for other idle ids. An id can't be renamed: apply the new id, users rerun `bedrock setup --id`,
   then the old one is exported, emptied (`users: []`, `apply --yes`) and uninstalled.
 - Shared by every setup in the account (org level): the `iamPrincipal/owner` cost allocation tag
-  (Step 1.6) and the Step 1.7 deny on the permission sets, and Identity Center itself.
+  (Step 1.6) and the block on direct model calls, and Identity Center itself.
 
 There is no adoption of untagged resources. `bedrock-admin export` captures an existing setup's users
 into a file, as a convenience.
@@ -702,7 +709,7 @@ sets.
 | Trust policy | Who can use a personal role | Admins who edit trust policies or tags |
 | `bedrock-invoke` policy | Personal roles: Claude only, Fable denied | Calls from other roles |
 | Budget and pause | Spend through personal roles | Calls outside personal roles |
-| Step 1.7 deny | Model calls from SSO roles except the admin set | IAM users, other roles, API keys, the admin set |
+| `block` deny | Model calls from SSO roles except the admin set | IAM users, other roles, API keys, the admin set |
 | Web search gateway role | The gateway may call only the Web Search tool | Who may call the gateway: that is the personal roles' `InvokeGateway` right on their setup's gateway |
 | `usage` untracked section | Every Bedrock caller in the cost export, after the fact | Nothing in real time |
 
@@ -750,10 +757,10 @@ and a real AWS account:
 | Suite | Covers |
 | --- | --- |
 | `cli` | A smoke test of the built binaries, with no AWS |
-| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file |
+| `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file, `block policy` and `block status` (read-only; `block apply` needs Organizations rights) |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
 | `user-access` | The user flow: `bedrock setup` (a wrong id writes nothing; a rerun reuses the id), calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file), `bedrock models`, direct SSO calls denied, a pause seen by the user |
-| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (with `block_direct_calls` on, even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
+| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket; the Lambda's daily usage files, read only by their own role, deleted at offboarding |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

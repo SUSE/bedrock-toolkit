@@ -63,7 +63,7 @@ func TestUnknownCommandIsError(t *testing.T) {
 func TestConfigureKeepsUsersInclude(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "bedrock.yaml")
-	if err := os.WriteFile(f, []byte("id: team\nproduct: p\nusers: !include users.yaml\n"), 0o644); err != nil {
+	if err := os.WriteFile(f, []byte("id: team\nproduct: p\nblock_direct_calls: {enabled: true}\nusers: !include users.yaml\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "users.yaml"), []byte("- email: a@example.test\n"), 0o644); err != nil {
@@ -83,6 +83,25 @@ func TestConfigureKeepsUsersInclude(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, s)
 		}
 	}
+	if strings.Contains(s, "block_direct_calls") {
+		t.Errorf("configure keeps the removed block_direct_calls:\n%s", s)
+	}
+}
+
+func TestLegacyBlockWarns(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "bedrock.yaml")
+	if err := os.WriteFile(f, []byte("id: acmeprod\naccount: \"123456789012\"\nregion: us-west-2\nproduct: p\n"+
+		"models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]\ndefaults: {limit_usd: 50}\nblock_direct_calls: {enabled: true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{File: f, Err: &bytes.Buffer{}}
+	if _, err := a.load(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(a.Err.(*bytes.Buffer).String(), "bedrock-admin block") {
+		t.Errorf("no warning: %q", a.Err)
+	}
 }
 
 func TestConfigureNewFileDefaults(t *testing.T) {
@@ -94,7 +113,7 @@ func TestConfigureNewFileDefaults(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code %d\n%s", code, errs)
 	}
-	for _, want := range []string{"enabled: true", "users: []", "bucket: bedrock-cur-123456789012"} {
+	for _, want := range []string{"users: []", "bucket: bedrock-cur-123456789012"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in\n%s", want, out)
 		}

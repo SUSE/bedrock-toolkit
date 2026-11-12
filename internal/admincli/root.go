@@ -72,7 +72,7 @@ usage found untracked spend).`,
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
 	root.AddCommand(a.planCmd(), a.applyCmd(), a.exportCmd(), a.configureCmd(), a.doctorCmd(), a.uninstallCmd(),
-		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.setupsCmd(), a.modelsCmd(), a.fleetCmd())
+		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.setupsCmd(), a.modelsCmd(), a.fleetCmd(), a.blockCmd())
 	return root
 }
 
@@ -107,7 +107,11 @@ func (a *App) load() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return config.Load(path)
+	cfg, err := config.Load(path)
+	if err == nil && cfg.LegacyBlock != nil {
+		_, _ = fmt.Fprintf(a.Err, "warning: %s: block_direct_calls is no longer used; blocking direct model calls moved to bedrock-admin block. Remove it from the file.\n", path)
+	}
+	return cfg, err
 }
 
 // profile picks the AWS profile: --profile, then $AWS_PROFILE (left to the SDK), then the file.

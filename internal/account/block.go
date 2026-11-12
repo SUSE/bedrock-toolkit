@@ -2,22 +2,18 @@ package account
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 
-	"github.com/SUSE/bedrock-toolkit/internal/awsx"
-	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
-// BlockPolicyFile is what apply writes for the org admin.
+// BlockPolicyFile is what bedrock-admin block policy writes for the org admin.
 const BlockPolicyFile = "bedrock-block-policy.json"
 
 // SSORole is one AWSReservedSSO_* role: a permission set assigned to this account.
@@ -43,16 +39,16 @@ type BlockCheck struct {
 	MissingAssume []string
 }
 
-// CheckSSORoles finds the permission sets (other than the admin one) missing the Step 1.7 deny or
-// sts:AssumeRole on the personal roles.
-func CheckSSORoles(roles []SSORole, adminPermissionSet string) BlockCheck {
+// CheckSSORoles finds the permission sets (other than the admin one) missing the bedrock-admin block
+// deny for account or sts:AssumeRole on the personal roles.
+func CheckSSORoles(roles []SSORole, adminPermissionSet, account string) BlockCheck {
 	var c BlockCheck
 	for _, r := range roles {
 		if r.PermissionSet == adminPermissionSet {
 			continue
 		}
 		c.Checked = append(c.Checked, r.PermissionSet)
-		if !policy.HasBlock(r.Inline) {
+		if !policy.HasBlockFor(r.Inline, account) {
 			c.MissingBlock = append(c.MissingBlock, r.PermissionSet)
 		}
 		if !policy.AllowsAssumePersonalRole(r.Inline) && !broadManaged(r.Managed) {
@@ -109,78 +105,32 @@ func SSORoles(ctx context.Context, c *iam.Client) ([]SSORole, error) {
 	return out, nil
 }
 
-func (e *Env) blockDirectCalls(ctx context.Context) ([]*plan.Item, error) {
-	b := e.Cfg.BlockDirectCalls
-	it := e.item("1.7", "block direct model calls")
-	if !b.Enabled {
-		it.Op, it.Status = plan.Info, "skipped (enabled: false)"
-		return one(it), nil
-	}
-	if b.Method == "scp" {
-		it.Op, it.Status = plan.Info, "applied by SCP (not checkable here)"
-		return one(it), nil
-	}
-	roles, err := SSORoles(ctx, e.C.IAM)
-	if err != nil {
-		if awsx.IsAccessDenied(err) {
-			it.Op, it.Status = plan.Handoff, "needs org admin (can't read the SSO roles: "+awsx.ErrorCode(err)+")"
-			it.Apply = e.handoff(nil)
-			return one(it), nil
+// AdminPermissionSet is the permission set an existing deny exempts, or the default.
+func AdminPermissionSet(roles []SSORole) string {
+	for _, r := range roles {
+		if ps := policy.ExemptPermissionSet(r.Inline); ps != "" {
+			return ps
 		}
-		return nil, fmt.Errorf("reading SSO roles: %w", err)
 	}
-	c := CheckSSORoles(roles, b.AdminPermissionSet)
-	if len(c.Checked) == 0 {
-		it.Op, it.Status = plan.Info, "no permission sets other than "+b.AdminPermissionSet+" in this account"
-		return one(it), nil
-	}
-	if len(c.MissingAssume) > 0 {
-		it.Warnings = append(it.Warnings, "permission sets without sts:AssumeRole on role/bedrock-users/* (users can't use their role): "+
-			strings.Join(c.MissingAssume, ", "))
-	}
-	if len(c.MissingBlock) > 0 {
-		it.Op, it.Status = plan.Handoff, "needs org admin: deny missing on "+strings.Join(c.MissingBlock, ", ")
-		it.Apply = e.handoff(c.MissingAssume)
-		return one(it), nil
-	}
-	it.Status = fmt.Sprintf("ok (%d permission sets carry the deny)", len(c.Checked))
-	return one(it), nil
+	return config.DefaultAdminPermissionSet
 }
 
-// handoff writes the policy file and prints the org admin instructions. It doesn't fail apply.
-func (e *Env) handoff(missingAssume []string) func(context.Context) error {
-	return func(context.Context) error {
-		path := filepath.Join(e.Dir, BlockPolicyFile)
-		if err := os.WriteFile(path, []byte(policy.Block(e.Cfg.BlockDirectCalls.AdminPermissionSet)+"\n"), 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", path, err)
-		}
-		e.logf("%s", Instructions(path, e.C.Account, e.Cfg.BlockDirectCalls.AdminPermissionSet, missingAssume))
-		return nil
-	}
-}
+// Instructions is the text for the org admin who applies the deny.
+func Instructions(path, account, adminPS string) string {
+	return fmt.Sprintf(`
+Wrote %[1]s. Blocking model calls outside personal roles needs AWS Organizations rights.
+Send the file to your Organizations admin with these instructions:
 
-// Instructions is the Step 1.7 text for the org admin.
-func Instructions(path, account, adminPS string, missingAssume []string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, `
-Step 1.7 needs your AWS Organizations admin. Wrote %s. Send it with these instructions:
+  Block Bedrock model calls outside personal roles in account %[2]s, either way:
+  - SCP (preferred; covers every permission set, including future ones; has no effect if %[2]s
+    is the management account):
+      bedrock-admin block apply --account %[2]s --method scp --admin-permission-set %[3]s
+    or create an SCP from the file and attach it to the account.
+  - Permission sets:
+      bedrock-admin block apply --account %[2]s --method permission-set --admin-permission-set %[3]s
+    or add the statement in the file to the inline policy of every permission set assigned to
+    the account except %[3]s, then re-provision them.
 
-  Block Bedrock model calls outside personal roles in account %s, either way:
-  - SCP (preferred; covers every permission set, including future ones; has no effect if %s
-    is the management account): create an SCP from the file and attach it to the account.
-  - Permission sets: add the statement in the file to the inline policy of every permission set
-    assigned to the account except %s, then re-provision them.
-`, path, account, account, adminPS)
-	if len(missingAssume) > 0 {
-		st, _ := json.Marshal(map[string]any{"Effect": "Allow", "Action": "sts:AssumeRole",
-			"Resource": "arn:aws:iam::*:role/bedrock-users/*"})
-		fmt.Fprintf(&b, `
-  Also add this statement to %s, so users can use their personal role:
-    %s
-`, strings.Join(missingAssume, ", "), st)
-	}
-	fmt.Fprintf(&b, `
-Then set block_direct_calls.method in bedrock.yaml to match (permission-set or scp) and run plan.
-`)
-	return b.String()
+Check the result with: bedrock-admin block status
+`, path, account, adminPS)
 }

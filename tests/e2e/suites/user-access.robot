@@ -1,6 +1,6 @@
 *** Settings ***
 Documentation       What a user does: bedrock setup, calls through the personal role, bedrock doctor, usage and models, the
-...                 Step 1.7 block on direct SSO calls, and a manual pause seen from the user's side.
+...                 block on direct SSO calls (bedrock-admin block), and a manual pause seen from the user's side.
 ...                 Needs SSO_PROFILE signed in (aws sso login) in the same account. The runner is added as
 ...                 a user of the run's own setup (id e2e<hex>); the user CLI writes to a copy of ~/.aws/config,
 ...                 never the real one.
@@ -93,10 +93,10 @@ Models Lists The Role's Allowed Models
     Lists Should Be Equal    ${m["models"]}    ${allowed}    ignore_order=True
 
 Direct SSO Calls Are Denied
-    [Documentation]    Step 1.7. Skipped with a note when the org admin hasn't applied the deny to the
+    [Documentation]    bedrock-admin block. Skipped with a note when the org admin hasn't applied the deny to the
     ...    runner's permission set in the test account.
     ${denied}=    Model Call Is Denied    sso
-    Skip If    not ${denied}    Step 1.7 isn't applied to permission set ${SSO_PERMISSION_SET}: direct SSO calls work
+    Skip If    not ${denied}    bedrock-admin block isn't applied to permission set ${SSO_PERMISSION_SET}: direct SSO calls work
     Model Call Should Be Denied    sso    explicit=True
 
 A Manual Pause Denies Calls And Unpause Restores Them

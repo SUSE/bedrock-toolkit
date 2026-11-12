@@ -17,7 +17,6 @@ const (
 	Create   Op = "create"
 	Update   Op = "update"
 	Delete   Op = "delete"
-	Handoff  Op = "needs-org-admin"
 	Conflict Op = "conflict"
 	// Info is shown but is not a change (for example "waiting for first use", "not managed").
 	Info Op = "info"
@@ -26,7 +25,7 @@ const (
 // Pending reports whether an op counts as a change (plan exits 2).
 func (o Op) Pending() bool {
 	switch o {
-	case Create, Update, Delete, Handoff, Conflict:
+	case Create, Update, Delete, Conflict:
 		return true
 	}
 	return false
@@ -40,8 +39,6 @@ func (o Op) symbol() string {
 		return "~"
 	case Delete:
 		return "-"
-	case Handoff:
-		return "?"
 	case Conflict:
 		return "!"
 	}
@@ -100,7 +97,7 @@ func (p *Plan) Summary() string {
 	for _, c := range []struct {
 		op   Op
 		text string
-	}{{Create, "to create"}, {Update, "to change"}, {Delete, "to remove"}, {Handoff, "needs org admin"}, {Conflict, "conflict"}} {
+	}{{Create, "to create"}, {Update, "to change"}, {Delete, "to remove"}, {Conflict, "conflict"}} {
 		if n := counts[c.op]; n > 0 {
 			t := c.text
 			if c.op == Conflict && n > 1 {

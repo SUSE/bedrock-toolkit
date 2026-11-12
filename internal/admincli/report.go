@@ -39,7 +39,7 @@ func (a *App) sendReport(ctx context.Context, cfg *config.Config, c *awsx.Client
 }
 
 // applied reports whether apply changed or checked everything without a failure (pending items such
-// as Step 1.7 still count).
+// as conflicts still count).
 func applied(err error) bool {
 	var ee *cli.ExitError
 	return err == nil || (errors.As(err, &ee) && ee.Code == cli.Problem)

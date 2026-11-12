@@ -3,8 +3,7 @@ Documentation       A user who signs in with an IAM user's access key instead of
 ...                 user owner like the personal role (so the budget counts its spend), attaches
 ...                 bedrock-iam-users-<id> (Step 1.9) and adds it to the pause action; bedrock setup
 ...                 --source-profile reads the email from the owner tag and writes a working profile;
-...                 the access key itself can't call models, even with its own Bedrock Allow when
-...                 block_direct_calls is on; a pause denies the IAM user and its personal role; and taking
+...                 the access key itself can't call models, even with its own Bedrock Allow; a pause denies the IAM user and its personal role; and taking
 ...                 iam_user out of the file releases the IAM user.
 ...                 Needs only the admin profile: the run creates its own IAM user and access key and
 ...                 deletes them at the end. Makes one small paid model call.
@@ -52,16 +51,12 @@ Direct Calls With The Access Key Are Denied
     [Documentation]    Only the personal role, with its budget and pause, may call models.
     Model Call Should Be Denied    ${KEY_PROFILE}    explicit=False
 
-Block Direct Calls Denies The Key Despite Its Own Allow
-    [Documentation]    With block_direct_calls on, bedrock-iam-users-<id> (Step 1.9) explicitly denies
-    ...    direct model calls, so an IAM user that has its own Bedrock Allow still can't call models
-    ...    with the key. The key keeps that Allow for the pause test below.
+The Key Is Denied Despite Its Own Allow
+    [Documentation]    bedrock-iam-users-<id> (Step 1.9) explicitly denies direct model calls, so an IAM
+    ...    user that has its own Bedrock Allow still can't call models with the key. The key keeps that
+    ...    Allow for the pause test below.
     Attach Aws Policy To Test Iam User    ${IAM_USER}    AmazonBedrockFullAccess
-    Enable Block Direct Calls
-    Apply
-    Wait Until Keyword Succeeds    2 min    10 s    Model Call Should Be Denied    ${KEY_PROFILE}
-    Set Config    block_direct_calls.enabled    ${False}
-    Apply
+    Wait Until Keyword Succeeds    2 min    10 s    Model Call Should Be Denied    ${KEY_PROFILE}    explicit=True
 
 A Pause Denies The IAM User Too
     [Documentation]    pause attaches bedrock-deny to the role and the IAM user, so the key is explicitly

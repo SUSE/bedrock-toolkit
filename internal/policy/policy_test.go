@@ -155,12 +155,12 @@ func TestUserTrustIAMUser(t *testing.T) {
 }
 
 func TestIAMUsersPolicy(t *testing.T) {
-	off, on := IAMUsers("123456789012", "t", false), IAMUsers("123456789012", "t", true)
-	if HasBlock(off) || !HasBlock(on) {
-		t.Fatalf("block: off %v on %v", HasBlock(off), HasBlock(on))
+	p := IAMUsers("123456789012", "t")
+	if !HasBlock(p) {
+		t.Fatalf("no block: %s", p)
 	}
-	if !strings.Contains(off, UserRolesArn("123456789012", "t")) || !strings.Contains(off, "user/${aws:username}") {
-		t.Fatalf("got %s", off)
+	if !strings.Contains(p, UserRolesArn("123456789012", "t")) || !strings.Contains(p, "user/${aws:username}") {
+		t.Fatalf("got %s", p)
 	}
 	if IAMUsersPolicyName("t") != "bedrock-iam-users-t" || IAMUsersPolicyArn("1", "t") != "arn:aws:iam::1:policy"+Path+"bedrock-iam-users-t" {
 		t.Fatalf("names %s %s", IAMUsersPolicyName("t"), IAMUsersPolicyArn("1", "t"))

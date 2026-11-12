@@ -1,5 +1,5 @@
 *** Settings ***
-Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, the Step 1.7 handoff,
+Documentation       The account setup (Steps 1.1-1.8 but web search): apply, plan, drift, bedrock-admin block,
 ...                 doctor, models, export, central reporting (fleet init, apply, the daily Lambda report,
 ...                 fleet report, by month), a second setup in the same account (setups lists both), and uninstall. The run's setup has
 ...                 its own id (e2e<hex>) and is removed at the end, with its bucket.
@@ -42,13 +42,12 @@ Second Apply Changes Nothing
     ${p}=    Plan
     Plan Should Have No Changes    ${p}
     ${a}=    Apply    rc=any
-    ${ops}=    Evaluate    sorted({x["op"] for x in $a.json["applied"]})
-    Should Be True    $ops in ([], ["needs-org-admin"])    second apply changed: ${a.json}[applied]
+    Should Be Empty    ${a.json}[applied]    second apply changed: ${a.json}[applied]
 
 Plan Names Exactly The Missing Piece
     Delete Monthly Schedule
     ${p}=    Plan    rc=2
-    ${pending}=    Changes But Handoffs    ${p}
+    ${pending}=    Pending Targets    ${p}
     Should Be Equal    ${pending}    ${{ ["schedule " + $N["schedule"]] }}
     Plan Op Should Be    ${p}    schedule ${N}[schedule]    create
     ${out}=    Admin    plan    rc=2
@@ -66,7 +65,7 @@ Doctor Names The Missing Piece
 
 Doctor Passes
     ${d}=    Admin    doctor    --json    rc=any
-    ${bad}=    Evaluate    [c["name"] for c in $d["checks"] if not c["ok"] and not c["name"].startswith("Step 1.7 ") and c["name"] != "cost export data"]
+    ${bad}=    Evaluate    [c["name"] for c in $d["checks"] if not c["ok"] and c["name"] != "cost export data"]
     Should Be Empty    ${bad}    doctor failed: ${d}
     # Step 1.6 never fails doctor when the tag can't be read: ok, or a warning to ask the org admin.
     ${tag}=    Evaluate    next(c for c in $d["checks"] if c["name"].startswith("Step 1.6 "))
@@ -105,22 +104,19 @@ Drift Is Shown By Plan And Fixed By Apply
     ${p}=    Plan
     Plan Op Should Be    ${p}    Lambda ${N}[lambda]    ok
 
-Step 1.7 Handoff
-    [Documentation]    apply writes the policy file. plan says "needs org admin" until every permission set
-    ...    but the admin one carries the deny (an org admin sets that up once in the test account).
-    ${p}=    Plan
-    ${i}=    Plan Item    ${p}    block direct model calls
-    IF    $i["op"] == "needs-org-admin"
-        Block Policy File Should Exist
-        Should Contain    ${i}[status]    needs org admin
-        IF    $BLOCK_TEST_PERMISSION_SET
-            Should Not Contain    ${i}[status]    ${BLOCK_TEST_PERMISSION_SET}
-            ...    msg=${BLOCK_TEST_PERMISSION_SET} doesn't carry the deny: ${i}[status]
-        END
-        Skip    Step 1.7 not done by the org admin for every permission set: ${i}[status]
+Block Status Reads The Permission Sets
+    [Documentation]    block status reads the account's SSO roles: the admin permission set is exempt,
+    ...    and BLOCK_TEST_PERMISSION_SET (given the deny once by an org admin) carries it. block policy
+    ...    writes the file for the org admin. block apply needs Organizations rights: not tested.
+    Admin    block    policy    --admin-permission-set    ${ADMIN_PERMISSION_SET}
+    Block Policy File Should Exist
+    ${s}=    Admin    block    status    --admin-permission-set    ${ADMIN_PERMISSION_SET}    --json
+    Should Be Equal    ${s}[account]    ${ACCOUNT}
+    ${deny}=    Evaluate    {p["name"]: p["deny"] for p in $s["permission_sets"]}
+    Should Be Equal    ${deny}[${ADMIN_PERMISSION_SET}]    exempt
+    IF    $BLOCK_TEST_PERMISSION_SET
+        Should Be Equal    ${deny}[${BLOCK_TEST_PERMISSION_SET}]    yes
     END
-    Should Be Equal    ${i}[op]    ok
-    Should Start With    ${i}[status]    ok
 
 Export Then Plan Shows No Changes
     ${models}=    Evaluate    [a for m in $MODELS for a in ("--model", m)]
@@ -299,7 +295,6 @@ Uninstall With Delete Data Removes The Bucket
 *** Keywords ***
 Start Account Run
     Start Run
-    Enable Block Direct Calls
     Set Up Account
 
 Tear Down If Set Up

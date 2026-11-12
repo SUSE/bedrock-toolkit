@@ -24,11 +24,11 @@ import (
 const DefaultLimitUSD = 100.0
 
 const (
-	DefaultPauseAtPercent     = 100
-	DefaultNotify             = "owner"
-	DefaultPrefix             = "cur"
-	DefaultSnapshotPrefix     = "bedrock-admin/snapshots"
-	DefaultMethod             = "permission-set"
+	DefaultPauseAtPercent = 100
+	DefaultNotify         = "owner"
+	DefaultPrefix         = "cur"
+	DefaultSnapshotPrefix = "bedrock-admin/snapshots"
+	// DefaultAdminPermissionSet is the permission set bedrock-admin block exempts from its deny.
 	DefaultAdminPermissionSet = "BedrockAdmin"
 	EnvConfig                 = "BEDROCK_ADMIN_CONFIG"
 )
@@ -37,18 +37,19 @@ const (
 var DefaultAlertAtPercent = []int{80}
 
 type Config struct {
-	ID               string           `yaml:"id" json:"id"`
-	Account          string           `yaml:"account" json:"account"`
-	Region           string           `yaml:"region" json:"region"`
-	Profile          string           `yaml:"profile,omitempty" json:"profile,omitempty"`
-	Product          string           `yaml:"product" json:"product"`
-	Models           []string         `yaml:"models,omitempty" json:"models,omitempty"`
-	Defaults         Defaults         `yaml:"defaults" json:"defaults"`
-	CostExport       CostExport       `yaml:"cost_export" json:"cost_export"`
-	BlockDirectCalls BlockDirectCalls `yaml:"block_direct_calls" json:"block_direct_calls"`
-	WebSearch        WebSearch        `yaml:"web_search,omitempty" json:"web_search,omitempty"`
-	Report           Report           `yaml:"report,omitempty" json:"report,omitempty"`
-	Users            []User           `yaml:"users" json:"users"`
+	ID         string     `yaml:"id" json:"id"`
+	Account    string     `yaml:"account" json:"account"`
+	Region     string     `yaml:"region" json:"region"`
+	Profile    string     `yaml:"profile,omitempty" json:"profile,omitempty"`
+	Product    string     `yaml:"product" json:"product"`
+	Models     []string   `yaml:"models,omitempty" json:"models,omitempty"`
+	Defaults   Defaults   `yaml:"defaults" json:"defaults"`
+	CostExport CostExport `yaml:"cost_export" json:"cost_export"`
+	// LegacyBlock is the removed block_direct_calls: section, kept only to warn about it.
+	LegacyBlock *yaml.Node `yaml:"block_direct_calls,omitempty" json:"-"`
+	WebSearch   WebSearch  `yaml:"web_search,omitempty" json:"web_search,omitempty"`
+	Report      Report     `yaml:"report,omitempty" json:"report,omitempty"`
+	Users       []User     `yaml:"users" json:"users"`
 
 	// Path is the file the config was read from ("" when built in memory).
 	Path string `yaml:"-" json:"-"`
@@ -68,12 +69,6 @@ type CostExport struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// SnapshotPrefix is where the monthly Lambda writes snapshots; default bedrock-admin/snapshots.
 	SnapshotPrefix string `yaml:"snapshot_prefix,omitempty" json:"snapshot_prefix,omitempty"`
-}
-
-type BlockDirectCalls struct {
-	Enabled            bool   `yaml:"enabled" json:"enabled"`
-	Method             string `yaml:"method,omitempty" json:"method,omitempty"`
-	AdminPermissionSet string `yaml:"admin_permission_set,omitempty" json:"admin_permission_set,omitempty"`
 }
 
 // WebSearch turns on the AgentCore Web Search gateway for every user.
@@ -141,7 +136,6 @@ var (
 	nameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,29}$`)
 	bucketRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 	productRe = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,128}$`)
-	psRe      = regexp.MustCompile(`^[A-Za-z0-9+=,.@-]{1,32}$`)
 	iamUserRe = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
 	domainRe  = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 	invalidCh = regexp.MustCompile(`[^a-z0-9.-]+`)
@@ -293,12 +287,6 @@ func (c *Config) ApplyDefaults() {
 	if c.CostExport.Bucket == "" && c.Account != "" && c.ID != "" {
 		c.CostExport.Bucket = policy.BucketName(c.Account, c.ID)
 	}
-	if c.BlockDirectCalls.Method == "" {
-		c.BlockDirectCalls.Method = DefaultMethod
-	}
-	if c.BlockDirectCalls.AdminPermissionSet == "" {
-		c.BlockDirectCalls.AdminPermissionSet = DefaultAdminPermissionSet
-	}
 	if c.Defaults.Notify == "" {
 		c.Defaults.Notify = DefaultNotify
 	}
@@ -358,14 +346,6 @@ func (c *Config) Validate() error {
 	}
 	if !exportRe.MatchString(c.CostExport.Name) {
 		add("cost_export.name: lowercase letters, digits and '-' only (got %q)", c.CostExport.Name)
-	}
-	switch c.BlockDirectCalls.Method {
-	case "permission-set", "scp":
-	default:
-		add("block_direct_calls.method: must be permission-set or scp (got %q)", c.BlockDirectCalls.Method)
-	}
-	if !psRe.MatchString(c.BlockDirectCalls.AdminPermissionSet) {
-		add("block_direct_calls.admin_permission_set: not a permission set name (got %q)", c.BlockDirectCalls.AdminPermissionSet)
 	}
 	if c.WebSearch.Enabled && !slices.Contains(WebSearchRegions, c.Region) {
 		add("web_search.enabled: web search is only available in %s (region is %q)", strings.Join(WebSearchRegions, ", "), c.Region)

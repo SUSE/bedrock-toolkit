@@ -144,6 +144,7 @@ bedrock models                       # the models you may use
 | `users` | Who is onboarded, who has run `bedrock setup`, and who is paused |
 | `fleet` | For a central admin only: creates the report bucket and shows every setup's report, and each team's active users and spend per product, day or month, also as CSV or Markdown to share; see the [central admin guide](central-admin-guide.md) |
 | `uninstall` | Removes the account setup. Refuses while users remain |
+| `block` | Blocks model calls outside personal roles: `policy` writes the policy and instructions for your AWS Organizations admin, who runs `apply`; `status` shows which permission sets carry the deny |
 
 `bedrock`, for users:
 

@@ -132,7 +132,7 @@ func LambdaArn(region, account, id string) string {
 var DenyActions = []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
 	"bedrock:CreateModelInvocationJob", "bedrock:CallWithBearerToken", "bedrock-agentcore:InvokeGateway"}
 
-// BlockActions are the actions Step 1.7 blocks outside personal roles.
+// BlockActions are the actions bedrock-admin block denies outside personal roles.
 var BlockActions = []string{"bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
 	"bedrock:CreateModelInvocationJob", "bedrock:CallWithBearerToken",
 	"bedrock:InvokeAgent", "bedrock:InvokeFlow", "bedrock:RetrieveAndGenerate"}
@@ -278,18 +278,16 @@ func UserTrust(account, email, iamUser string) string {
 
 // IAMUsers is the managed policy attached to the IAM users that may use personal roles: assume a
 // personal role (each role's trust admits only its own IAM user), read their own tags (bedrock
-// setup reads the email from them) and, with block, the Step 1.7 deny, so their access keys can't
+// setup reads the email from them) and the bedrock-admin block deny, so their access keys can't
 // call models directly.
-func IAMUsers(account, id string, block bool) string {
+func IAMUsers(account, id string) string {
 	s := []stmt{
 		{"Sid": "AssumeBedrockPersonalRole", "Effect": "Allow", "Action": "sts:AssumeRole", "Resource": UserRolesArn(account, id)},
 		{"Sid": "ReadOwnTags", "Effect": "Allow", "Action": "iam:ListUserTags", "Resource": []string{
 			fmt.Sprintf("arn:aws:iam::%s:user/${aws:username}", account),
 			fmt.Sprintf("arn:aws:iam::%s:user/*/${aws:username}", account)}},
 	}
-	if block {
-		s = append(s, stmt{"Sid": BlockSid, "Effect": "Deny", "Action": BlockActions, "Resource": "*"})
-	}
+	s = append(s, stmt{"Sid": BlockSid, "Effect": "Deny", "Action": BlockActions, "Resource": "*"})
 	return document(s...)
 }
 
@@ -426,15 +424,15 @@ func UserInvoke(account, id, role, budget, usageBucket, webSearchRegion string, 
 	return document(s...)
 }
 
-// BlockStatement is the Step 1.7 deny, as one statement (for an SCP or a permission set).
+// BlockStatement is the deny of bedrock-admin block, as one statement (for an SCP or a permission set).
 func BlockStatement(adminPermissionSet string) map[string]any {
 	return stmt{"Sid": BlockSid, "Effect": "Deny", "Action": BlockActions, "Resource": "*",
 		"Condition": doc{
-			"ArnLike":    doc{"aws:PrincipalArn": "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_*"},
-			"ArnNotLike": doc{"aws:PrincipalArn": "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_" + adminPermissionSet + "_*"}}}
+			"ArnLike":    doc{"aws:PrincipalArn": ssoRoleArn},
+			"ArnNotLike": doc{"aws:PrincipalArn": ssoRoleArnPrefix + adminPermissionSet + "_*"}}}
 }
 
-// Block is the full Step 1.7 policy document, pretty-printed for the org admin.
+// Block is the full bedrock-admin block policy document, pretty-printed for the org admin.
 func Block(adminPermissionSet string) string {
 	b, _ := json.MarshalIndent(doc{"Version": "2012-10-17", "Statement": []any{BlockStatement(adminPermissionSet)}}, "", "  ")
 	return string(b) + "\n"
@@ -442,9 +440,7 @@ func Block(adminPermissionSet string) string {
 
 // AssumePersonalRoles is what users' permission sets need so they can assume their personal role.
 func AssumePersonalRoles() string {
-	b, _ := json.MarshalIndent(doc{"Version": "2012-10-17", "Statement": []any{stmt{
-		"Sid": "AssumeBedrockPersonalRole", "Effect": "Allow", "Action": "sts:AssumeRole",
-		"Resource": "arn:aws:iam::*:role/bedrock-users/*"}}}, "", "  ")
+	b, _ := json.MarshalIndent(doc{"Version": "2012-10-17", "Statement": []any{AssumeStatement()}}, "", "  ")
 	return string(b) + "\n"
 }
 
@@ -500,43 +496,6 @@ func normalize(v any) any {
 		return out
 	}
 	return v
-}
-
-// HasBlock reports whether a policy document denies every Step 1.7 action on all resources.
-// The org admin may adjust the statement (for example name the account in the ARNs), so only the
-// effect, actions and resource are checked.
-func HasBlock(document string) bool {
-	var d struct {
-		Statement json.RawMessage `json:"Statement"`
-	}
-	if json.Unmarshal([]byte(Decode(document)), &d) != nil {
-		return false
-	}
-	var list []map[string]any
-	if json.Unmarshal(d.Statement, &list) != nil {
-		var one map[string]any
-		if json.Unmarshal(d.Statement, &one) != nil {
-			return false
-		}
-		list = []map[string]any{one}
-	}
-	for _, s := range list {
-		if s["Effect"] != "Deny" || !covers(strList(s["Resource"]), "*") {
-			continue
-		}
-		actions := strList(s["Action"])
-		ok := true
-		for _, a := range BlockActions {
-			if !covers(actions, a) {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
 }
 
 // AllowsAssumePersonalRole reports whether a policy document allows sts:AssumeRole on personal roles.

@@ -44,7 +44,7 @@ func (e *Env) iamUsersPolicy(ctx context.Context) ([]*plan.Item, error) {
 		}
 		return one(it), nil
 	}
-	want := policy.IAMUsers(e.C.Account, e.Cfg.ID, e.Cfg.BlockDirectCalls.Enabled)
+	want := policy.IAMUsers(e.C.Account, e.Cfg.ID)
 	switch {
 	case !exists:
 		it.Op, it.Details, it.Status = plan.Create, []string{"create"}, ""
@@ -70,14 +70,10 @@ func (e *Env) iamUsersPolicy(ctx context.Context) ([]*plan.Item, error) {
 			return nil, err
 		}
 		if !policy.Equal(policy.Decode(aws.ToString(v.PolicyVersion.Document)), want) {
-			it.Op, it.Details, it.Status = plan.Update, []string{"policy differs (block_direct_calls changed, or a bedrock-admin upgrade)"}, ""
+			it.Op, it.Details, it.Status = plan.Update, []string{"policy differs (a bedrock-admin upgrade)"}, ""
 			it.Apply = func(ctx context.Context) error { return newPolicyVersion(ctx, e.C.IAM, arn, want) }
 		} else {
-			it.Status = fmt.Sprintf("ok (%d IAM users", len(names))
-			if e.Cfg.BlockDirectCalls.Enabled {
-				it.Status += "; denies direct model calls with their keys"
-			}
-			it.Status += ")"
+			it.Status = fmt.Sprintf("ok (%d IAM users; denies direct model calls with their keys)", len(names))
 		}
 	}
 	var missing []string

@@ -42,7 +42,7 @@ PAUSE_REASON_TAG = "bedrock:pause-reason"
 WEB_SEARCH_TARGET = "web-search"
 WEB_SEARCH_TOOL = "web-search___WebSearch"
 WEB_SEARCH_REGIONS = ("us-east-1", "eu-west-1", "ap-northeast-1")
-PENDING_OPS = {"create", "update", "delete", "needs-org-admin", "conflict"}
+PENDING_OPS = {"create", "update", "delete", "conflict"}
 
 DEFAULTS = {
     "ADMIN_PROFILE": "default",
@@ -205,7 +205,6 @@ class BedrockE2E:
             "product": s["PRODUCT"],
             "models": list(s["MODELS"]),
             "defaults": {"limit_usd": 1, "notify": s["NOTIFY_EMAIL"] or "owner"},
-            "block_direct_calls": {"enabled": False},
             "users": [],
         }
         logger.info(f"Run id: {self.run_id}", also_console=True)
@@ -224,11 +223,6 @@ class BedrockE2E:
         self.cfg["id"] = id_
         self._publish_id()
         return id_
-
-    def enable_block_direct_calls(self):
-        """Step 1.7 on, method permission-set, as a real setup has it."""
-        self.cfg["block_direct_calls"] = {"enabled": True, "method": "permission-set",
-                                          "admin_permission_set": self._settings()["ADMIN_PERMISSION_SET"]}
 
     def names(self, id_=None):
         """The account-level resource names of setup id_ (default: the run's)."""
@@ -324,11 +318,10 @@ class BedrockE2E:
         return str(path)
 
     def write_config_with_id(self, id_, *xs, name=None):
-        """Writes a copy of the config with another id (a second setup in the account) and users xs,
-        Step 1.7 off; returns its path."""
+        """Writes a copy of the config with another id (a second setup in the account) and users xs;
+        returns its path."""
         cfg = json.loads(json.dumps(self.cfg))
         cfg["id"] = id_
-        cfg["block_direct_calls"] = {"enabled": False}
         cfg["users"] = [{"email": self.user_email(x)} for x in xs]
         return self.write_config(name or f"{id_}.yaml", cfg)
 
@@ -355,26 +348,6 @@ class BedrockE2E:
         return env
 
     @staticmethod
-    def _only_handoffs_pending(stdout):
-        """True when a plan/apply --json exit 2 is caused only by org admin handoffs (a linked account)."""
-        try:
-            d = json.loads(stdout)
-        except ValueError:
-            # Text output: a "Pending:" section of "  <label>" lines, each followed by "    <reason>".
-            lines = stdout.splitlines()
-            if "Pending:" not in lines:
-                return False
-            reasons = []
-            for l in lines[lines.index("Pending:") + 1:]:
-                if not l.strip() or not l.startswith("  "):
-                    break
-                if l.startswith("    "):
-                    reasons.append(l)
-            return bool(reasons) and all("needs org admin" in l for l in reasons)
-        pending = d.get("pending") or [i for i in d.get("items", []) if i.get("op") in PENDING_OPS]
-        return bool(pending) and all(i.get("op") == "needs-org-admin" for i in pending)
-
-    @staticmethod
     def _check_rc(r, rc, cmd):
         if str(rc) != "any" and r.rc != int(rc):
             raise Failure(f"{cmd}: exit {r.rc}, expected {rc}\n{r.stdout}\n{r.stderr}")
@@ -393,8 +366,6 @@ class BedrockE2E:
             cmd += ["-f", config or self.write_config()]
         cmd += [str(a) for a in args]
         r = self._exec(cmd, env, stdin, "bedrock-admin " + " ".join(str(a) for a in args))
-        if str(rc) == "0" and r.rc == 2 and self._only_handoffs_pending(r.stdout):
-            r = Result(0, r.stdout, r.stderr)
         self._check_rc(r, rc, "bedrock-admin " + " ".join(str(a) for a in args))
         if output == "result":
             return r
@@ -443,13 +414,8 @@ class BedrockE2E:
     def pending_targets(plan):
         return [i["target"] for i in plan["items"] if i["op"] in PENDING_OPS]
 
-    @staticmethod
-    def changes_but_handoffs(plan):
-        """Pending targets other than the org admin handoffs (Step 1.7)."""
-        return [i["target"] for i in plan["items"] if i["op"] in PENDING_OPS and i["op"] != "needs-org-admin"]
-
     def plan_should_have_no_changes(self, plan):
-        p = self.changes_but_handoffs(plan)
+        p = self.pending_targets(plan)
         if p:
             raise Failure(f"plan has changes: {p}")
 
@@ -764,7 +730,7 @@ class BedrockE2E:
         iam.delete_role(RoleName=role)
 
     def block_policy_file_should_exist(self):
-        """apply's Step 1.7 handoff wrote the policy file for the org admin."""
+        """bedrock-admin block policy wrote the policy file for the org admin."""
         path = self.cwd / "bedrock-block-policy.json"
         if not path.exists():
             raise Failure(f"no {path}")

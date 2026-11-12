@@ -16,7 +16,7 @@ and manage users with `bedrock-admin`, from one file, `bedrock.yaml`.
 - [6. Pause someone yourself](#6-pause-someone-yourself)
 - [7. Read spend](#7-read-spend)
 - [8. Check production](#8-check-production)
-- [9. Block direct model calls (Step 1.7)](#9-block-direct-model-calls-step-17)
+- [9. Block direct model calls](#9-block-direct-model-calls)
 - [10. Turn on web search (optional)](#10-turn-on-web-search-optional)
 - [11. Remove everything](#11-remove-everything)
 - [The `id`: several setups in one account](#the-id-several-setups-in-one-account)
@@ -43,8 +43,9 @@ bedrock-admin plan                                # see what apply will create (
 bedrock-admin apply                               # create it; prints the command for each new user
 ```
 
-Then send each new user the `bedrock setup` command that `apply` prints, and send your org admin the
-`bedrock-block-policy.json` file that `apply` writes ([step 9](#9-block-direct-model-calls-step-17)).
+Then send each new user the `bedrock setup` command that `apply` prints. To stop users calling
+models outside their personal role, send your org admin the file `bedrock-admin block policy`
+writes ([step 9](#9-block-direct-model-calls)).
 
 After that:
 
@@ -87,6 +88,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
 | `bedrock-admin setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones | [id](#list-change-or-remove-a-setup) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
+| `bedrock-admin block` | Blocks model calls outside personal roles: `policy` writes the file for your org admin, `status` checks, `apply` is for the org admin | [9](#9-block-direct-model-calls) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
 codes: 0 ok, 1 error, 2 ran fine but found a problem. Run `bedrock-admin <command> --help` for
@@ -132,10 +134,10 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | `permissions` | It could read every part of the account setup |
 | `Step 1.1` to `Step 1.9` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
+| `direct model calls` | Every permission set but the admin one carries the deny ([step 9](#9-block-direct-model-calls)). A warning otherwise |
 | `model <id>` | A test call to each model in `models:` and the baseline works (only the baseline when `models:` is empty) |
 
-In an account that isn't the organization's management account, Step 1.7 waits for your org admin,
-and `bedrock-admin` can't read the cost allocation tag (Step 1.6). It then looks for signs that the
+In an account that isn't the organization's management account, `bedrock-admin` can't read the cost allocation tag (Step 1.6). It then looks for signs that the
 tag is active: a budget on `iamPrincipal/owner` with spend this month, or the tag in this or last
 month's cost export. With either, Step 1.6 is `ok`; otherwise it's a warning (`WARN` in `doctor`),
 which doesn't change the exit code of `plan`, `apply` or `doctor` but matters: until the tag is
@@ -165,8 +167,8 @@ ok    Step 1.5 model us.anthropic.claude-sonnet-5-5: ok
 ok    Step 1.5 model us.anthropic.claude-haiku-5-5: ok
 WARN  Step 1.6 cost allocation tag iamPrincipal/owner: can't check from this account (only the management account can); budgets count spend only once it's active
       fix: ask your org admin to activate iamPrincipal/owner in the management account (Billing → Cost allocation tags)
-FAIL  Step 1.7 block direct model calls: needs org admin: deny missing on AWSAdministratorAccess, AWSPowerUserAccess
-      fix: bedrock-admin apply writes bedrock-block-policy.json and the instructions for the org admin
+WARN  direct model calls: permission sets without the deny (unless an SCP blocks them): AWSAdministratorAccess, AWSPowerUserAccess
+      fix: see bedrock-admin block status
 ok    cost export data: 12 files, newest 2026-10-08 11:08 UTC (5h0m0s ago)
 ok    model us.anthropic.claude-opus-5-5: test call ok
 ok    model us.anthropic.claude-sonnet-5-5: test call ok
@@ -178,8 +180,8 @@ ok    model us.anthropic.claude-haiku-5-5: test call ok
 ### Admin permissions
 
 A permission set with `AdministratorAccess` has everything you need. You don't need AWS
-Organizations rights. Name the permission set `BedrockAdmin` (or whatever you set in
-`block_direct_calls.admin_permission_set`).
+Organizations rights. Name the permission set `BedrockAdmin`: that is the one
+[`block`](#9-block-direct-model-calls) leaves out by default.
 
 <details>
 <summary>Rights per service</summary>
@@ -189,7 +191,7 @@ them all.
 
 | Service | Used for |
 | --- | --- |
-| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (Step 1.7). With `iam_user:` users: `iam:GetUser`, `iam:ListUserTags`, `iam:TagUser`, `iam:UntagUser`, `iam:AttachUserPolicy`, `iam:DetachUserPolicy`, `iam:ListAttachedUserPolicies` and `iam:ListEntitiesForPolicy` (Step 1.9) |
+| IAM | Roles and policies under the paths `/bedrock/` and `/bedrock-users/`, their tags and inline policies, `iam:PassRole` for the Lambda, scheduler and budget actions roles, and reading the inline policy of the `AWSReservedSSO_*` roles (`block status`, `doctor`). With `iam_user:` users: `iam:GetUser`, `iam:ListUserTags`, `iam:TagUser`, `iam:UntagUser`, `iam:AttachUserPolicy`, `iam:DetachUserPolicy`, `iam:ListAttachedUserPolicies` and `iam:ListEntitiesForPolicy` (Step 1.9) |
 | AWS Budgets | Budgets, notifications and budget actions, including running and resetting actions |
 | Data Exports (`bcm-data-exports`) | The CUR 2.0 export (Step 1.1) |
 | S3 | Creating the cost export bucket, its policy and public access block; listing and reading the export and snapshot files. Include `s3:GetBucketLocation` on the bucket: `usage` and `doctor` read the bucket's region with it. |
@@ -200,12 +202,12 @@ them all.
 | Bedrock AgentCore | The web search gateway and its target (Step 1.8, only with `web_search.enabled`) |
 | STS | `sts:GetCallerIdentity` |
 
-You don't need AWS Organizations rights. The one step that does, Step 1.7, is handed to your org
-admin (see [step 9](#9-block-direct-model-calls-step-17)).
+You don't need AWS Organizations rights. Blocking direct model calls does, so your org admin runs
+`bedrock-admin block apply` (see [step 9](#9-block-direct-model-calls)).
 
-Name your admin permission set to match `block_direct_calls.admin_permission_set` (default
-`BedrockAdmin`). Step 1.7 blocks model calls from every other SSO role, and `apply` and `doctor`
-make model calls.
+Name your admin permission set `BedrockAdmin`, or tell your org admin its name for
+`--admin-permission-set`. The block denies model calls from every other SSO role, and `apply` and
+`doctor` make model calls.
 
 </details>
 
@@ -268,9 +270,8 @@ users:
 `apply` then:
 
 - creates `bedrock-iam-users-<id>` (Step 1.9) and attaches it to the IAM user. It lets the user
-  assume only their own personal role and read their own tags, and, with
-  `block_direct_calls.enabled`, denies direct model calls, so IAM users need nothing from your org
-  admin for Step 1.7;
+  assume only their own personal role and read their own tags, and denies direct model calls, so
+  IAM users need nothing from your org admin;
 - tags the IAM user like the personal role: `owner=<email>`, `product` and `bedrock-admin:id`. The
   budget counts the Bedrock calls the IAM user makes directly as well as the personal role's.
   Billing records IAM principal tags only on Bedrock, so the IAM user's other AWS spend never counts;
@@ -317,9 +318,6 @@ bedrock-admin configure --profile bedrock-admin --yes --id acmeprod --product ge
 | `--model` (repeatable) | Claude Opus, Sonnet and Haiku 5.5 through the region's `us.` or `eu.` inference profiles, or `global.` in other regions |
 | `--bucket` | `bedrock-cur-<account>-<id>` |
 | `--prefix` | `cur` |
-| `--block-direct-calls` | `true` |
-| `--method` | `permission-set` |
-| `--admin-permission-set` | `BedrockAdmin` |
 
 `configure` writes `-f`, or `./bedrock.yaml`. On an existing file it keeps `users:`. `--dry-run`
 prints the file instead of writing it. It ends with "Next: add users: entries, then run
@@ -351,11 +349,6 @@ defaults:
 cost_export:                    # optional; these are the defaults
   bucket: bedrock-cur-111122223333-acmeprod
   prefix: cur
-
-block_direct_calls:
-  enabled: true                 # false skips Step 1.7
-  method: permission-set        # how your org admin applied it: permission-set or scp
-  admin_permission_set: BedrockAdmin
 
 web_search:                     # optional, see step 10
   enabled: false
@@ -519,7 +512,7 @@ Send each new user their setup command (after aws sso login, or with their acces
 ```
 
 Send it, and point them to the [user guide](user-guide.md). Step 1.6 clears by itself within 24
-hours of the first user call. Step 1.7 needs your org admin ([step 9](#9-block-direct-model-calls-step-17)).
+hours of the first user call.
 
 <details>
 <summary>Sample plan output</summary>
@@ -541,14 +534,13 @@ Account setup
   1.5 model us.anthropic.claude-sonnet-5-5                 ok
   1.5 model us.anthropic.claude-haiku-5-5                  ok
   1.6 cost allocation tag iamPrincipal/owner               waiting for first use (appears up to 24 h after the first personal-role call)
-? 1.7 block direct model calls                             needs org admin: deny missing on AWSAdministratorAccess, AWSPowerUserAccess
 
 Users
 + achen@example.com  onboard, limit 50
 + bkim@example.com   onboard, limit 100
 + cdiaz@example.com  onboard, limit 30
 
-Plan: 11 to create, 1 needs org admin.
+Plan: 11 to create.
 ```
 
 </details>
@@ -561,7 +553,6 @@ Plan: 11 to create, 1 needs org admin.
 | `+` | Create |
 | `~` | Change |
 | `-` | Remove |
-| `?` | Needs your org admin (Step 1.7) |
 | `!` | Conflict: something exists that `bedrock-admin` didn't create. It is left alone. |
 | (blank) | Nothing to do |
 
@@ -573,7 +564,6 @@ Plan: 11 to create, 1 needs org admin.
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` (1024 MB), its role, and two EventBridge Scheduler schedules: `bedrock-monthly-unpause-<id>` at 06:00 UTC on the 1st, and `bedrock-daily-<id>` at 07:00 UTC every day, which writes each user's daily usage file (and the central report, with `report:`). The Lambda code is built into `bedrock-admin`; after an upgrade, `plan` shows an update and `apply` deploys the new code. |
 | 1.5 | Each model in `models:` and every baseline model (only those when `models:` is empty) is available, checked (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). If not, `apply` makes the first call, which enables it and accepts its agreement. AWS updates the status a few minutes later, so a `plan` right after `apply` can still show `first call`; it clears by itself. |
 | 1.6 | The cost allocation tag `iamPrincipal/owner` is active. It appears only after the first call through a personal role, up to 24 hours later. Only the management account can read and activate it; elsewhere Step 1.6 is `ok` when a budget on the tag has spend or the cost export carries the tag, else a warning to ask your org admin (not a change, so the exit code stays 0). |
-| 1.7 | Model calls are blocked outside personal roles. Your org admin applies it; see [step 9](#9-block-direct-model-calls-step-17). |
 | 1.8 | Only with `web_search.enabled`: the role `bedrock-web-search-gateway-<id>`, the AgentCore gateway `bedrock-web-search-<id>` and its Web Search target; see [step 10](#10-turn-on-web-search-optional). |
 | 1.9 | Only when a user has `iam_user:`: the managed policy `bedrock-iam-users-<id>` attached to those IAM users; see [IAM users](#users-without-sso-iam-users). It warns about IAM users that don't exist. |
 
@@ -596,8 +586,9 @@ user:
 2. Run `aws sso login`, then the `bedrock setup ...` line `apply` printed for them.
 3. Run `bedrock claude` for the Claude Code and Claude desktop app settings.
 
-`apply` exits 2 when something is still pending, such as Step 1.7. `apply --dry-run` shows the plan
-and changes nothing. Once Step 1.7 is done, `plan` prints `No changes.` and exits 0.
+`apply` exits 2 when something is still pending, for example a conflict, or a removal without
+`--yes`. `apply --dry-run` shows the plan and changes nothing. Once everything is in place, `plan`
+prints `No changes.` and exits 0.
 
 </details>
 
@@ -878,7 +869,7 @@ yet.
 
 | Used via | Meaning | Action |
 | --- | --- | --- |
-| `SSO role <permission set>` | Called Bedrock straight from their SSO login, not the `bedrock` profile | Ask them to follow the [user guide](user-guide.md). Onboard them if they aren't yet. Step 1.7 stops this. |
+| `SSO role <permission set>` | Called Bedrock straight from their SSO login, not the `bedrock` profile | Ask them to follow the [user guide](user-guide.md). Onboard them if they aren't yet. [Blocking direct model calls](#9-block-direct-model-calls) stops this. |
 | `personal role without owner tag: <role>` | A personal role is missing its `owner` tag | `apply` |
 | `personal role without budget: <role>` | A personal role with an owner who has no budget in this file | Add the user to the file, or remove the role |
 | `role <role>` | Another IAM role, such as an application role | Find the owner of the role |
@@ -930,59 +921,94 @@ bedrock-admin plan -f prod/bedrock.yaml
 Exit 0 means the account matches the file. Exit 2 means something differs, for example a budget
 edited in the console. `apply` puts back the file's version. `--quiet` prints only the changes.
 
-## 9. Block direct model calls (Step 1.7)
+## 9. Block direct model calls
 
-Users can call Bedrock straight from their SSO login and bypass their budget. Step 1.7 blocks that.
-It needs AWS Organizations rights, so your org admin applies it:
-
-1. Keep `block_direct_calls.enabled: true` in `bedrock.yaml` (the `configure` default).
-2. `bedrock-admin apply` writes `bedrock-block-policy.json` in the current directory and prints
-   instructions; the rest of `apply` continues. Send both to your org admin.
-3. When they are done, set `block_direct_calls.method` to what they used (`permission-set` or
-   `scp`), and run `bedrock-admin plan`.
-
-Step 1.7 covers SSO logins. IAM users with `iam_user:` get the same deny from the Step 1.9 policy,
-which `apply` attaches itself.
-
-<details>
-<summary>The setting and the instructions apply prints</summary>
-
-```yaml
-block_direct_calls:
-  enabled: true
-  method: permission-set
-  admin_permission_set: BedrockAdmin
+```bash
+bedrock-admin block policy      # write bedrock-block-policy.json and the instructions; send both to your org admin
+bedrock-admin block status      # afterwards: which permission sets carry the deny
 ```
 
+Users can call Bedrock straight from their SSO login and bypass their budget, pause and per-user
+cost. Blocking that is a deny on every SSO role except your admin permission set: an SCP on the
+account, or a statement in each permission set's inline policy. Both need AWS Organizations
+rights, which setup admins usually don't have, so it isn't part of `plan` and `apply`:
+
+1. `bedrock-admin block policy` writes `bedrock-block-policy.json` and prints instructions. Send
+   both to your org admin.
+2. They run `bedrock-admin block apply` (or make the same change by hand).
+3. `bedrock-admin block status` shows the result. `doctor` warns while permission sets lack the deny.
+
+IAM users with `iam_user:` get the same deny from the Step 1.9 policy, which `apply` attaches
+itself, so they need nothing from your org admin.
+
+<details>
+<summary>Sample output of block policy and block status</summary>
+
 ```text
-Step 1.7 needs your AWS Organizations admin. Wrote bedrock-block-policy.json. Send it with these instructions:
+$ bedrock-admin block policy
+Wrote bedrock-block-policy.json. Blocking model calls outside personal roles needs AWS Organizations rights.
+Send the file to your Organizations admin with these instructions:
 
   Block Bedrock model calls outside personal roles in account 111122223333, either way:
   - SCP (preferred; covers every permission set, including future ones; has no effect if 111122223333
-    is the management account): create an SCP from the file and attach it to the account.
-  - Permission sets: add the statement in the file to the inline policy of every permission set
-    assigned to the account except BedrockAdmin, then re-provision them.
+    is the management account):
+      bedrock-admin block apply --account 111122223333 --method scp --admin-permission-set BedrockAdmin
+    or create an SCP from the file and attach it to the account.
+  - Permission sets:
+      bedrock-admin block apply --account 111122223333 --method permission-set --admin-permission-set BedrockAdmin
+    or add the statement in the file to the inline policy of every permission set assigned to
+    the account except BedrockAdmin, then re-provision them.
 
-Then set block_direct_calls.method in bedrock.yaml to match (permission-set or scp) and run plan.
+Check the result with: bedrock-admin block status
+
+$ bedrock-admin block status
+Direct model calls in account 111122223333 (admin permission set BedrockAdmin)
+
+PERMISSION SET          DENY    ASSUME ROLE
+AWSAdministratorAccess  yes     yes
+AWSPowerUserAccess      yes     yes
+BedrockAdmin            exempt  yes
+BedrockUser             yes     yes
 ```
+
+`block policy` takes the account from your profile (`--account` for another) and
+`--admin-permission-set` (default `BedrockAdmin`). `block status` detects the admin permission set
+from an existing deny, or takes `--admin-permission-set`.
 
 </details>
 
 <details>
-<summary>How plan checks it, and what it doesn't cover</summary>
+<summary>What block apply does (for the org admin)</summary>
 
-| `method` | What `plan` shows |
+The org admin runs it with a profile in the management account or a delegated administrator
+account. It asks before changing anything unless `--yes` is given; `--dry-run` only shows what it
+would do.
+
+| `--method` | What it does |
 | --- | --- |
-| `permission-set` | Reads the inline policy of each `AWSReservedSSO_*` role in the account. `needs org admin: deny missing on X, Y` until each permission set carries the deny, then `ok (N permission sets carry the deny)`. |
-| `scp` | `applied by SCP (not checkable here)`. SCPs can't be read from a member account. It doesn't count as a change. |
+| `scp` | Creates or updates the SCP `bedrock-personal-role-only-<account>` and attaches it to the account. Covers every permission set, including future ones, but has no effect in the management account. |
+| `permission-set` | Adds the deny, limited to `--account`, to the inline policy of every permission set provisioned to the account except `--admin-permission-set`, then re-provisions them to that account. `--user-permission-set` (repeatable) also lets the named sets assume the personal roles. `--sso-region` and `--instance-arn` pick the IAM Identity Center instance. |
 
-With `enabled: false`, `plan` shows `skipped (enabled: false)`. That doesn't remove a deny that is
-already in place; that is also your org admin's job.
+```bash
+bedrock-admin block apply --account 111122223333 --method scp
+bedrock-admin block apply --account 111122223333 --method permission-set --user-permission-set BedrockUser
+```
+
+The permission-set deny names the account, so a permission set shared by several accounts blocks
+only those that ran `block apply`. Removing a deny is done by hand.
+
+</details>
+
+<details>
+<summary>What it doesn't cover</summary>
 
 Users' permission sets must also allow `sts:AssumeRole` on `role/bedrock-users/*`, or users can't
-use their personal role. `plan` warns about permission sets that lack it (sets with
-`AdministratorAccess` or `PowerUserAccess` already have it), and `apply` adds the statement to the
-org admin instructions.
+use their personal role (sets with `AdministratorAccess` or `PowerUserAccess` already have it).
+`block status` shows it in the ASSUME ROLE column; `block apply --user-permission-set` adds it.
+
+`block status` reads the inline policy of each `AWSReservedSSO_*` role in the account. An SCP
+can't be read from a member account, so with `--method scp` it shows `no` even though calls are
+blocked.
 
 From then on, only personal roles (tracked and capped) and the admin permission set can call
 models. Check with `bedrock-admin usage --untracked`: no SSO roles should appear. If one does, the
@@ -1112,8 +1138,8 @@ from another setup's file.
   alone.
 - `usage` counts spend through other setups' personal roles neither as tracked nor untracked; it
   prints it as one line, "Other setups in this account".
-- Shared by every setup in the account: the cost allocation tag (Step 1.6) and the Step 1.7 deny
-  your org admin adds to the permission sets.
+- Shared by every setup in the account: the cost allocation tag (Step 1.6) and the
+  [block](#9-block-direct-model-calls) on direct model calls.
 - Users run `bedrock setup --id <id>`; `apply` prints that command. Someone in two setups runs `bedrock setup` once per setup, and adds
   `--profile-name <name>` to the second so it doesn't replace the first `bedrock` profile, for
   example `bedrock setup --id longhorn --profile-name bedrock-longhorn`. `bedrock doctor`, `claude`
@@ -1174,7 +1200,7 @@ bedrock-admin usage -f bedrock-harvester.yaml
 
 (or `export BEDROCK_ADMIN_CONFIG=bedrock-harvester.yaml`). Nothing is shared between accounts: each
 has its own users, budgets, monthly Lambda, web search gateway and cost export, and each needs its
-own Step 1.6 and Step 1.7 from your org admin.
+own Step 1.6 and `block apply` from your org admin.
 
 The same person can be a user in several accounts; they get a role in each. `bedrock setup` takes
 the account from the SSO profile it signs in with, so they need an SSO profile for each account
@@ -1268,5 +1294,6 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Report to a central bucket | Add `report:` to `bedrock.yaml`, then `apply` |
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |
 | Check my setup | `bedrock-admin doctor` |
+| Stop direct model calls | `bedrock-admin block policy`, send the file to your org admin; then `bedrock-admin block status` |
 | Remove everything | `users: []`, `bedrock-admin apply --yes`, then `bedrock-admin uninstall` |
 | Set up a user's machine | `bedrock setup --id <id>` (the user runs it) |

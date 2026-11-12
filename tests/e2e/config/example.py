@@ -18,9 +18,9 @@ MODELS = []
 # product tag of the test users.
 PRODUCT = "bedrock-e2e"
 
-# Step 1.7 (block direct model calls), method permission-set: the admin permission set, and a test
-# permission set an org admin has given the deny statement from block-direct-calls.json (the
-# account suite then expects "ok"; empty: it expects "needs-org-admin").
+# bedrock-admin block: the admin permission set (exempt from the deny), and a test permission set
+# an org admin has given the deny with bedrock-admin block apply --method permission-set (the
+# account suite then expects block status to show it; empty: not checked).
 ADMIN_PERMISSION_SET = "BedrockAdmin"
 BLOCK_TEST_PERMISSION_SET = ""
 

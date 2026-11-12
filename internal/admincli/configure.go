@@ -20,11 +20,10 @@ import (
 )
 
 type configureFlags struct {
-	id, account, region, product, bucket, prefix, method, adminPS string
-	reportBucket, reportRegion                                    string
-	models                                                        []string
-	limit                                                         float64
-	block                                                         bool
+	id, account, region, product, bucket, prefix string
+	reportBucket, reportRegion                   string
+	models                                       []string
+	limit                                        float64
 }
 
 func (a *App) configureCmd() *cobra.Command {
@@ -51,9 +50,6 @@ Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 	fl.Float64Var(&f.limit, "limit", 0, "default monthly limit in USD")
 	fl.StringVar(&f.bucket, "bucket", "", "cost export bucket (default: bedrock-cur-<account>-<id>)")
 	fl.StringVar(&f.prefix, "prefix", "", "cost export prefix (default: cur)")
-	fl.BoolVar(&f.block, "block-direct-calls", true, "block model calls outside personal roles (Step 1.7)")
-	fl.StringVar(&f.method, "method", "", "how the org admin applies Step 1.7: permission-set or scp")
-	fl.StringVar(&f.adminPS, "admin-permission-set", "", "permission set exempt from Step 1.7 (default: BedrockAdmin)")
 	fl.StringVar(&f.reportBucket, "report-bucket", "", "central report bucket your central admin gave you (default: no report)")
 	fl.StringVar(&f.reportRegion, "report-region", "", "region of --report-bucket")
 	return cmd
@@ -91,8 +87,6 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	set(&cur.Product, f.product)
 	set(&cur.CostExport.Bucket, f.bucket)
 	set(&cur.CostExport.Prefix, f.prefix)
-	set(&cur.BlockDirectCalls.Method, f.method)
-	set(&cur.BlockDirectCalls.AdminPermissionSet, f.adminPS)
 	set(&cur.Report.Bucket, f.reportBucket)
 	set(&cur.Report.Region, f.reportRegion)
 	if len(f.models) > 0 {
@@ -101,9 +95,7 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	if f.limit > 0 {
 		cur.Defaults.LimitUSD = &f.limit
 	}
-	if cmd.Flags().Changed("block-direct-calls") || doc.Kind == 0 {
-		cur.BlockDirectCalls.Enabled = f.block
-	}
+	cur.LegacyBlock = nil
 	a.fillFromAWS(ctx, cur)
 
 	// A new file starts with the baseline models (the built-in models.toml).
@@ -250,18 +242,6 @@ func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) err
 	}
 	if err := q("bucket", "cost export bucket", &c.CostExport.Bucket, bucketDef); err != nil {
 		return err
-	}
-	if !changed("block-direct-calls") {
-		ok, err := p.Confirm("Block model calls outside personal roles (Step 1.7, needs your org admin)?")
-		if err != nil {
-			return err
-		}
-		c.BlockDirectCalls.Enabled = ok
-	}
-	if c.BlockDirectCalls.Enabled {
-		if err := q("method", "how will the org admin apply it (permission-set or scp)", &c.BlockDirectCalls.Method, config.DefaultMethod); err != nil {
-			return err
-		}
 	}
 	if err := q("report-bucket", "central report bucket, if your central admin gave you one (\"-\": none)", &c.Report.Bucket, "-"); err != nil {
 		return err

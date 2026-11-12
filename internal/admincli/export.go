@@ -133,9 +133,6 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		d := x.Export.DestinationConfigurations.S3Destination
 		cfg.CostExport.Bucket, cfg.CostExport.Prefix = aws.ToString(d.S3Bucket), aws.ToString(d.S3Prefix)
 	}
-	if base.Path == "" {
-		cfg.BlockDirectCalls = config.BlockDirectCalls{Enabled: true}
-	}
 	if !cfg.Report.Enabled() {
 		r, err := account.DeployedReport(ctx, c.Lambda, cfg.ID)
 		if err != nil {

@@ -147,7 +147,7 @@ func (a *App) applyCmd() *cobra.Command {
 		Long: `apply creates what's missing and fixes what differs from the file. Removals (offboarded users)
 and changes that recreate a budget action need --yes; --no-delete skips removals.
 
-Exit 2 when something is still pending afterwards (for example Step 1.7, which needs the org admin).`,
+Exit 2 when something is still pending afterwards (for example a conflict, or a removal without --yes).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -237,8 +237,6 @@ func (a *App) apply(ctx context.Context, p *plan.Plan) error {
 			if it.Section == "account" {
 				accountFailed = true
 			}
-		} else if it.Op == plan.Handoff {
-			out.Pending = append(out.Pending, it)
 		} else {
 			counts[it.Op]++
 			if it.Section == "users" && it.Op == plan.Create && it.SetupCommand != "" {
