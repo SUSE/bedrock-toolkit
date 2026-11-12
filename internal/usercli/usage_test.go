@@ -180,8 +180,8 @@ func TestUsageDailyHints(t *testing.T) {
 		want string
 	}{
 		{"no file", nil, "No daily usage yet: it is written every day at 07:00 UTC"},
-		{"no tag", errNoUsageTag, "Your role cannot read its daily usage yet: ask your admin to run bedrock-admin apply"},
-		{"denied", &smithy.GenericAPIError{Code: "AccessDenied"}, "Your role cannot read its daily usage yet"},
+		{"no tag", errNoUsageTag, "Daily usage needs a setup applied with bedrock-admin 1.2 or later"},
+		{"denied", &smithy.GenericAPIError{Code: "AccessDenied"}, "Your role may not read its daily usage: ask your admin to run bedrock-admin apply"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

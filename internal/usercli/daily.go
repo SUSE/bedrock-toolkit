@@ -48,9 +48,12 @@ func (a *App) readDaily(ctx context.Context, profile, role, month string, dates 
 	}
 	files, err := a.AWS.UsageFiles(ctx, profile, role, months)
 	switch {
-	case errors.Is(err, errNoUsageTag), awsx.IsAccessDenied(err):
+	case errors.Is(err, errNoUsageTag):
+		return daily{Days: []usage.DayUSD{}, Models: []usage.Amount{}, Note: "Daily usage needs a setup applied with " +
+			"bedrock-admin 1.2 or later, and yours is older: ask your admin to upgrade bedrock-admin and run bedrock-admin apply."}, nil
+	case awsx.IsAccessDenied(err):
 		return daily{Days: []usage.DayUSD{}, Models: []usage.Amount{},
-			Note: "Your role cannot read its daily usage yet: ask your admin to run bedrock-admin apply."}, nil
+			Note: "Your role may not read its daily usage: ask your admin to run bedrock-admin apply."}, nil
 	case err != nil:
 		return daily{}, err
 	}

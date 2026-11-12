@@ -451,8 +451,9 @@ aren't in them yet, and days marked `*` may still grow.
 
 `bedrock usage --month 2026-04` shows one month's days and models, without the budget.
 
-If it says your role cannot read its budget or its daily usage, your role predates them: ask your
-admin to run `bedrock-admin apply`. `No daily usage yet` means the account hasn't written your file
+If it says your role cannot read its budget, or may not read its daily usage, your role predates
+them: ask your admin to run `bedrock-admin apply`. If it says daily usage needs bedrock-admin 1.2 or
+later, your admin must first upgrade `bedrock-admin`, then run `apply`. `No daily usage yet` means the account hasn't written your file
 yet; it appears the morning after `apply`.
 
 ## Which models you may use
