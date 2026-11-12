@@ -3,6 +3,7 @@ package admincli
 import (
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -30,11 +31,17 @@ func needsYes(p *plan.Plan) []string {
 	return out
 }
 
+// accountEnv is the account setup as this bedrock-admin wants it; plan, apply, doctor and uninstall
+// must agree on it (the Lambda's settings include the version). out gets progress, or nil.
+func (a *App) accountEnv(cfg *config.Config, c *awsx.Clients, out io.Writer) *account.Env {
+	return &account.Env{C: c, Cfg: cfg, Out: out, Dir: ".", Version: a.Version}
+}
+
 // buildPlan observes the account and the users.
 func (a *App) buildPlan(ctx context.Context, cfg *config.Config, c *awsx.Clients, noDelete bool) (*plan.Plan, error) {
 	p := &plan.Plan{Header: fmt.Sprintf("%s: id %s, account %s, %s, %d users", cfg.Path, cfg.ID, c.Account, cfg.Region, len(cfg.Users))}
 	a.info("Reading the account setup...\n")
-	acct := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: ".", Version: a.Version}
+	acct := a.accountEnv(cfg, c, a.Err)
 	items, err := acct.Plan(ctx)
 	if err != nil {
 		return nil, err

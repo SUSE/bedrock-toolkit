@@ -40,7 +40,7 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 			if err != nil {
 				return err
 			}
-			env := &account.Env{C: c, Cfg: cfg, Out: a.Err, Dir: ".", Version: a.Version}
+			env := a.accountEnv(cfg, c, a.Err)
 			items, err := env.Uninstall(ctx, deleteData)
 			if err != nil {
 				return err
@@ -150,7 +150,7 @@ func (a *App) doctor(ctx context.Context) []Check {
 		return append(out, Check{Name: "credentials", Detail: err.Error(), Fix: fix})
 	}
 	out = append(out, Check{Name: "credentials", OK: true, Detail: fmt.Sprintf("%s (account %s)", c.CallerArn, c.Account)})
-	env := &account.Env{C: c, Cfg: cfg, Dir: "."}
+	env := a.accountEnv(cfg, c, nil)
 	items, err := env.Plan(ctx)
 	if err != nil {
 		fix := ""
