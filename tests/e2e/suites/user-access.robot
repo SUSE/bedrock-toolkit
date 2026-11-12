@@ -76,6 +76,12 @@ Usage Reads The User's Own Budget
     Should Be Equal    ${u["state"]}    active
     Should Be True    $u["limit_usd"] > 0
 
+Usage Without A Daily Usage File Says So
+    [Documentation]    S3 answers a missing file with AccessDenied to a role that may not list it: bedrock
+    ...    must show that as no daily usage yet, not as a permission problem.
+    ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --month    2020-01    --json
+    Should Start With    ${u}[note]    No daily usage yet
+
 Usage Reads The User's Own Daily Usage File
     [Documentation]    The role finds its file through its bedrock-admin:usage tag and reads it.
     Invoke Daily Lambda

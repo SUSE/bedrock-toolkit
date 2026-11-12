@@ -75,6 +75,7 @@ A Personal Role Reads Only Its Own Usage File
     ${fa}=    Usage File    ${A}    as_user=${A}
     Should Be Close    ${fa}[total_usd]    13.25
     Usage File Should Be Denied    ${B}    as_user=${A}
+    Usage File Should Be Missing    ${A}    as_user=${A}    month=2020-01
 
 Offboarding Deletes The User's Usage Files
     Remove User    ${C}

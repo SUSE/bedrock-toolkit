@@ -827,6 +827,17 @@ class BedrockE2E:
             raise Failure(f"expected AccessDenied, got {e.response['Error']['Code']}")
         raise Failure(f"{as_user} could read {x}'s usage file")
 
+    def usage_file_should_be_missing(self, x, as_user, month):
+        """A role listing its own usage prefix gets NoSuchKey, not AccessDenied, for a missing file."""
+        s3 = self._user_session(as_user).client("s3", region_name=self._bucket_region())
+        try:
+            s3.get_object(Bucket=self.bucket, Key=self.usage_key(x, month))
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                return
+            raise Failure(f"expected NoSuchKey, got {e.response['Error']['Code']}")
+        raise Failure(f"{x}'s usage file of {month} exists")
+
     def usage_files_should_not_exist(self, x):
         prefix = f"bedrock-admin/usage/{self.cfg['id']}/{self.role_of(x)}/"
         r = self._s3().list_object_versions(Bucket=self.bucket, Prefix=prefix)
