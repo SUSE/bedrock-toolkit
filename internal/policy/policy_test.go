@@ -50,8 +50,9 @@ func TestUserReadsOwnUsageOnly(t *testing.T) {
 			t.Fatalf("%s missing: %s", want, on)
 		}
 	}
-	if strings.Contains(on, "s3:ListBucket\"") || strings.Contains(on, "usage/t/*") {
-		t.Fatalf("must not read other users' files: %s", on)
+	if strings.Contains(on, "usage/t/*") ||
+		!strings.Contains(on, `"Action":"s3:ListBucket","Condition":{"StringLike":{"s3:prefix":"bedrock-admin/usage/t/bedrock-user-t-a/*"}}`) {
+		t.Fatalf("must not read or list other users' files: %s", on)
 	}
 }
 

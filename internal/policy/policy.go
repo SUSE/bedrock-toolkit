@@ -411,7 +411,11 @@ func UserInvoke(account, id, role, budget, usageBucket, webSearchRegion string, 
 			stmt{"Sid": "ReadOwnUsage", "Effect": "Allow", "Action": "s3:GetObject",
 				"Resource": "arn:aws:s3:::" + usageBucket + "/" + UserUsagePrefix(id, role) + "*"},
 			stmt{"Sid": "FindUsageBucket", "Effect": "Allow", "Action": "s3:GetBucketLocation",
-				"Resource": "arn:aws:s3:::" + usageBucket})
+				"Resource": "arn:aws:s3:::" + usageBucket},
+			// Lets S3 answer NoSuchKey rather than AccessDenied for a file not written yet.
+			stmt{"Sid": "ListOwnUsage", "Effect": "Allow", "Action": "s3:ListBucket",
+				"Resource":  "arn:aws:s3:::" + usageBucket,
+				"Condition": map[string]any{"StringLike": map[string]any{"s3:prefix": UserUsagePrefix(id, role) + "*"}}})
 	}
 	if webSearchRegion != "" {
 		s = append(s,
