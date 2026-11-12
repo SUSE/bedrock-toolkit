@@ -512,8 +512,8 @@ They count every setup that sent daily usage that month, also uninstalled ones.
 --account and --id keep only the setups in that account or with that id, in every view; repeat
 them for more. With both, a setup must match both.
 
---sort orders the setups (by setup only): account (the default, then id), spend, set-up or
-onboarded, highest first.
+--sort orders the setups (by setup only), highest first: spend (the default), set-up or
+onboarded. Ties are ordered by account and id.
 
 --format csv or markdown prints the same view to share: plain numbers, no bars, ACTIVE split into
 ACTIVE and ONBOARDED, a PARTIAL column instead of *, and no emails. csv is the main table only, for
@@ -529,7 +529,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
   bedrock-admin fleet report --format csv > setups.csv
   bedrock-admin fleet report --id mlm1 --id mlm2 --by day
   bedrock-admin fleet report --account 111122223333 --by month
-  bedrock-admin fleet report --sort spend`,
+  bedrock-admin fleet report --sort onboarded`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -626,7 +626,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl.StringVar(&month, "month", "", "with --by product, day or month: this month (YYYY-MM) instead of the current one (with --by month: the last month)")
 	fl.StringSliceVar(&accounts, "account", nil, "only the setups in this AWS account; repeat for more")
 	fl.StringSliceVar(&ids, "id", nil, "only the setups with this id; repeat for more")
-	fl.StringVar(&sortBy, "sort", "account", "with --by setup: account, spend, set-up or onboarded (highest first)")
+	fl.StringVar(&sortBy, "sort", "spend", "with --by setup: spend, set-up or onboarded (highest first)")
 	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
 	fl.StringVar(&format, "format", "text", "text, csv or markdown (to share: plain numbers, no emails)")
 	return cmd

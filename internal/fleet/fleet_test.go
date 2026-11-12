@@ -207,8 +207,7 @@ func TestSortReports(t *testing.T) {
 		return strings.Join(s, " ")
 	}
 	for by, want := range map[string]string{
-		"":          "1/a 1/b 2/a",
-		"account":   "1/a 1/b 2/a",
+		"":          "1/b 1/a 2/a",
 		"spend":     "1/b 1/a 2/a",
 		"set-up":    "1/a 2/a 1/b",
 		"onboarded": "1/a 1/b 2/a",
@@ -221,7 +220,7 @@ func TestSortReports(t *testing.T) {
 			t.Errorf("%q: got %s, want %s", by, got, want)
 		}
 	}
-	if err := SortReports(reports(), "name"); err == nil || !strings.Contains(err.Error(), "--sort must be one of") {
+	if err := SortReports(reports(), "account"); err == nil || !strings.Contains(err.Error(), "--sort must be one of") {
 		t.Errorf("bad order: %v", err)
 	}
 }

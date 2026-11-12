@@ -427,15 +427,14 @@ func checkKnown(reports []Report, want []string, what string, field func(Report)
 }
 
 // Sort orders for SortReports.
-var SortOrders = []string{"account", "spend", "set-up", "onboarded"}
+var SortOrders = []string{"spend", "set-up", "onboarded"}
 
-// SortReports orders reports by account and id, or by spend, set-up or onboarded users, highest
-// first, then by account and id.
+// SortReports orders reports by spend (the default), set-up or onboarded users, highest first,
+// then by account and id.
 func SortReports(reports []Report, by string) error {
 	var key func(Report) float64
 	switch by {
-	case "", "account":
-	case "spend":
+	case "", "spend":
 		key = func(r Report) float64 { return r.SpendUSD }
 	case "set-up":
 		key = func(r Report) float64 { return float64(r.Users.SetUp) }
