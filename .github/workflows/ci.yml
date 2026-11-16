@@ -32,12 +32,12 @@ jobs:
         run: go test -race ./...
 
   build:
-    # The release targets (.goreleaser.yaml): macOS and Linux, amd64 and arm64.
+    # The release targets (.goreleaser.yaml): macOS, Linux, and Windows; amd64 and arm64.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        goos: [darwin, linux]
+        goos: [darwin, linux, windows]
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
