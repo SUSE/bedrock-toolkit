@@ -76,18 +76,20 @@ another release and `INSTALL_DIR` another directory; set them on `sh`:
 curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | VERSION=v1.2.0 INSTALL_DIR=~/bin sh -s -- bedrock bedrock-admin
 ```
 
+**Windows:** Download the `.zip` archive for your architecture from the [releases page](https://github.com/SUSE/bedrock-toolkit/releases), extract it, and place `bedrock.exe` or `bedrock-admin.exe` in a directory on your `PATH`.
+
 <details>
 <summary>Release files and building from source</summary>
 
 | File | Contents |
 | --- | --- |
-| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` |
-| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` |
+| `bedrock-admin_<version>_<os>_<arch>.tar.gz` | `bedrock-admin` (macOS, Linux) |
+| `bedrock-admin_<version>_windows_<arch>.zip` | `bedrock-admin.exe` (Windows) |
+| `bedrock_<version>_<os>_<arch>.tar.gz` | `bedrock` (macOS, Linux) |
+| `bedrock_<version>_windows_<arch>.zip` | `bedrock.exe` (Windows) |
 | `checksums.txt` | SHA-256 of every archive |
 
-`<os>` is `darwin` (macOS) or `linux`, and `<arch>` is `amd64` or `arm64`. There is no Windows
-build. To install by hand, download the archive from the GitHub release, unpack it and put the
-binary on your `PATH`.
+`<os>` is `darwin` (macOS) or `linux`, and `<arch>` is `amd64` or `arm64`. Windows releases are packaged as `.zip` files containing `.exe` binaries. To install by hand, download the archive from the [releases page](https://github.com/SUSE/bedrock-toolkit/releases), unpack it, and put the binary on your `PATH`.
 
 With Go installed, you can also build from source:
 
