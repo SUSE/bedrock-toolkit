@@ -13,10 +13,16 @@ jobs:
   commits:
     runs-on: ubuntu-latest
     steps:
+      # The script comes from the base branch, so a PR can't change the check it is held to.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Fetch the PR's commits
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/$NUMBER/head"
       - name: Check the PR title and commits
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
