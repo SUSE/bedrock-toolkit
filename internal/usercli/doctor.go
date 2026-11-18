@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentcorecontrol"
@@ -182,7 +183,7 @@ func (a *App) webSearchChecks(ctx context.Context, profile, region string) []cli
 	}
 	var out []cli.Check
 	if p, err := exec.LookPath("uvx"); err != nil {
-		out = append(out, cli.Check{Name: "uvx", Detail: "not on your PATH; Claude Code starts the web search MCP server with it",
+		out = append(out, cli.Check{Name: "uvx", OK: true, Warn: true, Detail: "not on your PATH; Claude Code's web search needs it to start its MCP server",
 			Fix: "install uv: https://docs.astral.sh/uv/getting-started/installation/"})
 	} else {
 		out = append(out, cli.Check{Name: "uvx", OK: true, Detail: p})
@@ -194,7 +195,18 @@ func (a *App) webSearchChecks(ctx context.Context, profile, region string) []cli
 	return append(out, c)
 }
 
+// clockSlack is how far off a clock may be before AWS rejects a signed request.
+const clockSlack = 5 * time.Minute
+
 func webSearchFix(err error) string {
+	if bad, skew := websearch.BadSignature(err); bad {
+		if skew > clockSlack || skew < -clockSlack {
+			return fmt.Sprintf("your computer's clock is about %d minutes off, so AWS rejects the signed request: turn on automatic time "+
+				"(Linux: sudo timedatectl set-ntp true) and run bedrock doctor again", int(skew.Abs().Round(time.Minute)/time.Minute))
+		}
+		return "the gateway rejected the request's signature: check your computer's clock, run bedrock doctor again, " +
+			"and if it still fails ask your admin"
+	}
 	if websearch.Denied(err) {
 		return "your access is paused (monthly budget used up, or paused by your admin), or your role predates web search: ask your admin"
 	}

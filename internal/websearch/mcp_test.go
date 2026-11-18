@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -48,16 +49,18 @@ func TestMCPErrors(t *testing.T) {
 	for _, tc := range []struct {
 		name, ctype, body string
 		status            int
-		denied            bool
+		denied, badSig    bool
 		want              string
 	}{
-		{"denied", "application/json", `{"message":"not authorized"}`, 403, true, "gateway answered 403"},
-		{"rpc error", "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"no such method"}}`, 200, false, "no such method"},
-		{"tool error", "application/json", `{"jsonrpc":"2.0","id":1,"result":{"isError":true,"content":[{"type":"text","text":"query too long"}]}}`, 200, false, "query too long"},
+		{"denied", "application/json", `{"message":"not authorized"}`, 403, true, false, "gateway answered 403"},
+		{"bad signature", "application/json", `{"error":{"message":"Invalid credentials"}}`, 401, false, true, "gateway answered 401"},
+		{"rpc error", "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"no such method"}}`, 200, false, false, "no such method"},
+		{"tool error", "application/json", `{"jsonrpc":"2.0","id":1,"result":{"isError":true,"content":[{"type":"text","text":"query too long"}]}}`, 200, false, false, "query too long"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", tc.ctype)
+				w.Header().Set("Date", time.Now().Add(10*time.Minute).UTC().Format(http.TimeFormat))
 				w.WriteHeader(tc.status)
 				_, _ = io.WriteString(w, tc.body)
 			}))
@@ -68,6 +71,10 @@ func TestMCPErrors(t *testing.T) {
 			}
 			if Denied(err) != tc.denied {
 				t.Errorf("Denied = %v", Denied(err))
+			}
+			bad, skew := BadSignature(err)
+			if bad != tc.badSig || (bad && (skew < 9*time.Minute || skew > 11*time.Minute)) {
+				t.Errorf("BadSignature = %v, %s", bad, skew)
 			}
 		})
 	}

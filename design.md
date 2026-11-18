@@ -296,8 +296,9 @@ for models.
   elsewhere.
 - `bedrock claude` tests one search (one signed MCP `tools/call`, less than $0.01) and prints the
   MCP server for `claude mcp add-json --scope user` and the desktop app, with `mcp-proxy-for-aws`
-  pinned to a tested version (it runs with the user's credentials). `bedrock doctor` checks `uvx`
-  and makes a free `tools/list` call.
+  pinned to a tested version (it runs with the user's credentials). `bedrock doctor` warns when `uvx`
+  is missing (only Claude Code needs it) and makes a free `tools/list` call; on a 401 it compares the
+  gateway's `Date` header with the local clock, as clock skew is the usual cause.
 - Searches cost $7 per 1,000. This is a real cost that the setup doesn't manage: it manages only
   Bedrock model spend. The cost export records no caller and no `iamPrincipal/owner` tag on
   AgentCore rows (checked 2026-10), so personal budgets and the pause never count searches.

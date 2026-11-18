@@ -25,16 +25,28 @@ const Service = "bedrock-agentcore"
 type HTTPError struct {
 	Status int
 	Body   string
+	// Skew is the gateway's clock (its Date header) minus this computer's, or 0 without the header.
+	Skew time.Duration
 }
 
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("gateway answered %d: %s", e.Status, strings.TrimSpace(e.Body))
 }
 
-// Denied reports whether the gateway refused the caller's IAM permissions.
+// Denied reports whether the gateway refused the caller's IAM permissions (403).
 func Denied(err error) bool {
 	var h *HTTPError
-	return errors.As(err, &h) && (h.Status == http.StatusForbidden || h.Status == http.StatusUnauthorized)
+	return errors.As(err, &h) && h.Status == http.StatusForbidden
+}
+
+// BadSignature reports whether the gateway rejected the request's signature (401): most often
+// because this computer's clock is off, or because the credentials expired.
+func BadSignature(err error) (bool, time.Duration) {
+	var h *HTTPError
+	if errors.As(err, &h) && h.Status == http.StatusUnauthorized {
+		return true, h.Skew
+	}
+	return false, 0
 }
 
 // MCP makes one SigV4-signed MCP JSON-RPC call to a gateway URL and returns its result.
@@ -71,7 +83,11 @@ func MCP(ctx context.Context, cfg aws.Config, url, method string, params any) (j
 		return nil, err
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, &HTTPError{Status: resp.StatusCode, Body: truncate(string(raw))}
+		h := &HTTPError{Status: resp.StatusCode, Body: truncate(string(raw))}
+		if d, err := http.ParseTime(resp.Header.Get("Date")); err == nil {
+			h.Skew = time.Until(d).Round(time.Second)
+		}
+		return nil, h
 	}
 	return decodeRPC(resp.Header.Get("Content-Type"), raw)
 }

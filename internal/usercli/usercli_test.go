@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/smithy-go"
 
@@ -478,6 +479,7 @@ func TestClaudeWebSearch(t *testing.T) {
 	if code, out := runClaudeWith(t, f, cfg, ok); code != cli.Problem || !strings.Contains(out, "FAIL  web search") || !strings.Contains(out, "paused") {
 		t.Fatalf("denied: exit %d\n%s", code, out)
 	}
+
 }
 
 func TestDoctorWebSearch(t *testing.T) {
@@ -493,7 +495,7 @@ func TestDoctorWebSearch(t *testing.T) {
 	f = newFake()
 	f.searchURL = gatewayURL
 	code, out, _ := run(t, f, setUp, "", "doctor")
-	if code != cli.Problem || !strings.Contains(out, "FAIL  uvx") || !strings.Contains(out, "ok    web search") ||
+	if code != cli.OK || !strings.Contains(out, "WARN  uvx") || !strings.Contains(out, "ok    web search") ||
 		len(f.searches) != 1 || f.searches[0] {
 		t.Fatalf("no uvx: exit %d %v\n%s", code, f.searches, out)
 	}
@@ -506,6 +508,18 @@ func TestDoctorWebSearch(t *testing.T) {
 	code, out, _ = run(t, f, setUp, "", "doctor")
 	if code != cli.Problem || !strings.Contains(out, "ok    uvx") || !strings.Contains(out, "FAIL  web search") || !strings.Contains(out, "paused") {
 		t.Fatalf("denied: exit %d\n%s", code, out)
+	}
+
+	for _, tc := range []struct {
+		skew time.Duration
+		want string
+	}{{12 * time.Minute, "clock is about 12 minutes off"}, {time.Minute, "rejected the request's signature"}} {
+		f = newFake()
+		f.searchURL, f.searchErr = gatewayURL, &websearch.HTTPError{Status: 401, Body: "Invalid credentials", Skew: tc.skew}
+		code, out, _ = run(t, f, setUp, "", "doctor")
+		if code != cli.Problem || !strings.Contains(out, tc.want) || strings.Contains(out, "paused") {
+			t.Fatalf("401 with skew %s: exit %d\n%s", tc.skew, code, out)
+		}
 	}
 }
 

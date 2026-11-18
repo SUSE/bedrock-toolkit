@@ -366,7 +366,8 @@ it, there is no web search section in the output.
   Connectors, Managed MCP servers, as a local (stdio) server with the command and arguments
   `bedrock claude` prints. Not Streamable HTTP: the gateway needs AWS-signed requests, which only
   the local proxy makes. Then Sign in & test, save, and quit and reopen the app.
-- `bedrock doctor` checks that `uvx` is installed and that you may use the gateway (no search, free).
+- `bedrock doctor` checks that you may use the gateway (no search, free), and warns when `uvx` isn't
+  installed: only Claude Code's web search needs it.
   `bedrock claude --no-search-test` skips the test search.
 
 <details>
@@ -503,7 +504,8 @@ the fix under it:
 | `model <id>` | `AccessDeniedException ... service control policy` | Your organization blocks the call: ask your admin |
 | `model <id>` | `AccessDeniedException`, on a non-Claude model | Your role may only call Anthropic Claude models (not Fable), and only the ones your admin allows. Ask your admin if you need this one. |
 | `model <id>` | `ValidationException` or not found | The model is not offered in your region. Use another model, or ask your admin for the right region. |
-| `uvx` | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| `uvx` (warning) | Not on your PATH (only when web search is on) | Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for web search in Claude Code |
+| `web search` | `gateway answered 401` | The gateway rejected the request's signature, most often because your computer's clock is more than 5 minutes off: turn on automatic time (Linux: `sudo timedatectl set-ntp true`) and run `bedrock doctor` again |
 | `web search` | `gateway answered 403` | You're paused, or your role predates web search: ask your admin |
 
 > [!NOTE]
