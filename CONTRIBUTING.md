@@ -18,7 +18,8 @@ is in the [README](README.md).
 | `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), fleet (`users` and central reports), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |
-| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
+| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `commits.yml` (Conventional Commit subjects and sign-offs in pull requests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
+| `.github/scripts/check-commits.sh` | The commit check, also run by hand before a push |
 | `.github/dependabot.yml` | Security updates only, for Go modules, Actions and the e2e image |
 
 ## Development
@@ -71,6 +72,25 @@ When CI passes on a Dependabot PR's latest commit and every update in it is a pa
 `.github/workflows/dependabot-merge.yml` squash-merges it. Minor and major updates stay open for
 review. Go module fixes use the `fix(deps)` prefix, so they appear under Bug fixes in the next
 release's notes.
+
+### Commits and pull requests
+
+Each commit has a [Conventional Commit](https://www.conventionalcommits.org/) subject
+(`type(scope)!: summary`, type one of `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`,
+`refactor`, `revert`, `style`, `test`) and is signed off with `git commit -s`, which adds
+`Signed-off-by:` for the author ([DCO](https://developercertificate.org/)). The release notes group
+commits by type, and `!` marks a breaking change.
+
+`.github/workflows/commits.yml` checks every commit of a pull request, and its title, which a squash
+merge uses as the commit on `main`. Bots are exempt from the sign-off. `main` is protected:
+pull requests merge only by squash, and only after the `test`, `build` and `commits` checks pass.
+Run the same check before you push:
+
+```sh
+.github/scripts/check-commits.sh origin/main
+```
+
+To sign off commits you already made, run `git rebase --signoff origin/main`.
 
 ## Releasing
 

@@ -1,0 +1,25 @@
+name: Commits
+
+# Every commit in a PR must have a Conventional Commit subject and a Signed-off-by line for its author
+# (bots are exempt from the sign-off), and so must the PR title, which squash merges use on main.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check the PR title and commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/check-commits.sh "$BASE" "$HEAD"
