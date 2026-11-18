@@ -13,11 +13,12 @@ jobs:
   commits:
     runs-on: ubuntu-latest
     steps:
-      # The script comes from the base branch, so a PR can't change the check it is held to.
+      # The script comes from the base branch's current tip, so a PR can't change the check it is held to.
+      # (pull_request.base.sha is the base when the PR branch was last pushed, which can predate the script.)
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           persist-credentials: false
       - name: Fetch the PR's commits
         env:
@@ -26,6 +27,5 @@ jobs:
       - name: Check the PR title and commits
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: .github/scripts/check-commits.sh "$BASE" "$HEAD"
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/check-commits.sh HEAD "$PR_HEAD"
