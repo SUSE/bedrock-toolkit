@@ -786,7 +786,10 @@ Differences from the original design spec:
 - Libraries: the AWS SDK for Go v2, `parquet-go` for the cost export, `go.yaml.in/yaml/v3`, `cobra`,
   and `text/tabwriter` for tables.
 - CI (`.github/workflows/ci.yml`): `go generate`, `go vet`, `golangci-lint`, `go test -race` on amd64
-  and arm64 Linux runners, and a build of both CLIs for every release target.
+  and arm64 Linux runners, and a build of both CLIs for every release target. Its `ci` job sums up
+  the others, so branch protection on `main` requires only `ci` and `commits` (`commits.yml`:
+  Conventional Commit subjects and sign-offs), and PRs merge by squash. `triage.yml` keeps one
+  comment on a PR listing its failed checks.
 - Dependabot (`.github/dependabot.yml`): security updates only (Go modules, Actions, the e2e image);
   `.github/workflows/dependabot-merge.yml` squash-merges patch updates after CI passes; minor and
   major ones stay open for review.

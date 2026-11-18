@@ -1,0 +1,32 @@
+name: PR triage
+
+# Keeps one comment on a pull request listing its failed checks, so the contributor fixes them before review
+# (.github/scripts/pr-triage.sh). workflow_run takes workflow names only, with no wildcard: add any new check
+# workflow here. It runs the script from the default branch and never checks out the PR's code, so its write
+# token is safe for PRs from forks too.
+on:
+  workflow_run:
+    workflows: [CI, Commits]
+    types: [completed]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: write
+
+jobs:
+  triage:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pr-triage-${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Comment on failed checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: .github/scripts/pr-triage.sh "$SHA" "$PR"

@@ -18,8 +18,8 @@ is in the [README](README.md).
 | `internal/` | Shared packages: config, plan and apply, account steps, users, pause, usage (Parquet reader), fleet (`users` and central reports), the user CLI |
 | `tests/e2e/` | Robot Framework suites that run the real binaries against a real AWS account, by hand. See [tests/e2e/README.md](tests/e2e/README.md). |
 | `tests/fixtures/` | Synthetic cost export Parquet files and a snapshot, used by the unit tests and the `usage` suite |
-| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `commits.yml` (Conventional Commit subjects and sign-offs in pull requests), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
-| `.github/scripts/check-commits.sh` | The commit check, also run by hand before a push |
+| `.github/workflows/` | `ci.yml` (vet, lint, unit tests), `commits.yml` (Conventional Commit subjects and sign-offs in pull requests), `triage.yml` (comments on a pull request's failed checks), `release.yml` (GoReleaser on a `v*` tag) and `dependabot-merge.yml` (merges Dependabot patch updates after CI passes) |
+| `.github/scripts/` | `check-commits.sh` (the commit check, also run by hand before a push) and `pr-triage.sh` (the failed-checks comment) |
 | `.github/dependabot.yml` | Security updates only, for Go modules, Actions and the e2e image |
 
 ## Development
@@ -63,7 +63,8 @@ Then update every guide that mentions it (also the cheat sheets and `design.md`)
 suites that run it. E2e checks cover behaviour only, never output layout.
 
 CI (`.github/workflows/ci.yml`) runs `go generate`, `go vet`, `golangci-lint` and
-`go test -race ./...` on pull requests and on `main`. It does not run the end-to-end tests. Run
+`go test -race ./...` on pull requests and on `main`. Its `ci` job passes only if every other CI job
+passed; add a new job to its `needs`. It does not run the end-to-end tests. Run
 them by hand with `tests/e2e/run.sh`, as described in [tests/e2e/README.md](tests/e2e/README.md).
 Every suite except `cli` uses a real AWS account.
 
@@ -83,14 +84,19 @@ commits by type, and `!` marks a breaking change.
 
 `.github/workflows/commits.yml` checks every commit of a pull request, and its title, which a squash
 merge uses as the commit on `main`. Bots are exempt from the sign-off. `main` is protected:
-pull requests merge only by squash, and only after the `test`, `build` and `commits` checks pass.
-Run the same check before you push:
+pull requests merge only by squash, and only after the `ci` and `commits` checks pass. Run the same
+check before you push:
 
 ```sh
 .github/scripts/check-commits.sh origin/main
 ```
 
 To sign off commits you already made, run `git rebase --signoff origin/main`.
+
+When a check fails on a pull request, `.github/workflows/triage.yml` posts one comment that lists
+the failed checks with links to their logs, and edits it as the checks run again, until they all
+pass. It reacts to the workflows named in its `workflow_run` trigger (CI and Commits): add a new
+check workflow there.
 
 ## Releasing
 
