@@ -69,11 +69,14 @@ func WebSearchRegion(cfg *config.Config) string {
 	return ""
 }
 
-// SetupCommand is the command to send the user.
+// SetupCommand is the command to send the user: bedrock configure (sso, or access-key for an IAM
+// user) to create the profile they sign in with, then bedrock setup.
 func SetupCommand(cfg *config.Config, account, profileRegion string, u config.Resolved) string {
 	cmd := "bedrock setup"
 	regionSet := profileRegion != "" && cfg.Region != profileRegion
-	if regionSet {
+	sso := u.IAMUser == "" && cfg.SSO.StartURL != ""
+	// The SSO profile configure sso creates already has the Bedrock region.
+	if regionSet && !sso {
 		cmd += " --region " + cfg.Region
 	}
 	if u.CustomName {
@@ -81,15 +84,25 @@ func SetupCommand(cfg *config.Config, account, profileRegion string, u config.Re
 	} else {
 		cmd += " --id " + cfg.ID
 	}
-	if u.IAMUser != "" {
-		cmd += " --source-profile <your " + u.IAMUser + " access key profile>"
-		// An access key profile often has no region; it isn't the admin's SSO profile.
+	switch {
+	case u.IAMUser != "":
+		cmd = "bedrock configure access-key && " + cmd + " --source-profile " + KeyProfile
+		// An access key profile has no region.
 		if !regionSet {
 			cmd += " --default-region " + cfg.Region
 		}
+	case sso:
+		conf := "bedrock configure sso --start-url " + cfg.SSO.StartURL + " --sso-region " + cfg.SSO.Region + " --account " + account
+		if cfg.SSO.Role != "" {
+			conf += " --role " + cfg.SSO.Role
+		}
+		cmd = conf + " --region " + cfg.Region + " && " + cmd
 	}
 	return cmd
 }
+
+// KeyProfile is the credentials profile bedrock configure access-key writes.
+const KeyProfile = "bedrock-key"
 
 func budgetArn(account, name string) string {
 	return fmt.Sprintf("arn:aws:budgets::%s:budget/%s", account, name)

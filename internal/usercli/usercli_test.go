@@ -578,7 +578,7 @@ func TestSetupIAMUser(t *testing.T) {
 	f = iamFake()
 	delete(f.identity, "keys")
 	code, out, _ = run(t, f, keyConfig, "", "setup", "--id", "bedrock", "--source-profile", "keys")
-	if code != cli.Error || !strings.Contains(out, "aws configure --profile keys") {
+	if code != cli.Error || !strings.Contains(out, "bedrock configure access-key --profile-name keys") {
 		t.Fatalf("bad key: exit %d\n%s", code, out)
 	}
 }
@@ -594,11 +594,53 @@ func TestDoctorIAMUser(t *testing.T) {
 	f = iamFake()
 	delete(f.identity, "keys")
 	code, out, _ = run(t, f, setUp, "", "doctor")
-	if code != cli.Problem || !strings.Contains(out, "FAIL  sign-in") || !strings.Contains(out, "aws configure --profile keys") {
+	if code != cli.Problem || !strings.Contains(out, "FAIL  sign-in") || !strings.Contains(out, "bedrock configure access-key --profile-name keys") {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	code, out, _ = run(t, iamFake(), setUp, "", "doctor")
 	if code != cli.OK {
 		t.Fatalf("exit %d\n%s", code, out)
+	}
+}
+
+func TestConfigureAccessKey(t *testing.T) {
+	creds := filepath.Join(t.TempDir(), "credentials")
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", creds)
+	f := iamFake()
+	f.identity["bedrock-key"] = f.identity["keys"]
+	const id, secret = "AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	code, out, _ := run(t, f, "", id+"\n"+secret+"\n", "configure", "access-key")
+	if code != cli.OK {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	if got := read(t, creds); got != "[bedrock-key]\naws_access_key_id = "+id+"\naws_secret_access_key = "+secret+"\n" {
+		t.Fatalf("credentials:\n%s", got)
+	}
+	code, out2, path := run(t, f, "", "", "setup", "--id", "bedrock", "--source-profile", "bedrock-key", "--region", "us-west-2")
+	if got := read(t, path); code != cli.OK || !strings.Contains(got, "source_profile = bedrock-key\n") {
+		t.Fatalf("setup: exit %d\n%s\n%s", code, out2, got)
+	}
+	if strings.Contains(out, secret) {
+		t.Fatalf("printed the secret:\n%s", out)
+	}
+	for _, c := range []struct{ stdin, want string }{
+		{"AKIA123\n" + secret + "\n", "not an access key ID"},
+		{id + "\nshort\n", "not a secret access key"},
+	} {
+		if code, out, _ := run(t, iamFake(), "", c.stdin, "configure", "access-key"); code == cli.OK || !strings.Contains(out, c.want) {
+			t.Fatalf("%q: exit %d\n%s", c.stdin, code, out)
+		}
+	}
+}
+
+func TestWhoami(t *testing.T) {
+	t.Setenv("AWS_PROFILE", "")
+	code, out, _ := run(t, newFake(), wantBlock, "", "whoami")
+	if code != cli.OK || !strings.Contains(out, "Profile:  bedrock\nAccount:  111122223333\nIdentity: role bedrock-user-bedrock-achen, session "+email+"\n") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	code, out, _ = run(t, newFake(), wantBlock, "", "whoami", "--profile", "sso")
+	if code != cli.OK || !strings.Contains(out, "Identity: SSO user "+email+", permission set Dev\n") {
+		t.Fatalf("--profile sso: exit %d\n%s", code, out)
 	}
 }

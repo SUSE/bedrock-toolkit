@@ -19,7 +19,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.8
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.1
 	github.com/aws/aws-sdk-go-v2/service/scheduler v1.25.2
+	github.com/aws/aws-sdk-go-v2/service/sso v1.38.2
 	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.52.6
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.2
 	github.com/aws/smithy-go v1.28.9
 	github.com/parquet-go/parquet-go v0.32.0
@@ -40,8 +42,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.10.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.38.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect

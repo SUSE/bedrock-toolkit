@@ -13,6 +13,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
+	"github.com/SUSE/bedrock-toolkit/internal/sso"
 	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
@@ -34,6 +35,10 @@ type App struct {
 	fleetCfg *config.Config
 	// fleetFormat is fleet report's --format: "" or text, csv or markdown.
 	fleetFormat string
+	// Login signs in for the login command; nil means the real sign-in.
+	Login *sso.Login
+	// Identity returns the caller ARN of a profile for whoami; nil means STS.
+	Identity func(ctx context.Context, profile string) (string, error)
 }
 
 // New returns an App on the process's streams.
@@ -72,7 +77,7 @@ usage found untracked spend).`,
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
 	root.AddCommand(a.planCmd(), a.applyCmd(), a.exportCmd(), a.configureCmd(), a.doctorCmd(), a.uninstallCmd(),
-		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.setupsCmd(), a.modelsCmd(), a.fleetCmd(), a.blockCmd())
+		a.pauseCmd(), a.unpauseCmd(), a.usageCmd(), a.usersCmd(), a.setupsCmd(), a.modelsCmd(), a.fleetCmd(), a.blockCmd(), a.loginCmd(), a.whoamiCmd())
 	return root
 }
 

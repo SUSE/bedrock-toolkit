@@ -110,8 +110,9 @@ bedrock-admin build has no Lambda code"). Use a release binary, or clone the rep
 Admin, once per account ([admin guide](admin-guide.md)):
 
 ```bash
-bedrock-admin doctor                 # check your credentials and permissions
+bedrock-admin configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1   # create your SSO profile
 bedrock-admin configure              # write bedrock.yaml
+bedrock-admin doctor                 # check your credentials and permissions
 #   ...add users under users: in bedrock.yaml
 bedrock-admin plan                   # see what will change
 bedrock-admin apply                  # set up the account and the users
@@ -120,8 +121,8 @@ bedrock-admin apply                  # set up the account and the users
 Each user, after the admin has onboarded them ([user guide](user-guide.md)):
 
 ```bash
-bedrock login                        # or nothing, with an IAM user access key
-bedrock setup --id <id>              # the command your admin sent: write the bedrock profile, check it
+bedrock configure sso ... && bedrock setup --id <id>   # the commands your admin sent: sign in, write the bedrock profile, check it
+bedrock login                        # when the SSO session expired (nothing with an IAM user access key)
 bedrock claude                       # test Claude Code, print its settings
 bedrock usage                        # this month's spend against your budget, per day and per model
 bedrock models                       # the models you may use
@@ -133,7 +134,9 @@ bedrock models                       # the models you may use
 
 | Command | What it does |
 | --- | --- |
-| `configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags |
+| `login` | Signs in again to the admin's SSO profile in the browser, like `aws sso login` |
+| `whoami` | Shows the admin profile's account and identity, and warns when it is not bedrock.yaml's account |
+| `configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags; `configure sso` creates the admin's SSO profile, like `aws configure sso` |
 | `doctor` | Checks the admin's credentials, permissions, account setup, cost export data and models |
 | `models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list; REGIONS shows where each allowed model sends requests |
 | `plan` | Shows what `apply` would change. Read-only; exits 2 when there are changes |
@@ -152,7 +155,9 @@ bedrock models                       # the models you may use
 
 | Command | What it does |
 | --- | --- |
-| `login` | Sign in to an AWS SSO profile using a browser |
+| `configure` | Create the profile you sign in with, once: `configure sso` (SSO, like `aws configure sso`) or `configure access-key` (an IAM user's access key) |
+| `login` | Sign in again to your AWS SSO profile using a browser |
+| `whoami` | Show the account and identity a profile signs in as |
 | `setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` |
 | `doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models |
 | `claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings |

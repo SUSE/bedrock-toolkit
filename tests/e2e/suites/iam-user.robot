@@ -20,13 +20,13 @@ ${PROFILE}      bedrock
 *** Test Cases ***
 Apply Onboards The IAM User
     [Documentation]    The IAM user gets the owner, product and bedrock-admin:id tags and the setup's IAM
-    ...    user policy, the pause action denies it with the role, and the setup command tells the
-    ...    user to pass their key profile.
+    ...    user policy, the pause action denies it with the role, and the setup command starts with
+    ...    bedrock configure access-key.
     Iam Users Policy Should Exist
     ${email}=    User Email    iam
     Iam User Should Be Onboarded    ${IAM_USER}    ${email}
     Budget Action Iam Users Should Be    iam    ${IAM_USER}
-    Should Contain    ${SETUP_COMMAND}    --source-profile
+    Should Start With    ${SETUP_COMMAND}    bedrock configure access-key &&
     Plan Should Show No Changes
 
 Setup With The Access Key Writes A Working Profile

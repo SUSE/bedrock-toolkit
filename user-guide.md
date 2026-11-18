@@ -15,7 +15,7 @@ minutes.
 - [Commands](#commands)
 - [Before you start](#before-you-start)
 - [Setup](#setup)
-  - [Step 1. Sign in with SSO](#step-1-sign-in-with-sso)
+  - [Step 1. Create your sign-in profile](#step-1-create-your-sign-in-profile)
   - [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key)
   - [Step 2. Write your Bedrock profile](#step-2-write-your-bedrock-profile)
   - [Step 3. Check it](#step-3-check-it)
@@ -30,12 +30,13 @@ minutes.
 ## Quick start
 
 ```bash
-bedrock login --profile <your-sso-profile>   # skip with an IAM user access key
-bedrock setup --id <id>                      # the command your admin sent you
-bedrock claude                               # test Claude Code, print the settings to add
+bedrock configure sso ... && bedrock setup --id <id>   # the full line your admin sent you
+bedrock claude                # test Claude Code, print the settings to add
 ```
 
-Then add the printed settings to Claude Code (or the Claude desktop app). Each step is explained
+`bedrock configure sso` (or `bedrock configure access-key`) creates the profile you sign in with,
+once ([Step 1](#step-1-create-your-sign-in-profile)). Later, `bedrock login` signs you in again
+when the session expires. Then add the printed settings to Claude Code (or the Claude desktop app). Each step is explained
 below; click the folded sections for sample output and details.
 
 ## How it works
@@ -80,7 +81,9 @@ way in.
 
 | Command | What it does | Section |
 | --- | --- | --- |
-| `bedrock login` | Sign in to an AWS SSO profile using a browser | Step 1 |
+| `bedrock configure` | Creates the profile you sign in with, once: `configure sso` an SSO profile, like `aws configure sso`; `configure access-key` your IAM user's access key | [Step 1](#step-1-create-your-sign-in-profile) |
+| `bedrock login` | Signs in again to your SSO profile in the browser, like `aws sso login` | [Step 1](#step-1-create-your-sign-in-profile) |
+| `bedrock whoami` | Shows the account and identity a profile signs in as | [Step 1](#step-1-create-your-sign-in-profile) |
 | `bedrock setup` | Writes the `bedrock` profile for your personal role in `~/.aws/config`, then runs `doctor` | [Step 2](#step-2-write-your-bedrock-profile) |
 | `bedrock doctor` | Checks your sign-in (SSO or IAM user access key), the `bedrock` profile, your personal role and test calls to the built-in models | [Step 3](#step-3-check-it), [If something goes wrong](#if-something-goes-wrong) |
 | `bedrock claude` | Tests Claude Code with the `bedrock` profile and prints the settings to use. Changes no Claude settings | [Step 4](#step-4-set-up-claude-code) |
@@ -91,57 +94,109 @@ Exit codes: 0 ok, 1 error, 2 a check failed. Run `bedrock <command> --help` for 
 
 ## Before you start
 
-- You can sign in to the AWS account with SSO, and you have an SSO profile in `~/.aws/config`
-  (configured as shown below). Without SSO, your admin gives you an
-  IAM user's access key instead; see [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key).
-- The AWS CLI is installed (openSUSE: `sudo zypper install aws-cli`).
+- You can sign in to the AWS account with SSO. `bedrock configure sso`, in the commands your admin
+  sends, creates your SSO profile in `~/.aws/config` ([Step 1](#step-1-create-your-sign-in-profile)). Without SSO, your admin gives you an IAM user's access key
+  instead; see [Sign in with an IAM user access key](#sign-in-with-an-iam-user-access-key).
+- You don't need the AWS CLI: `bedrock` creates the profiles, signs in and reads your spend itself.
 - The `bedrock` CLI is installed (macOS or Linux; other ways: [README](README.md#install)):
 
   ```bash
   curl -fsSL https://raw.githubusercontent.com/SUSE/bedrock-toolkit/main/install.sh | sh -s -- bedrock
   ```
 - Your admin has onboarded you with your SSO username, the email you sign in with (not an alias).
-  If you're not sure which one that is, run this with your SSO profile and send your admin the
-  address at the end of `Arn` (here `achen@example.com`):
+  If you're not sure which one that is, sign in ([Step 1](#step-1-create-your-sign-in-profile)), run this with
+  your SSO profile and send your admin the address after `SSO user` (here `achen@example.com`):
 
   ```bash
-  aws sts get-caller-identity --profile <your-sso-profile>
+  bedrock whoami --profile <your-sso-profile>
   ```
 
-  ```json
-  "Arn": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com"
+  ```
+  Profile:  bedrock-sso
+  Account:  111122223333
+  Identity: SSO user achen@example.com, permission set Developer
+  ARN:      arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Developer_abc123/achen@example.com
   ```
 - If your SSO email doesn't receive mail, give your admin your real mailbox address for the budget
   emails.
 
 ## Setup
 
-### Step 1. Sign in with SSO
+### Step 1. Create your sign-in profile
+
+Run the `bedrock configure sso ...` part of the line your admin sent you (they get it from
+`apply`), once:
+
+```bash
+bedrock configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1 --account 111122223333 --role Developer --region us-west-2
+```
+
+It signs you in: it opens your browser on the SSO sign-in page with the code filled in; approve it
+there. Where no browser can open (over SSH, or with `--no-browser`), open the printed URL anywhere
+and enter the code. Without `--account` or `--role`, it lists the accounts and permission sets you
+may use and asks which one (only one: it takes it). On a terminal it asks for a missing start URL
+or SSO region (ask your admin). It writes the profile `bedrock-sso` (or `--profile-name <name>`) to
+`~/.aws/config`, keeps the previous file as `config.bak`, and reuses a profile that already has the
+same sign-in instead of adding another:
+
+```ini
+[profile bedrock-sso]
+sso_session = example
+sso_account_id = 111122223333
+sso_role_name = Developer
+region = us-west-2
+
+[sso-session example]
+sso_start_url = https://example.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+```
+
+You can also write these blocks yourself, or use `aws configure sso` if you have the AWS CLI. If you
+already have an SSO profile for the account, skip this step and sign in to it:
 
 ```bash
 bedrock login --profile <your-sso-profile>
 ```
 
+`bedrock login` is also how you sign in again when the session expires. It writes the token where
+the AWS CLI and SDKs look (`~/.aws/sso/cache`), so `aws sso login` works just as well. Without
+`--profile` it signs in to the SSO profile behind your `bedrock` profile once Step 2 wrote it, and
+before that to the only SSO sign-in in `~/.aws/config` (one SSO profile, or several that share one
+`sso-session`).
+
 ### Sign in with an IAM user access key
 
-Skip Step 1 if your admin gave you an IAM user's access key instead of SSO. Store the key in a
-profile, then pass that profile to the setup command your admin sent you (it already has
-`--source-profile` and `--default-region`):
+If your admin gave you an IAM user's access key instead of SSO, the line they sent starts with
+`bedrock configure access-key`:
 
 ```bash
-aws configure --profile my-key          # access key ID, secret, and the region
-bedrock setup --id <id> --source-profile my-key --default-region us-east-1
+bedrock configure access-key
 ```
 
-The region comes from `--region`, else the `my-key` profile, else `--default-region` (your admin's
-setup region).
+```
+Access key ID of your IAM user: AKIAIOSFODNN7EXAMPLE
+Secret access key (not shown):
+
+Wrote access key AKIAIOSFODNN7EXAMPLE to /home/achen/.aws/credentials as profile bedrock-key.
+```
+
+It writes the key to `~/.aws/credentials` (or `$AWS_SHARED_CREDENTIALS_FILE`) as profile
+`bedrock-key` (`--profile-name <name>` picks another name) and keeps the previous file as
+`credentials.bak`. Without a terminal, it reads the key ID and the secret as two lines from stdin.
+Run it again with a new key to replace it. A key profile you already have works too: pass it to
+`bedrock setup --source-profile <profile>`.
+
+Then `bedrock setup --id <id> --source-profile bedrock-key --default-region us-east-1` (the rest of
+the line) takes the region from `--region`, else the key profile, else `--default-region` (your
+admin's setup region).
 
 `setup` reads your email from the IAM user's `owner` tag, which your admin's `apply` set; if it can't,
-pass `--email <your email>`. The profile it writes has `source_profile = my-key` and your email as
+pass `--email <your email>`. The profile it writes has `source_profile = bedrock-key` and your email as
 `role_session_name`. The access key itself can't call models: only the `bedrock` profile can. Your
 budget counts any Bedrock calls made with the access key (only Bedrock, nothing else on AWS), and
 when you're paused the access key is denied too.
-`bedrock doctor` shows `sign-in: IAM user <name> (profile my-key)` instead of `SSO sign-in`.
+`bedrock doctor` shows `sign-in: IAM user <name> (profile bedrock-key)` instead of `SSO sign-in`.
 
 ### Step 2. Write your Bedrock profile
 
@@ -152,7 +207,8 @@ bedrock setup --id <id>
 ```
 
 It writes a `[profile bedrock]` block in `~/.aws/config` (or `$AWS_CONFIG_FILE`) for your personal role, then runs
-`bedrock doctor`.
+`bedrock doctor`. It signs in with the profile of Step 1: the only SSO profile, else
+`--source-profile <profile>`.
 
 <details>
 <summary>What it writes, and options</summary>
@@ -160,7 +216,7 @@ It writes a `[profile bedrock]` block in `~/.aws/config` (or `$AWS_CONFIG_FILE`)
 ```ini
 [profile bedrock]
 role_arn = arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
-source_profile = my-sso
+source_profile = bedrock-sso
 role_session_name = achen@example.com
 region = us-west-2
 ```
@@ -200,7 +256,7 @@ failed check; see [If something goes wrong](#if-something-goes-wrong).
 
 ```
 ok    profile: bedrock in /Users/achen/.aws/config
-ok    SSO sign-in: achen@example.com (profile my-sso)
+ok    SSO sign-in: achen@example.com (profile bedrock-sso)
 ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
 ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock-achen/achen@example.com
 ok    model us.anthropic.claude-opus-5-5: test call works
@@ -492,7 +548,7 @@ the fix under it:
 | `profile` | `<key> has a comment at the end of the line` | Put comments on their own line, or run `bedrock setup --yes` |
 | `SSO sign-in` | Your SSO session expired or you are not signed in | `bedrock login --profile <profile>` |
 | `SSO sign-in` | `signed in as ..., not with SSO` (or `sign in with bedrock login ...`) | Set `source_profile` to your SSO or IAM user profile, or run `bedrock setup --source-profile <profile>` |
-| `sign-in` | The access key of the IAM user profile doesn't work | `aws configure --profile <profile>` with a valid key; ask your admin for a new one |
+| `sign-in` | The access key of the IAM user profile doesn't work | `bedrock configure access-key --profile-name <profile>` with a valid key; ask your admin for a new one |
 | `session name` | `role_session_name is ..., but it must be your email` (IAM user) | `bedrock setup --yes` |
 | `session name` | `role_session_name is ..., but it must be exactly your SSO email ...` | `bedrock setup --yes` |
 | `permission-set access` | `cannot use <role ARN>: ... AccessDenied` | Ask your admin to onboard you with the address shown under `SSO sign-in` (not an alias), and check `role_arn` if they gave you one. Or ask them to let your SSO permission set use the `bedrock-users` roles. With an IAM user: ask them to onboard your email with `iam_user: <name>`. |
@@ -532,7 +588,7 @@ After your admin removes you, `doctor` stops at your role:
 ```text
 $ bedrock doctor
 ok    profile: bedrock in /Users/achen/.aws/config
-ok    SSO sign-in: achen@example.com (profile my-sso)
+ok    SSO sign-in: achen@example.com (profile bedrock-sso)
 FAIL  permission-set access: cannot use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen: AccessDenied: User: arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
       fix: ask your admin to onboard achen@example.com (and check role_arn, if they gave you one), or to let your SSO permission set use the bedrock-users roles
 ```
@@ -549,7 +605,7 @@ it on the model checks:
 ```text
 $ bedrock doctor
 ok    profile: bedrock in /Users/achen/.aws/config
-ok    SSO sign-in: achen@example.com (profile my-sso)
+ok    SSO sign-in: achen@example.com (profile bedrock-sso)
 ok    permission-set access: may use arn:aws:iam::111122223333:role/bedrock-users/bedrock/bedrock-user-bedrock-achen
 ok    personal role: arn:aws:sts::111122223333:assumed-role/bedrock-user-bedrock-achen/achen@example.com
 FAIL  model us.anthropic.claude-opus-5-5: AccessDeniedException
@@ -573,26 +629,3 @@ The pause can come a few hours after you cross the limit, because billing runs b
   they remove it, also past the 1st.
 - Don't switch to another profile to keep working. That spend isn't counted against your budget,
   shows up in your admin's report, and may be blocked.
-
-### SSO configuration without AWS CLI v2
-
-Add the following to `~/.aws/config`, using your organization's SSO start URL,
-SSO region, account and permission-set role name:
-
-```ini
-[profile sso]
-sso_session = work
-sso_account_id = 111122223333
-sso_role_name = Developer
-region = us-west-2
-
-[sso-session work]
-sso_start_url = https://example.awsapps.com/start
-sso_region = us-east-1
-sso_registration_scopes = sso:account:access
-```
-
-Run `bedrock login --profile sso`, open the displayed URL and enter the code.
-The login writes the standard AWS SSO cache, including refresh credentials.
-Existing SSO profiles also work. Install `bedrock` on the host before signing in
-for container tests; the test container shares the host's SSO cache.

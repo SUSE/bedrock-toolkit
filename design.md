@@ -38,8 +38,8 @@ There are two CLIs:
 
 | CLI | For | Commands |
 | --- | --- | --- |
-| `bedrock-admin` | The account admin | `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
-| `bedrock` | Users | `login`, `setup`, `doctor`, `claude`, `models`, `usage` |
+| `bedrock-admin` | The account admin | `login`, `whoami`, `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
+| `bedrock` | Users | `configure`, `login`, `whoami`, `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
 
@@ -50,7 +50,7 @@ There are two CLIs:
 | Credentials | Temporary only | Password or long-lived access keys |
 | Lifecycle | Managed centrally from the identity provider; offboarding is automatic | Managed separately in each account |
 | Caller ARN | `...:assumed-role/AWSReservedSSO_<Set>_<id>/achen@example.com` | `...:user/achen` |
-| CLI sign-in | `bedrock login` | Access key (no console access needed) |
+| CLI sign-in | `bedrock login` (`bedrock-admin login` for admins) | Access key (no console access needed) |
 
 SSO is the default. A user without SSO may sign in with an IAM user's access key instead (`iam_user:`
 on their entry, see [IAM users](#iam-users)); they still go through their personal role, with the
@@ -110,7 +110,7 @@ match.
 id: acmeprod                    # names and tags what apply creates; default bedrock
 account: "111122223333"
 region: us-west-2
-profile: bedrock-admin          # AWS CLI profile
+profile: bedrock-admin          # AWS profile
 product: genai-tools            # product tag on every personal role; a user's product: overrides it
 
 models:                         # optional: the only models users may call, with the baseline; checked by apply and doctor
@@ -126,6 +126,11 @@ defaults:
 
 cost_export:                    # optional; the default bucket is bedrock-cur-<account>-<id>
   bucket: bedrock-cur-111122223333-acmeprod
+
+sso:                            # optional: users' SSO sign-in, added to the setup commands
+  start_url: https://example.awsapps.com/start
+  region: us-east-1
+  role: Developer               # optional: the users' permission set
 
 web_search:                     # optional: Step 1.8
   enabled: false                # true needs region us-east-1, eu-west-1 or ap-northeast-1
@@ -367,9 +372,10 @@ statement stays, so the user may use either:
 - It tags the IAM user like the personal role, `owner=<email>`, `product` and `bedrock-admin:id`, so
   the budget's `iamPrincipal/owner` filter counts the IAM user's direct Bedrock calls, the same as an
   SSO user's role. Billing records IAM principal tags only on Bedrock line items, so the IAM user's
-  other AWS spend never reaches the budget. `bedrock setup --source-profile <key profile>` reads the
-  email from the `owner` tag (or `--email`). The setup command `apply` prints adds
-  `--default-region <setup region>`, used only when neither `--region` nor the key profile sets one. `export` rebuilds `iam_user:` from the tags. `usage` counts lines of an IAM user tagged
+  other AWS spend never reaches the budget. `bedrock configure access-key` writes the key to
+  `~/.aws/credentials` as profile `bedrock-key`, and `bedrock setup --source-profile <key profile>`
+  reads the email from the `owner` tag (or `--email`). The line `apply` prints is
+  `bedrock configure access-key && bedrock setup ... --source-profile bedrock-key --default-region <setup region>`, the region, used only when neither `--region` nor the key profile sets one. `export` rebuilds `iam_user:` from the tags. `usage` counts lines of an IAM user tagged
   with a user's `owner` as that user's.
 - The pause action's `IamActionDefinition` lists the IAM user in `Users` next to the role, so AWS
   Budgets attaches and detaches `bedrock-deny-<id>` on both. `apply` updates `Users` in place (no
@@ -383,8 +389,15 @@ statement stays, so the user may use either:
   policy is deleted when no user has `iam_user:` left; `uninstall` detaches it from every user and
   group first.
 
-`bedrock setup` writes an AWS CLI profile that uses the SSO profile as `source_profile` and sets
-`role_session_name` to the SSO email. It first assumes the role once and, if that's denied (a wrong `--id`,
+`bedrock setup` writes an AWS profile that uses the SSO profile as `source_profile` and sets
+`role_session_name` to the SSO email. With `sso:` in `bedrock.yaml`, the line `apply` prints starts with
+`bedrock configure sso --start-url ... --sso-region ... --account ... [--role ...] --region ... &&`,
+which creates or reuses the SSO profile (`bedrock-sso`) and signs in through the SSO OIDC device
+flow, like `aws configure sso`; no user needs the AWS CLI. `bedrock-admin configure sso` creates the
+admin's SSO profile (`bedrock-admin`) the same way; `bedrock-admin configure` only reads it.
+Profile creation stays out of `setup` and `configure`, so each command does one thing.
+`bedrock login` and `bedrock-admin login` only sign in again. `bedrock whoami` and
+`bedrock-admin whoami` replace `aws sts get-caller-identity`. It first assumes the role once and, if that's denied (a wrong `--id`,
 or a user not onboarded yet), writes nothing. Without `--id` or `--role-arn`, it reuses the existing
 profile's role: the id when the ARN is `/bedrock-users/<id>/bedrock-user-<id>-...`, else the ARN.
 `bedrock doctor` prints its fixes as that command (`bedrock setup --id <id> --yes`). `bedrock doctor` checks each part. `bedrock claude` runs
@@ -760,8 +773,8 @@ and a real AWS account:
 | `cli` | A smoke test of the built binaries, with no AWS |
 | `account` | The account steps: `plan`, `apply`, re-runs, a second setup in the same account, `uninstall`; central reports: `fleet init` (and finding the bucket by its tag), the reports and usage from `apply`, the Lambda and `uninstall`, `fleet report` with `--by product` and `--by month`, `setups` with and without a file, `block policy` and `block status` (read-only; `block apply` needs Organizations rights) |
 | `users` | Onboarding, limit changes and offboarding, pause and unpause by hand, `bedrock-admin users` |
-| `user-access` | The user flow: `bedrock setup` (a wrong id writes nothing; a rerun reuses the id), calls through the personal role, `bedrock doctor`, `bedrock usage` (with its daily usage file, and without one), `bedrock models`, direct SSO calls denied, a pause seen by the user |
-| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
+| `user-access` | The user flow: `bedrock setup` (a wrong id writes nothing; a rerun reuses the id), calls through the personal role, `bedrock doctor` (also renewing an expired SSO token from the cache `bedrock login` writes), `bedrock usage` (with its daily usage file, and without one), `bedrock models`, direct SSO calls denied, a pause seen by the user |
+| `iam-user` | A user with an IAM user's access key: `apply` tags the IAM user `owner`, attaches Step 1.9 and adds it to the pause action, its onboarding line starts with `bedrock configure access-key`, `bedrock setup --source-profile`, calls through the personal role, direct key calls denied (even with the key's own Bedrock Allow), a pause denies the key and the personal role, removing `iam_user:` releases the IAM user |
 | `usage` | The report, against Parquet fixtures uploaded to the bucket; the Lambda's daily usage files, read only by their own role (a missing one is "not found" to it), deleted at offboarding |
 | `web-search` | Opt-in: turning `web_search` on creates the setup's gateway and gives a personal role the rights, the role can search, the pause denies it, the printed MCP server runs through the proxy, and turning it off removes the rights, the gateway and its role |
 | `billing` | Real spend, the automatic pause and the monthly Lambda, in phases over a day or more |

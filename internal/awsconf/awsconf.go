@@ -22,6 +22,19 @@ func Path() (string, error) {
 	return filepath.Join(home, ".aws", "config"), nil
 }
 
+// CredentialsPath is the shared credentials file: $AWS_SHARED_CREDENTIALS_FILE, else
+// ~/.aws/credentials.
+func CredentialsPath() (string, error) {
+	if p := os.Getenv("AWS_SHARED_CREDENTIALS_FILE"); p != "" {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".aws", "credentials"), nil
+}
+
 // Section is one [header] block. Start is the header line; End is one past its last key line
 // (trailing blank and comment lines belong to the next section).
 type Section struct {
@@ -42,7 +55,7 @@ func (s *Section) Profile() string {
 	return ""
 }
 
-// IsSSO reports whether the profile signs in with SSO (bedrock login).
+// IsSSO reports whether the profile signs in with SSO (bedrock login or aws sso login).
 func (s *Section) IsSSO() bool {
 	return s.Keys["sso_session"] != "" || s.Keys["sso_start_url"] != ""
 }
@@ -129,11 +142,34 @@ func Block(name string, kvs []KV) []string {
 	return out
 }
 
+// Section returns the section with a header, such as "sso-session work", or nil.
+func (f *File) Section(header string) *Section {
+	for _, s := range f.Sections {
+		if s.Header == header {
+			return s
+		}
+	}
+	return nil
+}
+
 // SetProfile replaces the profile's block, or appends it after a blank line.
 func (f *File) SetProfile(name string, kvs []KV) {
-	block := Block(name, kvs)
+	f.set(f.Profile(name), Block(name, kvs))
+}
+
+// SetSection replaces the block of a section, such as "sso-session work" or a credentials file
+// profile, or appends it after a blank line.
+func (f *File) SetSection(header string, kvs []KV) {
+	block := []string{"[" + header + "]"}
+	for _, kv := range kvs {
+		block = append(block, kv.Key+" = "+kv.Value)
+	}
+	f.set(f.Section(header), block)
+}
+
+func (f *File) set(s *Section, block []string) {
 	var lines []string
-	if s := f.Profile(name); s != nil {
+	if s != nil {
 		lines = append(lines, f.Lines[:s.Start]...)
 		lines = append(lines, block...)
 		lines = append(lines, f.Lines[s.End:]...)

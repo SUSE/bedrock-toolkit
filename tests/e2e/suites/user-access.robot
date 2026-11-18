@@ -70,6 +70,13 @@ Doctor Passes
     ${d}=    Bedrock    doctor    --profile-name    ${PROFILE}    --json
     Should Be True    $d["ok"]
 
+An Expired SSO Token Is Renewed
+    [Documentation]    The token cache bedrock login writes (or aws sso login) holds the refresh token the SDK
+    ...    renews an expired sign-in with. Runs on a copy of the cache in a temporary HOME; skipped when
+    ...    SSO_PROFILE has no sso_session or the cache has no refresh token.
+    ${d}=    Doctor Refreshes Expired SSO Token    ${PROFILE}
+    Should Be True    $d["ok"]
+
 Usage Reads The User's Own Budget
     [Documentation]    The personal role may read its own budget and tags.
     ${u}=    Bedrock    usage    --profile-name    ${PROFILE}    --json
