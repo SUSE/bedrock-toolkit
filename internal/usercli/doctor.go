@@ -183,10 +183,10 @@ func (a *App) webSearchChecks(ctx context.Context, profile, region string) []cli
 	}
 	var out []cli.Check
 	if p, err := exec.LookPath("uvx"); err != nil {
-		out = append(out, cli.Check{Name: "uvx", OK: true, Warn: true, Detail: "not on your PATH; Claude Code's web search needs it to start its MCP server",
+		out = append(out, cli.Check{Name: "uvx", OK: true, Warn: true, Detail: "not on your PATH; Claude Code starts the web search MCP server with it",
 			Fix: "install uv: https://docs.astral.sh/uv/getting-started/installation/"})
 	} else {
-		out = append(out, cli.Check{Name: "uvx", OK: true, Detail: p})
+		out = append(out, cli.Check{Name: "uvx", OK: true, Detail: p + " (Claude Code starts the web search MCP server with it)"})
 	}
 	c := cli.Check{Name: "web search", OK: true, Detail: "gateway answers " + url}
 	if err := a.AWS.WebSearch(ctx, profile, websearch.URLRegion(url, region), url, false); err != nil {
