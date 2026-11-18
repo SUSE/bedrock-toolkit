@@ -9,7 +9,9 @@ and every personal role (bedrock-user-<id>-<name>) belongs to the run alone. A s
 setup at the start and uninstalls it, with its bucket, at the end. Test users' emails are
 <run id>-<x>@TEST_EMAIL_DOMAIN.
 """
+import configparser
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 import urllib.error
@@ -958,6 +961,43 @@ class BedrockE2E:
         BuiltIn().set_global_variable("${USER_AWS_CONFIG}", str(self.user_aws_config))
         logger.info(f"SSO: {arn}", also_console=True)
         return self.sso_email
+
+    def doctor_refreshes_expired_sso_token(self, profile):
+        """Runs bedrock doctor with a copy of the runner's SSO token cache whose access token has
+        expired, in a temporary HOME (never the real ~/.aws), and checks that the SDK renewed it from
+        the cached refresh token, as bedrock login and aws sso login write it."""
+        sso = self._settings()["SSO_PROFILE"]
+        cp = configparser.ConfigParser()
+        cp.read_string(self.user_aws_config.read_text())
+        session = cp.get(f"profile {sso}", "sso_session", fallback="")
+        if not session:
+            raise SkipExecution(f"{sso} has no sso_session: the SDK only refreshes sso-session tokens")
+        name = hashlib.sha1(session.encode()).hexdigest() + ".json"
+        real = Path.home() / ".aws" / "sso" / "cache" / name
+        if not real.exists():
+            raise Failure(f"no token cache {real}: run bedrock login --profile {sso}")
+        token = json.loads(real.read_text())
+        if not token.get("refreshToken"):
+            raise SkipExecution(f"{real} has no refreshToken to renew the sign-in with")
+        home = Path(tempfile.mkdtemp(prefix="home-", dir=self.work))
+        cache = home / ".aws" / "sso" / "cache" / name
+        cache.parent.mkdir(parents=True, mode=0o700)
+        token["expiresAt"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cache.write_text(json.dumps(token))
+        cache.chmod(0o600)
+        env = self._env()
+        env.pop("AWS_PROFILE", None)
+        env["HOME"], env["AWS_CONFIG_FILE"] = str(home), str(self.user_aws_config)
+        args = ["doctor", "--profile-name", profile, "--json"]
+        r = self._exec([str(BIN / "bedrock")] + args, env, "", "bedrock " + " ".join(args) + " (expired SSO token)")
+        self._check_rc(r, 0, "bedrock doctor with an expired SSO token")
+        renewed = json.loads(cache.read_text())
+        if renewed["accessToken"] == token["accessToken"]:
+            raise Failure("doctor passed, but the cached access token wasn't renewed")
+        if dt.datetime.fromisoformat(renewed["expiresAt"].replace("Z", "+00:00")) <= dt.datetime.now(dt.timezone.utc):
+            raise Failure(f"the renewed token expires at {renewed['expiresAt']}, in the past")
+        shutil.rmtree(home, ignore_errors=True)
+        return json.loads(r.stdout)
 
     def get_sso_permission_set(self):
         return self.sso_permission_set

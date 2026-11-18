@@ -97,7 +97,7 @@ func (a *App) doctor(ctx context.Context, profile string, models []string) []cli
 	if err != nil {
 		fix := loginCommand(src)
 		if signIn != "SSO sign-in" {
-			fix = "check the access key of profile " + src + " (aws configure --profile " + src + ")"
+			fix = "check the access key of profile " + src + " (bedrock configure access-key --profile-name " + src + " writes it again)"
 		}
 		return append(out, cli.Check{Name: signIn, Detail: fmt.Sprintf("profile %s: %v", src, short(err)), Fix: fix})
 	}

@@ -107,7 +107,7 @@ func New(ctx context.Context, profile, region, account string) (*Clients, error)
 		}
 		hint := ""
 		if profile != "" {
-			hint = fmt.Sprintf(" (try: bedrock login --profile %s)", profile)
+			hint = fmt.Sprintf(" (try: bedrock-admin login --profile %s)", profile)
 		}
 		return nil, fmt.Errorf("AWS credentials don't work%s: %w", hint, err)
 	}
@@ -256,4 +256,30 @@ func DeletePrefix(ctx context.Context, c *s3.Client, bucket, prefix string) erro
 		}
 	}
 	return nil
+}
+
+// Describe returns the account of a caller ARN and who it is: an SSO user with its permission
+// set, an assumed role and its session, an IAM user or the root user.
+func Describe(arn string) (account, who string) {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) < 6 {
+		return "", arn
+	}
+	account = parts[4]
+	res := strings.Split(parts[5], "/")
+	switch {
+	case res[0] == "root":
+		return account, "root user"
+	case res[0] == "user":
+		return account, "IAM user " + res[len(res)-1]
+	case res[0] == "assumed-role" && len(res) == 3:
+		if set, ok := strings.CutPrefix(res[1], "AWSReservedSSO_"); ok {
+			if i := strings.LastIndex(set, "_"); i > 0 {
+				set = set[:i]
+			}
+			return account, "SSO user " + res[2] + ", permission set " + set
+		}
+		return account, "role " + res[1] + ", session " + res[2]
+	}
+	return account, parts[5]
 }

@@ -3,6 +3,7 @@ package admincli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/sso"
 
 	bedrocktoolkit "github.com/SUSE/bedrock-toolkit"
 )
@@ -355,5 +357,65 @@ func TestConfigureReport(t *testing.T) {
 	}
 	if _, out, _ := run(t, args...); strings.Contains(out, "report:") {
 		t.Fatalf("report: without a bucket:\n%s", out)
+	}
+}
+
+func TestConfigureSSOCreatesProfile(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "config")
+	t.Setenv("AWS_CONFIG_FILE", conf)
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	run := func(config string, args ...string) (signedIn, errs string) {
+		t.Helper()
+		if err := os.WriteFile(conf, []byte(config), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		a := New("test")
+		a.In, a.Out, a.Err = strings.NewReader(""), &out, &errb
+		a.Login = &sso.Login{Client: func(_ context.Context, profile, region string) (sso.OIDC, error) {
+			signedIn = profile + " " + region
+			return nil, errors.New("stop")
+		}}
+		a.Main(context.Background(), args)
+		return signedIn, errb.String()
+	}
+	ssoArgs := []string{"configure", "sso", "--start-url", "https://acme.awsapps.com/start", "--sso-region", "eu-central-1"}
+	if got, errs := run("", ssoArgs...); got != " eu-central-1" || !strings.Contains(errs, "stop") {
+		t.Errorf("signed in to %q\n%s", got, errs)
+	}
+	if got, errs := run("", ssoArgs[:4]...); got != "" || !strings.Contains(errs, "--sso-region") {
+		t.Errorf("no --sso-region: signed in to %q\n%s", got, errs)
+	}
+	// configure itself only hints at configure sso.
+	cfgArgs := []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"),
+		"--id", "rancher", "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher"}
+	if got, errs := run("", cfgArgs...); got != "" || !strings.Contains(errs, "create yours with bedrock-admin configure sso") {
+		t.Errorf("configure without a profile: signed in to %q\n%s", got, errs)
+	}
+	if got, errs := run("", append(cfgArgs, "--profile", "new")...); got != "" || !strings.Contains(errs, "configure sso --profile-name new") {
+		t.Errorf("configure --profile new: signed in to %q\n%s", got, errs)
+	}
+}
+
+func TestConfigureSSO(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "config")
+	if err := os.WriteFile(conf, []byte("[sso-session acme]\nsso_start_url = https://acme.awsapps.com/start\nsso_region = eu-central-1\n\n[profile bedrock-admin]\nsso_session = acme\nsso_account_id = 123456789012\nsso_role_name = Admin\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_PROFILE", "bedrock-admin")
+	t.Setenv("AWS_CONFIG_FILE", conf)
+	args := []string{"configure", "--yes", "--dry-run", "-f", filepath.Join(dir, "bedrock.yaml"), "--id", "rancher", "--account", "123456789012", "--region", "eu-west-1", "--product", "rancher"}
+	code, out, errs := run(t, append(args, "--sso-role", "BedrockUser")...)
+	if code != 0 || !strings.Contains(out, "sso:\n  start_url: https://acme.awsapps.com/start\n  region: eu-central-1\n  role: BedrockUser\n") {
+		t.Fatalf("from the admin profile: %d\n%s\n%s", code, out, errs)
+	}
+	if code, out, errs := run(t, append(args, "--sso-start-url", "-")...); code != 0 || strings.Contains(out, "sso:") {
+		t.Fatalf("--sso-start-url -: %d\n%s\n%s", code, out, errs)
+	}
+	if code, _, errs := run(t, append(args, "--sso-start-url", "acme.awsapps.com")...); code == 0 || !strings.Contains(errs, "sso.start_url") {
+		t.Fatalf("bad URL: %d\n%s", code, errs)
 	}
 }

@@ -2,8 +2,8 @@
 # Copy it to config/<you>.py (ignored by git); run.sh passes config/$USER.py, or E2E_CONFIG=<file>.
 # The cli suite needs no variable file. Every value is optional unless marked required.
 
-# Admin: an AWS CLI profile with admin rights in the test account (required for every suite but cli).
-# Sign in before the run, for example: bedrock login --profile <ADMIN_PROFILE>
+# Admin: a profile in ~/.aws/config with admin rights in the test account (required for every suite but cli).
+# Sign in before the run, for example: bedrock-admin login --profile <ADMIN_PROFILE>
 ADMIN_PROFILE = "default"
 
 # Bedrock region of the test setups. The web-search suite needs us-east-1, eu-west-1 or ap-northeast-1.

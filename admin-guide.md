@@ -34,7 +34,8 @@ Each step starts with the commands to run. Click the folded sections for sample 
 First-time setup of an account:
 
 ```bash
-bedrock login --profile bedrock-admin
+bedrock-admin configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1
+#   creates your bedrock-admin SSO profile and signs you in (step 1)
 bedrock-admin configure --profile bedrock-admin   # write bedrock.yaml (step 2)
 #   ...add your users under users: in bedrock.yaml
 bedrock-admin doctor                              # check credentials and permissions (step 1)
@@ -42,7 +43,7 @@ bedrock-admin plan                                # see what apply will create (
 bedrock-admin apply                               # create it; prints the command for each new user
 ```
 
-Then send each new user the `bedrock setup` command that `apply` prints. To stop users calling
+Then send each new user the commands that `apply` prints. To stop users calling
 models outside their personal role, send your org admin the file `bedrock-admin block policy`
 writes ([step 9](#9-block-direct-model-calls)).
 
@@ -75,6 +76,9 @@ bedrock-admin usage                               # spend per user, and spend ou
 
 | Command | What it does | Section |
 | --- | --- | --- |
+| `bedrock-admin login` | Signs in again to your SSO profile in the browser, like `aws sso login` | [1](#check) |
+| `bedrock-admin whoami` | Shows your admin profile's account and identity, and warns when it is not bedrock.yaml's account | [1](#check) |
+| `bedrock-admin configure sso` | Creates your SSO profile in `~/.aws/config` and signs you in, like `aws configure sso` | [1](#check) |
 | `bedrock-admin configure` | Writes the settings part of `bedrock.yaml`, by asking or from flags | [2](#2-create-bedrockyaml) |
 | `bedrock-admin doctor` | Checks your credentials, permissions, account setup, cost export data and models | [1](#1-install-and-check-your-environment), [8](#8-check-production) |
 | `bedrock-admin models` | Lists the region's inference profiles, the IDs `models:` takes. `--filter` narrows the list; REGIONS shows where each allowed model sends requests | [2](#choosing-models) |
@@ -107,14 +111,26 @@ release binary: a `go install` build has no monthly Lambda inside.
 
 ### Check
 
-Create an AWS CLI profile for your admin permission set once, then sign in and check:
+You need an SSO profile for your admin permission set. Without one, create it with
+`bedrock-admin configure sso`:
 
 ```bash
-bedrock login --profile bedrock-admin
-bedrock-admin doctor --profile bedrock-admin
+bedrock-admin configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1
+bedrock-admin whoami --profile bedrock-admin
+bedrock-admin doctor
 ```
 
-Create the profile using the [SSO configuration example](user-guide.md#sso-configuration-without-aws-cli-v2), with your admin account and permission-set role name. Install `bedrock` to run the login command. `bedrock-admin` is only a suggested name: any profile for the
+`configure sso` signs you in, asks which account and permission set to use (`--account` and
+`--role` pick without asking) and writes the profile `bedrock-admin` (or `--profile-name <name>`)
+to `~/.aws/config`, as in the [user guide's example](user-guide.md#step-1-create-your-sign-in-profile).
+On a terminal it asks for the start URL and the SSO region when you don't pass them. The start URL
+is the AWS access portal URL you sign in to AWS with; it and the region of IAM Identity Center are
+on the Settings page of IAM Identity Center in the console. A profile with the same sign-in is
+reused. After that, `bedrock-admin login` signs in again when the session expires, like
+`aws sso login`, so you don't need the AWS CLI. `whoami` shows the account and permission set the
+profile signs in as.
+`bedrock-admin login` without `--profile` signs in to the `profile:` in `bedrock.yaml`, and without either to the only
+SSO sign-in in `~/.aws/config` (several profiles that share one `sso-session` count as one). `bedrock-admin` is only a suggested name: any profile for the
 admin permission set works, so use its name in place of `bedrock-admin` after `--profile`.
 
 `doctor` prints `ok` or `FAIL` per check, with the fix under each failure, and exits 2 when one
@@ -127,7 +143,7 @@ failed. Before you have a `bedrock.yaml` it stops at the first check and tells y
 | Check | Passes when |
 | --- | --- |
 | `config` | The file loads and is valid |
-| `credentials` | The profile has valid credentials. Fix: `bedrock login --profile <profile>` |
+| `credentials` | The profile has valid credentials. Fix: `bedrock-admin login --profile <profile>` |
 | `permissions` | It could read every part of the account setup |
 | `Step 1.1` to `Step 1.9` | Each account setup item is in place (one line per item, as in `plan`) |
 | `cost export data` | The export has delivered files, and the newest is less than 48 hours old |
@@ -222,7 +238,18 @@ bedrock-admin configure --profile bedrock-admin
 `configure` asks a few questions and writes everything except your users. For the id and the product,
 give your team or product name (for example `rancher`): the id names everything `apply` creates and
 users pass it to `bedrock setup` (see [choosing an id](#choosing-an-id)); central fleet reports group
-usage by the product. Then add
+usage by the product. It also asks for your users' SSO sign-in, for the commands `apply`
+prints: the start URL and SSO region (it suggests your own SSO profile's) and, optionally, the permission set your users have (answer `-` to the
+start URL to leave it out):
+
+```yaml
+sso:
+  start_url: https://example.awsapps.com/start
+  region: us-east-1               # region of IAM Identity Center
+  role: Developer                 # your users' permission set; empty: each user picks one of theirs
+```
+
+The flags are `--sso-start-url`, `--sso-region` and `--sso-role`. Then add
 your users:
 
 ```yaml
@@ -238,13 +265,13 @@ When you're not sure, ask the user to run this with their SSO profile (not the `
 which works only once the email is right):
 
 ```bash
-aws sts get-caller-identity --profile <their-sso-profile>
+bedrock whoami --profile <their-sso-profile>
 ```
 
-The address to use is the end of `Arn`, here `achen@example.com`:
+The address to use is the one after `SSO user`, here `achen@example.com`:
 
-```json
-"Arn": "arn:aws:sts::111122223333:assumed-role/AWSReservedSSO_Dev_abc123/achen@example.com"
+```
+Identity: SSO user achen@example.com, permission set Developer
 ```
 
 `bedrock doctor` shows the same address as `SSO sign-in: achen@example.com`. If you can see IAM
@@ -278,12 +305,12 @@ users:
   an explicit deny wins over any Allow the IAM user has, even `AdministratorAccess`;
 - adds a second statement to the personal role's trust: the IAM user may assume it with session name
   `<email>`. The user's SSO login, if they have one, still works too;
-- prints a setup command with `--source-profile <your <iam_user> access key profile>` and
-  `--default-region <region>`: the setup's region, used only when the user's key profile has none
+- prints `bedrock configure access-key && bedrock setup ... --source-profile bedrock-key
+  --default-region <region>`: the setup's region, used only when the user's key profile has none
   (or `--region <region>` instead, when your profile's region differs from the setup's).
 
-Send the user the access key and that command. They store the key with
-`aws configure --profile <name>` and run `bedrock setup --source-profile <name>`; see the
+Send the user the access key and those commands. `bedrock configure access-key` asks for the key
+and stores it in `~/.aws/credentials` itself; see the
 [user guide](user-guide.md#sign-in-with-an-iam-user-access-key).
 
 If you add `iam_user:` to someone who is paused, `apply` attaches the deny to the IAM user right away.
@@ -452,9 +479,6 @@ us.anthropic.claude-sonnet-5-5           US Anthropic Claude Sonnet 5.5      ACT
   models in `models:` and every baseline model, whatever your region (`us.` profiles from us-east-1 and `eu.` ones from eu-central-1 when they aren't your region's). With an empty `models:`, users may call any
   other Claude model except Fable only once the account has enabled it (for example, an admin's
   first call); list it in `models:` to have `apply` enable it.
-- To see one model's state: `aws bedrock get-foundation-model-availability --model-id
-  anthropic.claude-sonnet-5-5` (the ID without the prefix). Ready means `AUTHORIZED`, and `AVAILABLE`
-  for region, agreement and entitlement.
 - `models.toml` lists each baseline model with every prefix (`us.`, `eu.` and `global.`), and the
   personal role policy allows all of them, since each user's `bedrock` CLI picks the prefix from the
   user's own region, which can differ from `region:`. Step 1.5 enables them all, each from a region of
@@ -501,12 +525,18 @@ bedrock-admin apply    # creates what is missing; safe to re-run
 `apply` prints each change and, for each new user, the command to send them:
 
 ```
-Send each new user their setup command (after bedrock login, or with their access key profile for IAM users):
-  achen@example.com: bedrock setup --id acmeprod
-  bkim@example.com: bedrock setup --id acmeprod
-  cdiaz@example.com: bedrock setup --id acmeprod
-  dlee@example.com: bedrock setup --id acmeprod --source-profile <your dlee-bedrock access key profile> --default-region us-west-2
+Send each new user their commands (IAM users also need their access key):
+  achen@example.com: bedrock configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1 --account 111122223333 --role Developer --region us-west-2 && bedrock setup --id acmeprod
+  bkim@example.com: bedrock configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1 --account 111122223333 --role Developer --region us-west-2 && bedrock setup --id acmeprod
+  cdiaz@example.com: bedrock configure sso --start-url https://example.awsapps.com/start --sso-region us-east-1 --account 111122223333 --role Developer --region us-west-2 && bedrock setup --id acmeprod
+  dlee@example.com: bedrock configure access-key && bedrock setup --id acmeprod --source-profile bedrock-key --default-region us-west-2
 ```
+
+With `sso:` in `bedrock.yaml` (see [step 2](#2-create-bedrockyaml)), `bedrock configure sso`
+creates the user's SSO profile and signs them in, so they need nothing else: no AWS CLI, no
+`~/.aws/config` editing. Without it, the command is just `bedrock setup --id acmeprod` and users
+sign in first with their own SSO profile. `bedrock configure` needs a recent `bedrock`: users with
+an older one get `unknown command` and must upgrade first.
 
 Send it, and point them to the [user guide](user-guide.md). Step 1.6 clears by itself within 24
 hours of the first user call.
@@ -574,13 +604,13 @@ summary such as `Done: 11 created. 1 still pending.`, then a `Failed:` and a `Pe
 the reason under each item. If a step fails, fix the cause and run `apply` again; users wait until
 the account setup succeeds.
 
-The `bedrock setup` command it prints has `--id <id>`, or `--role-arn` when the user has a custom
+The `bedrock setup` part it prints has `--id <id>`, or `--role-arn` when the user has a custom
 `name:`, and `--region` when your profile's region differs from the file's region. Send it
 as printed: users can't look up their role, so they need these flags from you. A message to a new
 user:
 
 1. Install the `bedrock` CLI and set up AWS SSO, as in the [user guide](user-guide.md).
-2. Run `bedrock login`, then the `bedrock setup ...` line `apply` printed for them.
+2. Run the line `apply` printed for them (`bedrock configure ... && bedrock setup ...`).
 3. Run `bedrock claude` for the Claude Code and Claude desktop app settings.
 
 `apply` exits 2 when something is still pending, for example a conflict, or a removal without
@@ -1278,6 +1308,7 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 
 | I want to | Run |
 | --- | --- |
+| Create my SSO profile | `bedrock-admin configure sso` |
 | Write the settings | `bedrock-admin configure` |
 | See what would change | `bedrock-admin plan` |
 | Make it so | `bedrock-admin apply` (`--yes` to remove users, `--no-delete` to skip removals) |
@@ -1293,4 +1324,4 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Check my setup | `bedrock-admin doctor` |
 | Stop direct model calls | `bedrock-admin block policy`, send the file to your org admin; then `bedrock-admin block status` |
 | Remove everything | `users: []`, `bedrock-admin apply --yes`, then `bedrock-admin uninstall` |
-| Set up a user's machine | `bedrock setup --id <id>` (the user runs it) |
+| Set up a user's machine | The commands `apply` printed (the user runs them) |

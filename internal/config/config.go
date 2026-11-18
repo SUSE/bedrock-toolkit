@@ -49,6 +49,7 @@ type Config struct {
 	LegacyBlock *yaml.Node `yaml:"block_direct_calls,omitempty" json:"-"`
 	WebSearch   WebSearch  `yaml:"web_search,omitempty" json:"web_search,omitempty"`
 	Report      Report     `yaml:"report,omitempty" json:"report,omitempty"`
+	SSO         SSO        `yaml:"sso,omitempty" json:"sso,omitempty"`
 	Users       []User     `yaml:"users" json:"users"`
 
 	// Path is the file the config was read from ("" when built in memory).
@@ -86,6 +87,17 @@ type Report struct {
 	Region string `yaml:"region,omitempty" json:"region,omitempty"`
 	// IncludeEmails adds each user's email, kind, set-up and pause state; without it, counts only.
 	IncludeEmails bool `yaml:"include_emails,omitempty" json:"include_emails,omitempty"`
+}
+
+// SSO is the IAM Identity Center sign-in of the users, for the bedrock setup commands apply
+// prints: with it, bedrock setup creates the user's SSO profile and signs in. Off when StartURL is
+// empty.
+type SSO struct {
+	StartURL string `yaml:"start_url,omitempty" json:"start_url,omitempty"`
+	// Region is the region of IAM Identity Center.
+	Region string `yaml:"region,omitempty" json:"region,omitempty"`
+	// Role is the users' permission set; empty lets each user pick one of theirs.
+	Role string `yaml:"role,omitempty" json:"role,omitempty"`
 }
 
 // Enabled reports whether central reporting is on.
@@ -308,6 +320,17 @@ func (c *Config) Validate() error {
 	}
 	if !productRe.MatchString(c.Product) {
 		add("product: required; letters, digits, spaces and _.:/=+@- only (got %q)", c.Product)
+	}
+	if c.SSO != (SSO{}) {
+		if !strings.HasPrefix(c.SSO.StartURL, "https://") || strings.ContainsAny(c.SSO.StartURL, " \t") {
+			add("sso.start_url: must be the https:// SSO start URL, such as https://example.awsapps.com/start (got %q)", c.SSO.StartURL)
+		}
+		if !regionRe.MatchString(c.SSO.Region) {
+			add("sso.region: must be the region of IAM Identity Center (got %q)", c.SSO.Region)
+		}
+		if strings.ContainsAny(c.SSO.Role, " \t") {
+			add("sso.role: not a permission set name (%q)", c.SSO.Role)
+		}
 	}
 	seenModel := map[string]bool{}
 	for i, m := range c.Models {

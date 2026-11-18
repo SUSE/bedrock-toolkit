@@ -13,15 +13,18 @@ import (
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/SUSE/bedrock-toolkit/internal/awsconf"
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/sso"
 )
 
 type configureFlags struct {
 	id, account, region, product, bucket, prefix string
 	reportBucket, reportRegion                   string
+	ssoStartURL, ssoRegion, ssoRole              string
 	models                                       []string
 	limit                                        float64
 }
@@ -34,6 +37,10 @@ func (a *App) configureCmd() *cobra.Command {
 		Long: `configure writes everything in bedrock.yaml except users:. It asks for each setting on a terminal;
 with --yes, or without a terminal, it uses the flags and the defaults and asks nothing. An existing
 file keeps its users: (including an !include) and any setting not given.
+
+configure reads the account and region from your admin profile (--profile, else profile: in the
+file): create it first with bedrock-admin configure sso. sso: (your users' SSO start URL and region,
+for the commands apply prints) defaults to your SSO profile's.
 
 Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 		Args: cobra.NoArgs,
@@ -52,6 +59,10 @@ Writes -f, or ./bedrock.yaml. --dry-run prints the file instead.`,
 	fl.StringVar(&f.prefix, "prefix", "", "cost export prefix (default: cur)")
 	fl.StringVar(&f.reportBucket, "report-bucket", "", "central report bucket your central admin gave you (default: no report)")
 	fl.StringVar(&f.reportRegion, "report-region", "", "region of --report-bucket")
+	fl.StringVar(&f.ssoStartURL, "sso-start-url", "", "SSO start URL your users sign in at, for their setup commands (default: your SSO profile's; \"-\": none)")
+	fl.StringVar(&f.ssoRegion, "sso-region", "", "region of IAM Identity Center (default: your SSO profile's)")
+	fl.StringVar(&f.ssoRole, "sso-role", "", "your users' permission set (default: each user picks one of theirs)")
+	cmd.AddCommand(a.configureSSOCmd())
 	return cmd
 }
 
@@ -89,6 +100,9 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	set(&cur.CostExport.Prefix, f.prefix)
 	set(&cur.Report.Bucket, f.reportBucket)
 	set(&cur.Report.Region, f.reportRegion)
+	set(&cur.SSO.StartURL, f.ssoStartURL)
+	set(&cur.SSO.Region, f.ssoRegion)
+	set(&cur.SSO.Role, f.ssoRole)
 	if len(f.models) > 0 {
 		cur.Models = f.models
 	}
@@ -96,11 +110,15 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		cur.Defaults.LimitUSD = &f.limit
 	}
 	cur.LegacyBlock = nil
+	interactive := !a.Yes && cli.IsTerminal(a.In)
+	a.profileHint(cur)
 	a.fillFromAWS(ctx, cur)
+	if !cmd.Flags().Changed("sso-start-url") && doc.Kind == 0 {
+		a.fillSSO(cur)
+	}
 
 	// A new file starts with the baseline models (the built-in models.toml).
 	newFile := doc.Kind == 0 && len(cur.Models) == 0
-	interactive := !a.Yes && cli.IsTerminal(a.In)
 	if interactive {
 		if err := a.ask(cur, cmd.Flags().Changed, newFile); err != nil {
 			return err
@@ -121,6 +139,9 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 		l := config.DefaultLimitUSD
 		cur.Defaults.LimitUSD = &l
 	}
+	if cur.SSO.StartURL == "-" {
+		cur.SSO = config.SSO{}
+	}
 	cur.ApplyDefaults()
 	if err := cur.Validate(); err != nil {
 		return err
@@ -138,6 +159,38 @@ func (a *App) configure(cmd *cobra.Command, f configureFlags) error {
 	}
 	a.printf("Wrote %s. Next: add users: entries, then run bedrock-admin plan and bedrock-admin apply.\n", path)
 	return nil
+}
+
+// AdminProfile is the SSO profile configure sso creates without --profile-name.
+const AdminProfile = "bedrock-admin"
+
+// configureSSOCmd creates the admin's SSO profile.
+func (a *App) configureSSOCmd() *cobra.Command {
+	l := a.Login
+	if l == nil {
+		l = &sso.Login{}
+	}
+	return sso.ConfigureCommand(l, AdminProfile, "bedrock-admin configure --profile <profile>")
+}
+
+// profileHint tells how to create the admin profile when there is none to sign in with.
+func (a *App) profileHint(c *config.Config) {
+	path, err := awsconf.Path()
+	if err != nil {
+		return
+	}
+	file, err := awsconf.Read(path)
+	if err != nil {
+		return
+	}
+	name := a.profile(c)
+	switch {
+	case name != "" && file.Profile(name) == nil:
+		_, _ = fmt.Fprintf(a.Err, "No profile %s in %s: create it with bedrock-admin configure sso --profile-name %s.\n\n", name, path, name)
+	case name == "" && os.Getenv("AWS_PROFILE") == "" && os.Getenv("AWS_ACCESS_KEY_ID") == "" &&
+		len(file.SSOProfiles()) == 0 && file.Profile("default") == nil:
+		_, _ = fmt.Fprintf(a.Err, "No AWS profile in %s: create yours with bedrock-admin configure sso.\n\n", path)
+	}
 }
 
 // fillFromAWS uses the profile's account and region as defaults, when the credentials work.
@@ -162,6 +215,25 @@ func (a *App) fillFromAWS(ctx context.Context, c *config.Config) {
 	}
 	if id, err := sts.NewFromConfig(stsCfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{}); err == nil {
 		c.Account = aws.ToString(id.Account)
+	}
+}
+
+// fillSSO uses the start URL and SSO region of the admin's SSO profile as the users' sign-in.
+func (a *App) fillSSO(c *config.Config) {
+	profile := a.profile(c)
+	if profile == "" {
+		profile = os.Getenv("AWS_PROFILE")
+	}
+	path, err := awsconf.Path()
+	if profile == "" || err != nil {
+		return
+	}
+	file, err := awsconf.Read(path)
+	if err != nil {
+		return
+	}
+	if s, err := sso.Resolve(file, path, profile); err == nil {
+		c.SSO.StartURL, c.SSO.Region = s.StartURL, s.Region
 	}
 }
 
@@ -248,9 +320,25 @@ func (a *App) ask(c *config.Config, changed func(string) bool, newFile bool) err
 	}
 	if c.Report.Bucket == "-" {
 		c.Report = config.Report{}
+	} else if err := q("report-region", "region of the central report bucket", &c.Report.Region, ""); err != nil {
+		return err
+	}
+	sug := config.Config{Profile: c.Profile}
+	a.fillSSO(&sug)
+	startDef := "-"
+	if sug.SSO.StartURL != "" {
+		startDef = sug.SSO.StartURL
+	}
+	if err := q("sso-start-url", "SSO start URL your users sign in at, for their setup commands (\"-\": none)", &c.SSO.StartURL, startDef); err != nil {
+		return err
+	}
+	if c.SSO.StartURL == "-" {
 		return nil
 	}
-	return q("report-region", "region of the central report bucket", &c.Report.Region, "")
+	if err := q("sso-region", "region of IAM Identity Center", &c.SSO.Region, sug.SSO.Region); err != nil {
+		return err
+	}
+	return q("sso-role", "your users' permission set (empty: each user picks one of theirs)", &c.SSO.Role, "")
 }
 
 // writeSettings replaces every top-level key except users: in doc with the values of c.

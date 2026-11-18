@@ -7,22 +7,29 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/SUSE/bedrock-toolkit/internal/awsconf"
 	"github.com/SUSE/bedrock-toolkit/internal/awsx"
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/sso"
 	"github.com/SUSE/bedrock-toolkit/internal/usage"
+	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
 // DefaultProfile is the profile setup writes.
 const DefaultProfile = "bedrock"
+
+// SSOProfile is the SSO profile configure sso creates.
+const SSOProfile = "bedrock-sso"
 
 // AWS is what the user CLI calls in AWS.
 type AWS interface {
@@ -60,6 +67,8 @@ type App struct {
 	Claude ClaudeRunner
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// Login signs in for the login command; nil means the real sign-in.
+	Login *sso.Login
 }
 
 // New returns the CLI with the real AWS calls and the process streams.
@@ -91,7 +100,8 @@ func (a *App) Root() *cobra.Command {
 		Long: `bedrock sets up the AWS profile of your personal Bedrock role, the one that counts toward your
 monthly budget, and checks that it works.
 
-  bedrock login        (nothing when you use an IAM user's access key)
+  bedrock configure sso         (or configure access-key for an IAM user; once)
+  bedrock login                 (when the SSO session expired)
   bedrock setup
   bedrock claude       (tests Claude Code, prints its settings)
   bedrock usage        (this month's spend against your budget)
@@ -102,7 +112,7 @@ Exit codes: 0 ok, 1 error, 2 a check failed.`,
 	root.SetIn(a.In)
 	root.SetOut(a.Out)
 	root.SetErr(a.Err)
-	root.AddCommand(a.loginCmd(), a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd(), a.modelsCmd())
+	root.AddCommand(a.configureCmd(), a.loginCmd(), a.setupCmd(), a.doctorCmd(), a.claudeCmd(), a.usageCmd(), a.modelsCmd(), a.whoamiCmd())
 	return root
 }
 
@@ -122,10 +132,11 @@ It reads your identity to find the account and your email, derives your personal
 (arn:aws:iam::<account>:role/bedrock-users/<id>/bedrock-user-<id>-<name>),
 sets role_session_name to your email and takes the region from the profile you sign in with.
 
-You sign in with SSO (bedrock login) or, when your admin onboarded your IAM user,
-with its access key: pass that profile with --source-profile. setup reads your email from the IAM
-user's tags. Your admin sends the command with your --id (or --role-arn) and, when needed, --region.
-Run again without them, setup takes them from the existing profile.
+You sign in with SSO or, when your admin onboarded your IAM user, with its access key: create that
+profile first with bedrock configure sso or bedrock configure access-key, and pass it with
+--source-profile (default: the only SSO profile). With an access key, setup reads your email from
+the IAM user's tags. Your admin sends the commands with your --id (or --role-arn) and, when needed,
+--region. Run again without them, setup takes them from the existing profile.
 
 Before writing, setup checks that you can use the role: a wrong --id, or a user not onboarded
 yet, leaves the profile unchanged. The previous file is kept as config.bak; an existing profile is
@@ -296,6 +307,58 @@ func (a *App) iamUserEmail(ctx context.Context, profile, user, flag string) (str
 	return email, nil
 }
 
+// KeyProfile is the credentials-file profile configure access-key writes by default.
+const KeyProfile = users.KeyProfile
+
+var (
+	accessKeyIDRe = regexp.MustCompile(`^AKIA[A-Z0-9]{16}$`)
+	secretKeyRe   = regexp.MustCompile(`^[A-Za-z0-9/+=]{40}$`)
+)
+
+// writeAccessKey asks for an access key and writes it to the credentials file as profile name
+// (default KeyProfile).
+func (a *App) writeAccessKey(name string, p *cli.Prompter) (string, error) {
+	if name == "" {
+		name = KeyProfile
+	}
+	id, err := p.Ask("Access key ID of your IAM user", "")
+	if err != nil {
+		return "", err
+	}
+	if !accessKeyIDRe.MatchString(id) {
+		return "", errors.New("not an access key ID (AKIA followed by 16 letters and digits)")
+	}
+	var secret string
+	if f, ok := a.In.(*os.File); ok && a.terminal() && term.IsTerminal(int(f.Fd())) {
+		_, _ = fmt.Fprint(a.Out, "Secret access key (not shown): ")
+		b, err := term.ReadPassword(int(f.Fd()))
+		_, _ = fmt.Fprintln(a.Out)
+		if err != nil {
+			return "", fmt.Errorf("reading the secret access key: %w", err)
+		}
+		secret = strings.TrimSpace(string(b))
+	} else if secret, err = p.Ask("Secret access key", ""); err != nil {
+		return "", err
+	}
+	if !secretKeyRe.MatchString(secret) {
+		return "", errors.New("not a secret access key (40 letters, digits and /+=)")
+	}
+	path, err := awsconf.CredentialsPath()
+	if err != nil {
+		return "", err
+	}
+	file, err := awsconf.Read(path)
+	if err != nil {
+		return "", err
+	}
+	file.SetSection(name, []awsconf.KV{{Key: "aws_access_key_id", Value: id}, {Key: "aws_secret_access_key", Value: secret}})
+	if _, err := file.Write(path); err != nil {
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+	a.printf("\nWrote access key %s to %s as profile %s.\n\n", id, path, name)
+	return name, nil
+}
+
 func (a *App) signInProfile(file *awsconf.File, path string, f setupFlags, p *cli.Prompter) (string, error) {
 	if f.srcProfile != "" {
 		// An access key profile may be only in the credentials file; reading the identity checks it.
@@ -306,7 +369,7 @@ func (a *App) signInProfile(file *awsconf.File, path string, f setupFlags, p *cl
 	case len(cands) == 1:
 		return cands[0], nil
 	case len(cands) == 0:
-		return "", fmt.Errorf("no SSO profile in %s: configure an SSO profile in ~/.aws/config first, or pass --source-profile", path)
+		return "", fmt.Errorf("no SSO profile in %s: create it with bedrock configure sso (in the commands your admin sent), or pass --source-profile", path)
 	case !a.terminal():
 		return "", fmt.Errorf("several SSO profiles in %s (%s): pass --source-profile", path, strings.Join(cands, ", "))
 	}
@@ -359,7 +422,7 @@ func signInFix(file *awsconf.File, profile string) string {
 	if s := file.Profile(profile); s != nil && s.IsSSO() {
 		return "Sign in first: " + loginCommand(profile)
 	}
-	return "Check the access key of profile " + profile + " (aws configure --profile " + profile + "), or sign in with SSO"
+	return "Check the access key of profile " + profile + " (bedrock configure access-key --profile-name " + profile + " writes it again), or sign in with SSO"
 }
 
 func loginCommand(profile string) string {
