@@ -406,7 +406,7 @@ users:                          # or: users: !include users.yaml
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
 | `notify` | `owner` (the user's SSO email) or an email address. Use an address when the SSO email gets no mail. |
-| `additional_notify_emails` | Optional list of email addresses for spend alerts and budget-triggered pauses. A user's list adds to `defaults.additional_notify_emails`; `[]` adds nothing and does not remove defaults. Duplicates are ignored, including the primary `notify` address. AWS Budgets allows up to 10 distinct email recipients in total. |
+| `additional_notify_emails` | Optional list of email addresses for spend alerts and budget-triggered pauses. A user's list adds to `defaults.additional_notify_emails`; `[]` adds nothing and does not remove defaults. Duplicates are ignored, including the primary `notify` address, and recipient comparisons ignore case. AWS Budgets allows up to 10 distinct email recipients in total. |
 | `iam_user` (per user) | Optional. An existing IAM user the user signs in with instead of (or as well as) SSO; see [IAM users](#users-without-sso-iam-users). Letters, digits and `+=,.@_-`, up to 64. Each IAM user may belong to one user. |
 | `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). At most 30 characters, so the role name fits IAM's 64. The role is `bedrock-user-<id>-<name>`, the budget `bedrock-<id>-<name>`. |
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
@@ -516,6 +516,9 @@ exports only users with this config's `id`. Without a file or `--id` it reads th
 `bedrock-deny-<id>` policy; with several setups in the account it asks for `--id`. It reads `models:` from a personal role's policy, baseline models included (empty when it allows
 any Claude model); `--model` overrides it. `product:` is the product tag most roles have (`--product`
 overrides it); a user whose role has another one gets their own `product:`.
+
+Export fails if an observed alert or pause action has a subscriber that is not an email address,
+such as an SNS topic, rather than silently dropping it from the exported configuration.
 
 </details>
 

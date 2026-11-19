@@ -376,7 +376,15 @@ func emailSubscribers(addresses []string) []btypes.Subscriber {
 }
 
 func missingSubscribers(from, other []string) []string {
-	return slices.DeleteFunc(slices.Clone(from), func(addr string) bool { return slices.Contains(other, addr) })
+	return slices.DeleteFunc(slices.Clone(from), func(addr string) bool {
+		return slices.ContainsFunc(other, func(candidate string) bool {
+			return addr == candidate || (config.IsEmail(addr) && config.IsEmail(candidate) && strings.EqualFold(addr, candidate))
+		})
+	})
+}
+
+func sameSubscribers(a, b []string) bool {
+	return len(a) == len(b) && len(missingSubscribers(a, b)) == 0 && len(missingSubscribers(b, a)) == 0
 }
 
 func (e *Env) reconcileSubscribers(ctx context.Context, budget string, p int, have, want []string) error {
