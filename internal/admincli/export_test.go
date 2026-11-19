@@ -12,32 +12,49 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
-func TestValidateExportSubscribers(t *testing.T) {
+func TestNonEmailSubscribers(t *testing.T) {
 	const owner = "owner@example.com"
 	const topic = "arn:aws:sns:us-east-1:111122223333:budget-alerts"
+	const b = "bedrock-test-user"
 	for _, tc := range []struct {
-		name    string
-		state   users.Observed
-		wantErr string
+		name  string
+		state users.Observed
+		want  []string
 	}{
-		{"emails only", users.Observed{ActionSubscribers: []string{owner}, Alerts: map[int][]string{80: {owner}, 90: {"lead@example.com"}}}, ""},
-		{"no subscribers", users.Observed{}, ""},
-		{"SNS action", users.Observed{ActionExists: true, ActionSubscribers: []string{topic}}, topic},
-		{"mixed action", users.Observed{ActionExists: true, ActionSubscribers: []string{owner, topic}}, topic},
-		{"SNS alert with action", users.Observed{ActionExists: true, ActionSubscribers: []string{owner}, Alerts: map[int][]string{80: {owner, topic}}}, topic},
-		{"SNS later alert without action", users.Observed{Alerts: map[int][]string{80: {owner}, 90: {topic}}}, topic},
-		{"invalid address", users.Observed{ActionSubscribers: []string{"not-an-email"}}, "not-an-email"},
+		{"emails only", users.Observed{ActionSubscribers: []string{owner}, Alerts: map[int][]string{80: {owner}, 90: {"lead@example.com"}}}, nil},
+		{"no subscribers", users.Observed{}, nil},
+		{"SNS action", users.Observed{ActionExists: true, ActionSubscribers: []string{topic}}, []string{b + ": " + topic}},
+		{"mixed action", users.Observed{ActionExists: true, ActionSubscribers: []string{owner, topic}}, []string{b + ": " + topic}},
+		{"SNS alert with action", users.Observed{ActionExists: true, ActionSubscribers: []string{owner}, Alerts: map[int][]string{80: {owner, topic}}}, []string{b + ": " + topic}},
+		{"SNS later alert without action", users.Observed{Alerts: map[int][]string{80: {owner}, 90: {topic}}}, []string{b + ": " + topic}},
+		{"same topic everywhere listed once", users.Observed{ActionSubscribers: []string{topic}, Alerts: map[int][]string{80: {topic}, 90: {topic}}}, []string{b + ": " + topic}},
+		{"invalid address", users.Observed{ActionSubscribers: []string{"not-an-email"}}, []string{b + ": not-an-email"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateExportSubscribers(tc.state, "bedrock-test-user")
-			if tc.wantErr == "" {
-				if err != nil {
-					t.Fatal(err)
-				}
-				return
+			if got := nonEmailSubscribers(tc.state, b); !slices.Equal(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
 			}
-			if err == nil || !strings.Contains(err.Error(), "bedrock-test-user") || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("error = %v, want budget and %q", err, tc.wantErr)
+		})
+	}
+}
+
+func TestMixedRecipients(t *testing.T) {
+	const a, b = "a@example.com", "b@example.com"
+	for _, tc := range []struct {
+		name  string
+		state users.Observed
+		mixed bool
+	}{
+		{"same everywhere, any order and case", users.Observed{ActionExists: true, ActionSubscribers: []string{a, b}, Alerts: map[int][]string{80: {"B@example.com", a}, 90: {a, b}}}, false},
+		{"no action, alerts match", users.Observed{Alerts: map[int][]string{80: {a}, 90: {a}}}, false},
+		{"nothing", users.Observed{}, false},
+		{"alert has an extra address", users.Observed{ActionExists: true, ActionSubscribers: []string{a}, Alerts: map[int][]string{80: {a}, 90: {a, b}}}, true},
+		{"alerts differ without action", users.Observed{Alerts: map[int][]string{80: {a}, 90: {b}}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mixedRecipients(tc.state, "bedrock-test-user")
+			if (got != "") != tc.mixed || (tc.mixed && !strings.Contains(got, "bedrock-test-user")) {
+				t.Fatalf("got %q, want mixed=%v", got, tc.mixed)
 			}
 		})
 	}

@@ -180,16 +180,20 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 	}
 	notifyChanged := false
 	recipients := want.NotifyEmails()
-	var previousRecipients []string
+	// Each distinct old list is shown, so the plan previews every recipient that goes away.
+	var previous [][]string
+	addPrevious := func(subs []string) {
+		if !slices.ContainsFunc(previous, func(p []string) bool { return sameSubscribers(p, subs) }) {
+			previous = append(previous, subs)
+		}
+	}
 	for _, p := range want.AlertAtPercent {
 		subs, ok := o.Alerts[p]
 		if !ok {
 			c.AddAlerts = append(c.AddAlerts, p)
 		} else if !sameSubscribers(subs, recipients) {
 			c.ResubAlert = append(c.ResubAlert, p)
-			if !notifyChanged {
-				previousRecipients = subs
-			}
+			addPrevious(subs)
 			notifyChanged = true
 		}
 	}
@@ -216,7 +220,7 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 		}
 		if !sameSubscribers(o.ActionSubscribers, recipients) {
 			c.UpdateAction, notifyChanged = true, true
-			previousRecipients = o.ActionSubscribers
+			addPrevious(o.ActionSubscribers)
 		}
 		if wantUsers := actionUsers(want, o.IAM, id); !slices.Equal(o.ActionUsers, wantUsers) {
 			c.UpdateAction = true
@@ -237,7 +241,9 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 		}
 	}
 	if notifyChanged {
-		c.Details = append(c.Details, "notify "+userList(previousRecipients)+" → "+userList(want.NotifyEmails()))
+		for _, p := range previous {
+			c.Details = append(c.Details, "notify "+userList(p)+" → "+userList(recipients))
+		}
 	}
 
 	if (limitChanged || thresholdChanged) && o.ActionExists && o.ActionShapeOK {

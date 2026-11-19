@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -114,17 +115,49 @@ type exportedUser struct {
 	product string
 }
 
-func validateExportSubscribers(o users.Observed, budget string) error {
-	allSubscribers := slices.Clone(o.ActionSubscribers)
+// nonEmailSubscribers lists the budget's subscribers that bedrock.yaml can't express, such as SNS
+// topics added by hand.
+func nonEmailSubscribers(o users.Observed, budget string) []string {
+	all := slices.Clone(o.ActionSubscribers)
 	for _, addresses := range o.Alerts {
-		allSubscribers = append(allSubscribers, addresses...)
+		all = append(all, addresses...)
 	}
-	for _, addr := range allSubscribers {
+	var out []string
+	for _, addr := range all {
 		if !config.IsEmail(addr) {
-			return fmt.Errorf("cannot export budget %s: subscriber %q is not an email address", budget, addr)
+			out = append(out, fmt.Sprintf("%s: %s", budget, addr))
 		}
 	}
-	return nil
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// mixedRecipients describes the budget when its alerts and pause action don't all email the same
+// addresses, which bedrock.yaml can't express; it returns "" when they match.
+func mixedRecipients(o users.Observed, budget string) string {
+	key := func(addrs []string) string {
+		l := make([]string, len(addrs))
+		for i, a := range addrs {
+			l[i] = strings.ToLower(a)
+		}
+		slices.Sort(l)
+		return strings.Join(slices.Compact(l), ",")
+	}
+	var labels, keys []string
+	if o.ActionExists {
+		labels, keys = append(labels, "pause action"), append(keys, key(o.ActionSubscribers))
+	}
+	for _, p := range slices.Sorted(maps.Keys(o.Alerts)) {
+		labels, keys = append(labels, fmt.Sprintf("%d%% alert", p)), append(keys, key(o.Alerts[p]))
+	}
+	if !slices.ContainsFunc(keys, func(k string) bool { return k != keys[0] }) {
+		return ""
+	}
+	parts := make([]string, len(keys))
+	for i := range keys {
+		parts[i] = labels[i] + ": " + keys[i]
+	}
+	return budget + " (" + strings.Join(parts, "; ") + ")"
 }
 
 func exportNotifyDefaults(defaults []string, found []exportedUser) []string {
@@ -241,6 +274,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		configuredNotify[strings.ToLower(u.Email)] = u.Notify
 	}
 	var found []exportedUser
+	var nonEmail, mixed []string
 	for _, role := range roles {
 		tags, err := env.Pause.RoleTags(ctx, role)
 		if err != nil {
@@ -269,11 +303,23 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if !o.ActionExists && len(g.alerts) > 0 {
 			g.emails = o.Alerts[g.alerts[0]]
 		}
-		if err := validateExportSubscribers(o, r.BudgetName); err != nil {
-			return nil, err
+		nonEmail = append(nonEmail, nonEmailSubscribers(o, r.BudgetName)...)
+		if m := mixedRecipients(o, r.BudgetName); m != "" {
+			mixed = append(mixed, m)
 		}
 		g.notify = exportNotify(g.emails, configuredNotify[strings.ToLower(email)], email)
 		found = append(found, g)
+	}
+	if len(nonEmail) > 0 {
+		return nil, fmt.Errorf("cannot export: these budget subscribers aren't email addresses, probably added by hand:\n  %s\n"+
+			"bedrock-admin manages only email recipients, so apply would remove them; remove them from the budgets, then export again",
+			strings.Join(nonEmail, "\n  "))
+	}
+	if len(mixed) > 0 {
+		return nil, fmt.Errorf("cannot export: these budgets email different addresses for different alerts or the pause action, "+
+			"but bedrock.yaml has one recipient list per user:\n  %s\n"+
+			"apply would set the same list everywhere; make them match on the budgets, then export again",
+			strings.Join(mixed, "\n  "))
 	}
 	if product != "" {
 		cfg.Product = product
