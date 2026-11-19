@@ -48,6 +48,8 @@ func TestApplyBudgetRecipients(t *testing.T) {
 			[]string{"DeleteSubscriber:" + extra, "UpdateBudgetAction:" + owner}},
 		{"replace last recipient", []string{extra}, []string{old}, Change{ResubAlert: []int{80}},
 			[]string{"UpdateSubscriber:" + old + "," + owner, "CreateSubscriber:" + extra}},
+		{"preserve matching recipient case while adding another", []string{extra}, []string{"DAVE@acme.com"}, Change{ResubAlert: []int{80}},
+			[]string{"CreateSubscriber:" + extra}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

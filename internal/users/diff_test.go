@@ -136,6 +136,25 @@ func TestAdditionalNotifyEmailsDiff(t *testing.T) {
 	}
 }
 
+func TestRecipientCaseDifferences(t *testing.T) {
+	w := want(50, 100)
+	w.AdditionalNotifyEmails = []string{"ops@example.com", "finance@example.com"}
+	o := observed(50, 100, 0, pause.Armed)
+	o.Alerts[80] = []string{"OPS@example.com", "FINANCE@example.com", "DAVE@acme.com"}
+	o.ActionSubscribers = []string{"DAVE@acme.com", "OPS@example.com", "FINANCE@example.com"}
+	if c := Diff(w, o, "acme", now); c.Op != plan.OK {
+		t.Fatalf("case-only recipient differences caused drift: %+v", c)
+	}
+	o.Alerts[80] = []string{"OPS@example.com", "DAVE@acme.com"}
+	if c := Diff(w, o, "acme", now); c.Op != plan.Update || len(c.ResubAlert) != 1 || c.UpdateAction {
+		t.Fatalf("missing recipient not detected: %+v", c)
+	}
+	o.ActionSubscribers = append(o.ActionSubscribers, "arn:aws:sns:us-east-1:111122223333:alerts")
+	if c := Diff(w, o, "acme", now); !c.UpdateAction {
+		t.Fatalf("SNS subscriber not detected: %+v", c)
+	}
+}
+
 func TestRecreateNeedsYes(t *testing.T) {
 	o := observed(50, 100, 0, pause.Armed)
 	o.ActionShapeOK = false

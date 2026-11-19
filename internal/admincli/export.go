@@ -18,6 +18,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/policy"
+	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
 func (a *App) exportCmd() *cobra.Command {
@@ -91,14 +92,85 @@ func mostCommon[T any](vals []T, key func(T) string) (T, bool) {
 // AWS returns subscribers without a primary address. Prefer the configured primary or the owner.
 func exportNotify(emails []string, configured, owner string) string {
 	for _, addr := range []string{configured, owner} {
-		if slices.Contains(emails, addr) {
-			return addr
+		for _, email := range emails {
+			if strings.EqualFold(email, addr) {
+				return email
+			}
 		}
 	}
 	if len(emails) > 0 {
 		return emails[0]
 	}
 	return owner
+}
+
+type exportedUser struct {
+	r       config.Resolved
+	limit   float64
+	pause   int
+	alerts  []int
+	notify  string
+	emails  []string
+	product string
+}
+
+func validateExportSubscribers(o users.Observed, budget string) error {
+	allSubscribers := slices.Clone(o.ActionSubscribers)
+	for _, addresses := range o.Alerts {
+		allSubscribers = append(allSubscribers, addresses...)
+	}
+	for _, addr := range allSubscribers {
+		if !config.IsEmail(addr) {
+			return fmt.Errorf("cannot export budget %s: subscriber %q is not an email address", budget, addr)
+		}
+	}
+	return nil
+}
+
+func exportNotifyDefaults(defaults []string, found []exportedUser) []string {
+	defaults = slices.Clone(defaults)
+	for _, g := range found {
+		defaults = slices.DeleteFunc(defaults, func(addr string) bool {
+			return !strings.EqualFold(addr, g.notify) && !slices.ContainsFunc(g.emails, func(email string) bool {
+				return strings.EqualFold(addr, email)
+			})
+		})
+	}
+	return defaults
+}
+
+func exportConfigUser(cfg *config.Config, g exportedUser, iamUser string) config.User {
+	u := config.User{Email: g.r.Email, IAMUser: iamUser}
+	if g.r.Name != config.NameFromEmail(g.r.Email) {
+		u.Name = g.r.Name
+	}
+	def := cfg.ResolveUser(u)
+	if g.limit != def.LimitUSD {
+		l := g.limit
+		u.LimitUSD = &l
+	}
+	if g.pause != 0 && g.pause != def.PauseAtPercent {
+		p := g.pause
+		u.PauseAtPercent = &p
+	}
+	if !slices.Equal(g.alerts, def.AlertAtPercent) {
+		al := g.alerts
+		u.AlertAtPercent = &al
+	}
+	if g.notify != def.Notify {
+		u.Notify = g.notify
+	}
+	for _, addr := range g.emails {
+		if !strings.EqualFold(addr, g.notify) && !slices.ContainsFunc(cfg.Defaults.AdditionalNotifyEmails, func(email string) bool {
+			return strings.EqualFold(addr, email)
+		}) {
+			u.AdditionalNotifyEmails = append(u.AdditionalNotifyEmails, addr)
+		}
+	}
+	if g.product != "" && g.product != def.Product {
+		u.Product = g.product
+	}
+	return u
 }
 
 func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, id, product string, models []string) (*config.Config, error) {
@@ -164,20 +236,11 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	if err != nil {
 		return nil, err
 	}
-	type got struct {
-		r       config.Resolved
-		limit   float64
-		pause   int
-		alerts  []int
-		notify  string
-		emails  []string
-		product string
-	}
 	configuredNotify := map[string]string{}
 	for _, u := range base.Resolve() {
 		configuredNotify[strings.ToLower(u.Email)] = u.Notify
 	}
-	var found []got
+	var found []exportedUser
 	for _, role := range roles {
 		tags, err := env.Pause.RoleTags(ctx, role)
 		if err != nil {
@@ -197,7 +260,7 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if err != nil {
 			return nil, err
 		}
-		g := got{r: r, limit: o.Limit, pause: o.ActionThreshold, alerts: []int{}, product: r.Product}
+		g := exportedUser{r: r, limit: o.Limit, pause: o.ActionThreshold, alerts: []int{}, product: r.Product}
 		for p := range o.Alerts {
 			g.alerts = append(g.alerts, p)
 		}
@@ -206,7 +269,9 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if !o.ActionExists && len(g.alerts) > 0 {
 			g.emails = o.Alerts[g.alerts[0]]
 		}
-		g.emails = slices.DeleteFunc(slices.Clone(g.emails), func(addr string) bool { return !config.IsEmail(addr) })
+		if err := validateExportSubscribers(o, r.BudgetName); err != nil {
+			return nil, err
+		}
 		g.notify = exportNotify(g.emails, configuredNotify[strings.ToLower(email)], email)
 		found = append(found, g)
 	}
@@ -214,8 +279,8 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		cfg.Product = product
 	}
 	if cfg.Product == "" {
-		tagged := slices.DeleteFunc(slices.Clone(found), func(g got) bool { return g.product == "" })
-		if g, ok := mostCommon(tagged, func(g got) string { return g.product }); ok {
+		tagged := slices.DeleteFunc(slices.Clone(found), func(g exportedUser) bool { return g.product == "" })
+		if g, ok := mostCommon(tagged, func(g exportedUser) string { return g.product }); ok {
 			cfg.Product = g.product
 		}
 	}
@@ -232,61 +297,26 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 
 	// Defaults: the file's when there is one, else the most common values.
 	if base.Path == "" {
-		if g, ok := mostCommon(found, func(g got) string { return fmt.Sprint(g.limit) }); ok {
+		if g, ok := mostCommon(found, func(g exportedUser) string { return fmt.Sprint(g.limit) }); ok {
 			cfg.Defaults.LimitUSD = &g.limit
 		} else {
 			l := config.DefaultLimitUSD
 			cfg.Defaults.LimitUSD = &l
 		}
-		if g, ok := mostCommon(found, func(g got) string { return fmt.Sprint(g.pause) }); ok && g.pause != config.DefaultPauseAtPercent {
+		if g, ok := mostCommon(found, func(g exportedUser) string { return fmt.Sprint(g.pause) }); ok && g.pause != config.DefaultPauseAtPercent {
 			cfg.Defaults.PauseAtPercent = &g.pause
 		}
-		if g, ok := mostCommon(found, func(g got) string { return fmt.Sprint(g.alerts) }); ok && !slices.Equal(g.alerts, config.DefaultAlertAtPercent) {
+		if g, ok := mostCommon(found, func(g exportedUser) string { return fmt.Sprint(g.alerts) }); ok && !slices.Equal(g.alerts, config.DefaultAlertAtPercent) {
 			cfg.Defaults.AlertAtPercent = &g.alerts
 		}
 		cfg.Defaults.Notify = config.DefaultNotify
 	}
 	cfg.ApplyDefaults()
 	// Additive defaults can only be kept when every exported user actually has them.
-	for _, g := range found {
-		for _, addr := range cfg.Defaults.AdditionalNotifyEmails {
-			if addr != g.notify && !slices.Contains(g.emails, addr) {
-				cfg.Defaults.AdditionalNotifyEmails = nil
-				break
-			}
-		}
-	}
+	cfg.Defaults.AdditionalNotifyEmails = exportNotifyDefaults(cfg.Defaults.AdditionalNotifyEmails, found)
 	cfg.Users = []config.User{}
 	for _, g := range found {
-		u := config.User{Email: g.r.Email, IAMUser: iamUsers[g.r.Email]}
-		if g.r.Name != config.NameFromEmail(g.r.Email) {
-			u.Name = g.r.Name
-		}
-		def := cfg.ResolveUser(u)
-		if g.limit != def.LimitUSD {
-			l := g.limit
-			u.LimitUSD = &l
-		}
-		if g.pause != 0 && g.pause != def.PauseAtPercent {
-			p := g.pause
-			u.PauseAtPercent = &p
-		}
-		if !slices.Equal(g.alerts, def.AlertAtPercent) {
-			al := g.alerts
-			u.AlertAtPercent = &al
-		}
-		if g.notify != def.Notify {
-			u.Notify = g.notify
-		}
-		for _, addr := range g.emails {
-			if addr != g.notify && !slices.Contains(cfg.Defaults.AdditionalNotifyEmails, addr) {
-				u.AdditionalNotifyEmails = append(u.AdditionalNotifyEmails, addr)
-			}
-		}
-		if g.product != "" && g.product != def.Product {
-			u.Product = g.product
-		}
-		cfg.Users = append(cfg.Users, u)
+		cfg.Users = append(cfg.Users, exportConfigUser(&cfg, g, iamUsers[g.r.Email]))
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
