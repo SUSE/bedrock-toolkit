@@ -93,6 +93,19 @@ func TestOtherID(t *testing.T) {
 	}
 }
 
+func TestNotifyShowsEveryOldList(t *testing.T) {
+	o := observed(50, 100, 0, pause.Armed)
+	o.Alerts[80] = []string{"dave@acme.com", "old-lead@acme.com"}
+	if got := line(Diff(want(50, 100), o, "acme", now)); got != "notify dave@acme.com,old-lead@acme.com → dave@acme.com" {
+		t.Fatalf("got %q", got)
+	}
+	w := want(50, 100)
+	w.Notify = "lead@acme.com"
+	if got := line(Diff(w, o, "acme", now)); got != "notify dave@acme.com,old-lead@acme.com → lead@acme.com, notify dave@acme.com → lead@acme.com" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestAlertsAndNotify(t *testing.T) {
 	w := want(50, 100)
 	w.AlertAtPercent = []int{50, 90}

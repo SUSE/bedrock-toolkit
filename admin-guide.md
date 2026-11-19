@@ -517,8 +517,12 @@ exports only users with this config's `id`. Without a file or `--id` it reads th
 any Claude model); `--model` overrides it. `product:` is the product tag most roles have (`--product`
 overrides it); a user whose role has another one gets their own `product:`.
 
-Export fails if an observed alert or pause action has a subscriber that is not an email address,
-such as an SNS topic, rather than silently dropping it from the exported configuration.
+Export fails if an alert or pause action has a subscriber that is not an email address, such as an
+SNS topic added by hand, rather than silently leaving it out of the file. The error lists every such
+subscriber with its budget. bedrock-admin manages only email recipients, so `apply` would remove
+them; remove them from the budgets, then export again. It also fails, listing the budgets, when a
+budget's alerts and pause action email different addresses, because the file has one recipient list
+per user and `apply` would set it everywhere.
 
 </details>
 
