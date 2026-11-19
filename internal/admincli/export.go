@@ -88,6 +88,19 @@ func mostCommon[T any](vals []T, key func(T) string) (T, bool) {
 	return best, found
 }
 
+// AWS returns subscribers without a primary address. Prefer the configured primary or the owner.
+func exportNotify(emails []string, configured, owner string) string {
+	for _, addr := range []string{configured, owner} {
+		if slices.Contains(emails, addr) {
+			return addr
+		}
+	}
+	if len(emails) > 0 {
+		return emails[0]
+	}
+	return owner
+}
+
 func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, id, product string, models []string) (*config.Config, error) {
 	cfg := *base
 	cfg.Path = ""
@@ -157,7 +170,12 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		pause   int
 		alerts  []int
 		notify  string
+		emails  []string
 		product string
+	}
+	configuredNotify := map[string]string{}
+	for _, u := range base.Resolve() {
+		configuredNotify[strings.ToLower(u.Email)] = u.Notify
 	}
 	var found []got
 	for _, role := range roles {
@@ -179,14 +197,17 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		if err != nil {
 			return nil, err
 		}
-		g := got{r: r, limit: o.Limit, pause: o.ActionThreshold, notify: email, alerts: []int{}, product: r.Product}
+		g := got{r: r, limit: o.Limit, pause: o.ActionThreshold, alerts: []int{}, product: r.Product}
 		for p := range o.Alerts {
 			g.alerts = append(g.alerts, p)
 		}
 		sort.Ints(g.alerts)
-		if len(o.ActionSubscribers) > 0 {
-			g.notify = o.ActionSubscribers[0]
+		g.emails = o.ActionSubscribers
+		if !o.ActionExists && len(g.alerts) > 0 {
+			g.emails = o.Alerts[g.alerts[0]]
 		}
+		g.emails = slices.DeleteFunc(slices.Clone(g.emails), func(addr string) bool { return !config.IsEmail(addr) })
+		g.notify = exportNotify(g.emails, configuredNotify[strings.ToLower(email)], email)
 		found = append(found, g)
 	}
 	if product != "" {
@@ -226,6 +247,15 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		cfg.Defaults.Notify = config.DefaultNotify
 	}
 	cfg.ApplyDefaults()
+	// Additive defaults can only be kept when every exported user actually has them.
+	for _, g := range found {
+		for _, addr := range cfg.Defaults.AdditionalNotifyEmails {
+			if addr != g.notify && !slices.Contains(g.emails, addr) {
+				cfg.Defaults.AdditionalNotifyEmails = nil
+				break
+			}
+		}
+	}
 	cfg.Users = []config.User{}
 	for _, g := range found {
 		u := config.User{Email: g.r.Email, IAMUser: iamUsers[g.r.Email]}
@@ -247,6 +277,11 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 		}
 		if g.notify != def.Notify {
 			u.Notify = g.notify
+		}
+		for _, addr := range g.emails {
+			if addr != g.notify && !slices.Contains(cfg.Defaults.AdditionalNotifyEmails, addr) {
+				u.AdditionalNotifyEmails = append(u.AdditionalNotifyEmails, addr)
+			}
 		}
 		if g.product != "" && g.product != def.Product {
 			u.Product = g.product

@@ -179,12 +179,17 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 		c.Details = append(c.Details, "alerts "+alertList(have)+" → "+alertList(want.AlertAtPercent))
 	}
 	notifyChanged := false
+	recipients := slices.Sorted(slices.Values(want.NotifyEmails()))
+	var previousRecipients []string
 	for _, p := range want.AlertAtPercent {
 		subs, ok := o.Alerts[p]
 		if !ok {
 			c.AddAlerts = append(c.AddAlerts, p)
-		} else if !slices.Equal(subs, []string{want.Notify}) {
+		} else if !slices.Equal(slices.Sorted(slices.Values(subs)), recipients) {
 			c.ResubAlert = append(c.ResubAlert, p)
+			if !notifyChanged {
+				previousRecipients = subs
+			}
 			notifyChanged = true
 		}
 	}
@@ -209,8 +214,9 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 			thresholdChanged, c.UpdateAction = true, true
 			c.Details = append(c.Details, fmt.Sprintf("pause_at %d%% → %d%%", o.ActionThreshold, want.PauseAtPercent))
 		}
-		if !slices.Equal(o.ActionSubscribers, []string{want.Notify}) {
+		if !slices.Equal(slices.Sorted(slices.Values(o.ActionSubscribers)), recipients) {
 			c.UpdateAction, notifyChanged = true, true
+			previousRecipients = o.ActionSubscribers
 		}
 		if wantUsers := actionUsers(want, o.IAM, id); !slices.Equal(o.ActionUsers, wantUsers) {
 			c.UpdateAction = true
@@ -231,11 +237,7 @@ func diffRoleAndBudget(want config.Resolved, o Observed, id string, now time.Tim
 		}
 	}
 	if notifyChanged {
-		from := strings.Join(o.ActionSubscribers, ",")
-		if from == "" && len(have) > 0 {
-			from = strings.Join(o.Alerts[have[0]], ",")
-		}
-		c.Details = append(c.Details, "notify "+from+" → "+want.Notify)
+		c.Details = append(c.Details, "notify "+userList(previousRecipients)+" → "+userList(want.NotifyEmails()))
 	}
 
 	if (limitChanged || thresholdChanged) && o.ActionExists && o.ActionShapeOK {

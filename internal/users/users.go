@@ -356,8 +356,57 @@ func alert(p int) *btypes.Notification {
 		Threshold: float64(p), ThresholdType: btypes.ThresholdTypePercentage}
 }
 
-func email(addr string) []btypes.Subscriber {
-	return []btypes.Subscriber{{SubscriptionType: btypes.SubscriptionTypeEmail, Address: aws.String(addr)}}
+func subscriber(addr string) *btypes.Subscriber {
+	if strings.HasPrefix(addr, "arn:") && !strings.Contains(addr, "@") {
+		return &btypes.Subscriber{SubscriptionType: btypes.SubscriptionTypeSns, Address: aws.String(addr)}
+	}
+	return emailSubscriber(addr)
+}
+
+func emailSubscriber(addr string) *btypes.Subscriber {
+	return &btypes.Subscriber{SubscriptionType: btypes.SubscriptionTypeEmail, Address: aws.String(addr)}
+}
+
+func emailSubscribers(addresses []string) []btypes.Subscriber {
+	out := make([]btypes.Subscriber, 0, len(addresses))
+	for _, addr := range addresses {
+		out = append(out, *emailSubscriber(addr))
+	}
+	return out
+}
+
+func missingSubscribers(from, other []string) []string {
+	return slices.DeleteFunc(slices.Clone(from), func(addr string) bool { return slices.Contains(other, addr) })
+}
+
+func (e *Env) reconcileSubscribers(ctx context.Context, budget string, p int, have, want []string) error {
+	acct, bn, n := aws.String(e.C.Account), aws.String(budget), alert(p)
+	add, remove := missingSubscribers(want, have), missingSubscribers(have, want)
+	// Swap first so the notification never becomes empty or exceeds the subscriber limit.
+	// Replace old EMAIL subscribers before any SNS subscriber to stay within the EMAIL limit.
+	sort.SliceStable(remove, func(i, j int) bool {
+		return subscriber(remove[i]).SubscriptionType < subscriber(remove[j]).SubscriptionType
+	})
+	for len(add) > 0 && len(remove) > 0 {
+		if _, err := e.C.Budgets.UpdateSubscriber(ctx, &budgets.UpdateSubscriberInput{AccountId: acct, BudgetName: bn,
+			Notification: n, OldSubscriber: subscriber(remove[0]), NewSubscriber: emailSubscriber(add[0])}); err != nil {
+			return err
+		}
+		add, remove = add[1:], remove[1:]
+	}
+	for _, addr := range remove {
+		if _, err := e.C.Budgets.DeleteSubscriber(ctx, &budgets.DeleteSubscriberInput{AccountId: acct, BudgetName: bn,
+			Notification: n, Subscriber: subscriber(addr)}); err != nil {
+			return err
+		}
+	}
+	for _, sub := range emailSubscribers(add) {
+		if _, err := e.C.Budgets.CreateSubscriber(ctx, &budgets.CreateSubscriberInput{AccountId: acct, BudgetName: bn,
+			Notification: n, Subscriber: &sub}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func retryable(err error) bool {
@@ -368,6 +417,8 @@ func retryable(err error) bool {
 func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change) error {
 	acct := aws.String(e.C.Account)
 	bn := aws.String(u.BudgetName)
+	recipients := u.NotifyEmails()
+	subs := emailSubscribers(recipients)
 	spec := RoleSpec(e.Cfg, e.C.Account, u)
 	if c.CreateRole {
 		if err := iamrole.Create(ctx, e.C.IAM, spec); err != nil {
@@ -385,7 +436,7 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	if c.CreateBudget {
 		var ns []btypes.NotificationWithSubscribers
 		for _, p := range u.AlertAtPercent {
-			ns = append(ns, btypes.NotificationWithSubscribers{Notification: alert(p), Subscribers: email(u.Notify)})
+			ns = append(ns, btypes.NotificationWithSubscribers{Notification: alert(p), Subscribers: subs})
 		}
 		if _, err := e.C.Budgets.CreateBudget(ctx, &budgets.CreateBudgetInput{AccountId: acct, Budget: e.wantBudget(u),
 			NotificationsWithSubscribers: ns,
@@ -405,20 +456,13 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	}
 	for _, p := range c.AddAlerts {
 		if _, err := e.C.Budgets.CreateNotification(ctx, &budgets.CreateNotificationInput{AccountId: acct, BudgetName: bn,
-			Notification: alert(p), Subscribers: email(u.Notify)}); err != nil {
+			Notification: alert(p), Subscribers: subs}); err != nil {
 			return fmt.Errorf("adding the %d%% alert of %s: %w", p, u.BudgetName, err)
 		}
 	}
 	for _, p := range c.ResubAlert {
-		for _, old := range o.Alerts[p] {
-			if _, err := e.C.Budgets.DeleteSubscriber(ctx, &budgets.DeleteSubscriberInput{AccountId: acct, BudgetName: bn,
-				Notification: alert(p), Subscriber: &email(old)[0]}); err != nil {
-				return err
-			}
-		}
-		if _, err := e.C.Budgets.CreateSubscriber(ctx, &budgets.CreateSubscriberInput{AccountId: acct, BudgetName: bn,
-			Notification: alert(p), Subscriber: &email(u.Notify)[0]}); err != nil {
-			return err
+		if err := e.reconcileSubscribers(ctx, u.BudgetName, p, o.Alerts[p], recipients); err != nil {
+			return fmt.Errorf("updating recipients for the %d%% alert of %s: %w", p, u.BudgetName, err)
 		}
 	}
 	threshold := &btypes.ActionThreshold{ActionThresholdValue: float64(u.PauseAtPercent), ActionThresholdType: btypes.ThresholdTypePercentage}
@@ -433,7 +477,7 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 			ActionType: btypes.ActionTypeIam, ActionThreshold: threshold,
 			Definition:       e.actionDefinition(u, c.ActionUsers),
 			ExecutionRoleArn: aws.String(policy.BudgetActionsRoleArn(e.C.Account, e.Cfg.ID)), ApprovalModel: btypes.ApprovalModelAuto,
-			Subscribers: email(u.Notify)}
+			Subscribers: subs}
 		err := iamrole.Retry(ctx, 60*time.Second, retryable, func() error { _, err := e.C.Budgets.CreateBudgetAction(ctx, in); return err })
 		if err != nil {
 			return fmt.Errorf("creating the pause action of %s: %w", u.BudgetName, err)
@@ -441,7 +485,7 @@ func (e *Env) apply(ctx context.Context, u config.Resolved, o Observed, c Change
 	}
 	if c.UpdateAction {
 		if _, err := e.C.Budgets.UpdateBudgetAction(ctx, &budgets.UpdateBudgetActionInput{AccountId: acct, BudgetName: bn,
-			ActionId: aws.String(o.ActionID), ActionThreshold: threshold, Subscribers: email(u.Notify),
+			ActionId: aws.String(o.ActionID), ActionThreshold: threshold, Subscribers: subs,
 			Definition: e.actionDefinition(u, c.ActionUsers)}); err != nil {
 			return fmt.Errorf("updating the pause action of %s: %w", u.BudgetName, err)
 		}

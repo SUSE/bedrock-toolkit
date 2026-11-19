@@ -60,10 +60,11 @@ type Config struct {
 }
 
 type Defaults struct {
-	LimitUSD       *float64 `yaml:"limit_usd,omitempty" json:"limit_usd,omitempty"`
-	PauseAtPercent *int     `yaml:"pause_at_percent,omitempty" json:"pause_at_percent,omitempty"`
-	AlertAtPercent *[]int   `yaml:"alert_at_percent,omitempty,flow" json:"alert_at_percent,omitempty"`
-	Notify         string   `yaml:"notify,omitempty" json:"notify,omitempty"`
+	LimitUSD               *float64 `yaml:"limit_usd,omitempty" json:"limit_usd,omitempty"`
+	PauseAtPercent         *int     `yaml:"pause_at_percent,omitempty" json:"pause_at_percent,omitempty"`
+	AlertAtPercent         *[]int   `yaml:"alert_at_percent,omitempty,flow" json:"alert_at_percent,omitempty"`
+	Notify                 string   `yaml:"notify,omitempty" json:"notify,omitempty"`
+	AdditionalNotifyEmails []string `yaml:"additional_notify_emails,omitempty,flow" json:"additional_notify_emails,omitempty"`
 }
 
 type CostExport struct {
@@ -113,12 +114,13 @@ func (r Report) Enabled() bool { return r.Bucket != "" }
 var WebSearchRegions = []string{"us-east-1", "eu-west-1", "ap-northeast-1"}
 
 type User struct {
-	Email          string   `yaml:"email" json:"email"`
-	Name           string   `yaml:"name,omitempty" json:"name,omitempty"`
-	LimitUSD       *float64 `yaml:"limit_usd,omitempty" json:"limit_usd,omitempty"`
-	PauseAtPercent *int     `yaml:"pause_at_percent,omitempty" json:"pause_at_percent,omitempty"`
-	AlertAtPercent *[]int   `yaml:"alert_at_percent,omitempty,flow" json:"alert_at_percent,omitempty"`
-	Notify         string   `yaml:"notify,omitempty" json:"notify,omitempty"`
+	Email                  string   `yaml:"email" json:"email"`
+	Name                   string   `yaml:"name,omitempty" json:"name,omitempty"`
+	LimitUSD               *float64 `yaml:"limit_usd,omitempty" json:"limit_usd,omitempty"`
+	PauseAtPercent         *int     `yaml:"pause_at_percent,omitempty" json:"pause_at_percent,omitempty"`
+	AlertAtPercent         *[]int   `yaml:"alert_at_percent,omitempty,flow" json:"alert_at_percent,omitempty"`
+	Notify                 string   `yaml:"notify,omitempty" json:"notify,omitempty"`
+	AdditionalNotifyEmails []string `yaml:"additional_notify_emails,omitempty,flow" json:"additional_notify_emails,omitempty"`
 	// Product overrides the file's product tag on this user's role.
 	Product string `yaml:"product,omitempty" json:"product,omitempty"`
 	// IAMUser is an existing IAM user that may also assume the personal role.
@@ -127,17 +129,23 @@ type User struct {
 
 // Resolved is a user with every default applied and every derived name filled in.
 type Resolved struct {
-	Email          string  `json:"email"`
-	Name           string  `json:"name"`
-	CustomName     bool    `json:"-"`
-	RoleName       string  `json:"role"`
-	BudgetName     string  `json:"budget"`
-	LimitUSD       float64 `json:"limit_usd"`
-	PauseAtPercent int     `json:"pause_at_percent"`
-	AlertAtPercent []int   `json:"alert_at_percent"`
-	Notify         string  `json:"notify"`
-	Product        string  `json:"product"`
-	IAMUser        string  `json:"iam_user,omitempty"`
+	Email                  string   `json:"email"`
+	Name                   string   `json:"name"`
+	CustomName             bool     `json:"-"`
+	RoleName               string   `json:"role"`
+	BudgetName             string   `json:"budget"`
+	LimitUSD               float64  `json:"limit_usd"`
+	PauseAtPercent         int      `json:"pause_at_percent"`
+	AlertAtPercent         []int    `json:"alert_at_percent"`
+	Notify                 string   `json:"notify"`
+	AdditionalNotifyEmails []string `json:"additional_notify_emails,omitempty"`
+	Product                string   `json:"product"`
+	IAMUser                string   `json:"iam_user,omitempty"`
+}
+
+// NotifyEmails returns the primary recipient followed by any additional recipients.
+func (r Resolved) NotifyEmails() []string {
+	return append([]string{r.Notify}, r.AdditionalNotifyEmails...)
 }
 
 // TriggerUSD is the spend at which the user is paused.
@@ -369,6 +377,18 @@ func (c *Config) Validate() error {
 	if msg := checkNotify(c.Defaults.Notify); msg != "" {
 		add("defaults.notify: %s", msg)
 	}
+	checkAdditionalEmails := func(where string, emails []string) {
+		for i, email := range emails {
+			if !IsEmail(email) {
+				add("%s[%d]: not a budget email address (got %q)", where, i, email)
+			}
+		}
+	}
+	checkAdditionalEmails("defaults.additional_notify_emails", c.Defaults.AdditionalNotifyEmails)
+	const maxBudgetEmails = 10
+	if len(mergeNotifyEmails("", c.Defaults.AdditionalNotifyEmails)) > maxBudgetEmails {
+		add("defaults.additional_notify_emails: AWS Budgets allows at most %d distinct email recipients", maxBudgetEmails)
+	}
 	if !bucketRe.MatchString(c.CostExport.Bucket) {
 		add("cost_export.bucket: not a valid S3 bucket name (got %q)", c.CostExport.Bucket)
 	}
@@ -470,6 +490,10 @@ func (c *Config) Validate() error {
 				add("%s: notify: %s", where, msg)
 			}
 		}
+		checkAdditionalEmails(where+": additional_notify_emails", u.AdditionalNotifyEmails)
+		if n := 1 + len(mergeNotifyEmails(c.notifyAddress(u), c.Defaults.AdditionalNotifyEmails, u.AdditionalNotifyEmails)); n > maxBudgetEmails {
+			add("%s: additional_notify_emails: AWS Budgets allows at most %d distinct email recipients including notify (got %d)", where, maxBudgetEmails, n)
+		}
 		if u.Product != "" && !productRe.MatchString(u.Product) {
 			add("%s: product: letters, digits, spaces and _.:/=+@- only (got %q)", where, u.Product)
 		}
@@ -563,19 +587,39 @@ func (c *Config) ResolveUser(u User) Resolved {
 	}
 	r.AlertAtPercent = append([]int{}, alerts...)
 	sort.Ints(r.AlertAtPercent)
-	notify := u.Notify
-	if notify == "" {
-		notify = c.Defaults.Notify
-	}
-	if notify == "" || notify == "owner" {
-		notify = u.Email
-	}
-	r.Notify = notify
+	r.Notify = c.notifyAddress(u)
+	r.AdditionalNotifyEmails = mergeNotifyEmails(r.Notify, c.Defaults.AdditionalNotifyEmails, u.AdditionalNotifyEmails)
 	r.Product, r.IAMUser = u.Product, u.IAMUser
 	if r.Product == "" {
 		r.Product = c.Product
 	}
 	return r
+}
+
+func (c *Config) notifyAddress(u User) string {
+	notify := u.Notify
+	if notify == "" {
+		notify = c.Defaults.Notify
+	}
+	if notify == "" || notify == "owner" {
+		return u.Email
+	}
+	return notify
+}
+
+func mergeNotifyEmails(primary string, lists ...[]string) []string {
+	seen := map[string]bool{strings.ToLower(primary): true}
+	var emails []string
+	for _, list := range lists {
+		for _, email := range list {
+			key := strings.ToLower(email)
+			if !seen[key] {
+				emails = append(emails, email)
+				seen[key] = true
+			}
+		}
+	}
+	return emails
 }
 
 // FindUser returns the resolved user with this email (case-insensitive) or name.

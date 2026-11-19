@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,9 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	if a.LimitUSD != 50 || a.PauseAtPercent != 100 || len(a.AlertAtPercent) != 1 || a.AlertAtPercent[0] != 80 || a.Notify != a.Email {
 		t.Errorf("alice defaults: %+v", a)
 	}
+	if !slices.Equal(a.NotifyEmails(), []string{a.Email}) {
+		t.Errorf("default recipients: %v", a.NotifyEmails())
+	}
 	if b.LimitUSD != 100 || b.PauseAtPercent != 110 || len(b.AlertAtPercent) != 0 || b.TriggerUSD() != 110 {
 		t.Errorf("bob overrides: %+v trigger %v", b, b.TriggerUSD())
 	}
@@ -67,6 +71,78 @@ func TestLoadDefaultsAndResolve(t *testing.T) {
 	}
 	if c.ExportPrefix() != "cur/bedrock-cur-acmeprod" {
 		t.Errorf("export prefix %q", c.ExportPrefix())
+	}
+}
+
+func TestAdditionalNotifyEmails(t *testing.T) {
+	p := write(t, t.TempDir(), "bedrock.yaml", strings.Replace(base, "  limit_usd: 50\n",
+		"  limit_usd: 50\n  additional_notify_emails: [ops@example.com]\n", 1)+`users:
+  - email: alice@example.com
+    additional_notify_emails: []
+  - email: bob@example.com
+    notify: lead@example.com
+    additional_notify_emails: [OPS@example.com, Lead@example.com, finance@example.com]
+  - email: carol@example.com
+    additional_notify_emails: [regional@example.com]
+`)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(write(t, t.TempDir(), "roundtrip.yaml", string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wants := [][]string{
+		{"alice@example.com", "ops@example.com"},
+		{"lead@example.com", "ops@example.com", "finance@example.com"},
+		{"carol@example.com", "ops@example.com", "regional@example.com"},
+	}
+	for i, u := range c.Resolve() {
+		if got := u.NotifyEmails(); !slices.Equal(got, wants[i]) {
+			t.Errorf("%s recipients: %v, want %v", u.Email, got, wants[i])
+		}
+	}
+}
+
+func TestAdditionalNotifyEmailsPerUserOnly(t *testing.T) {
+	p := write(t, t.TempDir(), "bedrock.yaml", base+`users:
+  - email: alice@example.com
+    additional_notify_emails: [ops@example.com]
+  - email: bob@example.com
+`)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	us := c.Resolve()
+	if got := us[0].NotifyEmails(); !slices.Equal(got, []string{"alice@example.com", "ops@example.com"}) {
+		t.Errorf("alice recipients: %v", got)
+	}
+	if got := us[1].NotifyEmails(); !slices.Equal(got, []string{"bob@example.com"}) {
+		t.Errorf("bob recipients: %v", got)
+	}
+}
+
+func TestAdditionalNotifyEmailsLimit(t *testing.T) {
+	defaults := strings.Replace(base, "  limit_usd: 50\n", `  limit_usd: 50
+  additional_notify_emails: [a@example.com, b@example.com, c@example.com, d@example.com, e@example.com]
+`, 1)
+	user := `users:
+  - email: owner@example.com
+    additional_notify_emails: [A@example.com, f@example.com, g@example.com, h@example.com, i@example.com%s]
+`
+	p := write(t, t.TempDir(), "bedrock.yaml", defaults+strings.Replace(user, "%s", "", 1))
+	if _, err := Load(p); err != nil {
+		t.Fatal(err)
+	}
+	p = write(t, t.TempDir(), "bedrock.yaml", defaults+strings.Replace(user, "%s", ", j@example.com", 1))
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "at most 10 distinct email recipients including notify (got 11)") {
+		t.Fatalf("want merged recipient limit error, got %v", err)
 	}
 }
 
@@ -102,28 +178,31 @@ func TestValidation(t *testing.T) {
 		"id too long":  {strings.Replace(base, "id: acmeprod", "id: "+strings.Repeat("a", 21), 1), "id: must be 1-20"},
 		"default pause": {strings.Replace(base, "  limit_usd: 50\n", "  limit_usd: 50\n  pause_at_percent: 250\n", 1),
 			"defaults.pause_at_percent: must be 1-200 (got 250)"},
-		"decimals":          {base + "users: [{email: a@x.io, limit_usd: 1.234}]\n", "two decimals"},
-		"bad name":          {base + "users: [{email: a@x.io, name: Bad_Name}]\n", "name:"},
-		"dup email":         {base + "users: [{email: a@x.io}, {email: A@x.io}]\n", "duplicate"},
-		"dup name":          {base + "users: [{email: a@x.io}, {email: a@y.io}]\n", "also used"},
-		"non-claude":        {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.meta.llama3-3-70b-instruct-v1:0]", 1), "can't be called from personal roles"},
-		"fable":             {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.anthropic.claude-fable-1-v1:0]", 1), "can't be called from personal roles"},
-		"pause 0":           {base + "users: [{email: a@x.io, pause_at_percent: 0}]\n", "1-200"},
-		"pause 201":         {base + "users: [{email: a@x.io, pause_at_percent: 201}]\n", "1-200"},
-		"alert 300":         {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
-		"bad notify":        {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
-		"bad user product":  {base + "users: [{email: a@x.io, product: \"a,b\"}]\n", "users[0] (a@x.io): product:"},
-		"bad account":       {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
-		"bad id":            {strings.Replace(base, "acmeprod", "Acme Prod", 1), "id:"},
-		"web search region": {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
-		"web search domain": {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},
-		"bad iam_user":      {base + "users: [{email: a@x.io, iam_user: \"a b\"}]\n", "iam_user: not an IAM user name"},
-		"dup iam_user":      {base + "users: [{email: a@x.io, iam_user: dave}, {email: b@x.io, iam_user: Dave}]\n", "iam_user: Dave is also used by users[0]"},
-		"no limit any":      {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
-		"tag aws prefix":    {base + "  tags: {\"AWS:x\": y}\n", `key "AWS:x": the aws: prefix is reserved`},
-		"tag id key":        {base + "  tags: {\"bedrock-admin:id\": y}\n", `key "bedrock-admin:id" is set by bedrock-admin`},
-		"tag bad key":       {base + "  tags: {\"a,b\": y}\n", `key "a,b" must be 1-128`},
-		"tag long value":    {base + "  tags: {k: " + strings.Repeat("v", 257) + "}\n", "cost_export.tags.k: value must be at most 256"},
+		"decimals":   {base + "users: [{email: a@x.io, limit_usd: 1.234}]\n", "two decimals"},
+		"bad name":   {base + "users: [{email: a@x.io, name: Bad_Name}]\n", "name:"},
+		"dup email":  {base + "users: [{email: a@x.io}, {email: A@x.io}]\n", "duplicate"},
+		"dup name":   {base + "users: [{email: a@x.io}, {email: a@y.io}]\n", "also used"},
+		"non-claude": {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.meta.llama3-3-70b-instruct-v1:0]", 1), "can't be called from personal roles"},
+		"fable":      {strings.Replace(base, "models: [us.anthropic.claude-sonnet-4-5-20250929-v1:0]", "models: [us.anthropic.claude-fable-1-v1:0]", 1), "can't be called from personal roles"},
+		"pause 0":    {base + "users: [{email: a@x.io, pause_at_percent: 0}]\n", "1-200"},
+		"pause 201":  {base + "users: [{email: a@x.io, pause_at_percent: 201}]\n", "1-200"},
+		"alert 300":  {base + "users: [{email: a@x.io, alert_at_percent: [300]}]\n", "1-200"},
+		"bad notify": {base + "users: [{email: a@x.io, notify: someone}]\n", "notify"},
+		"bad additional default": {strings.Replace(base, "  limit_usd: 50\n", "  limit_usd: 50\n  additional_notify_emails: [owner]\n", 1),
+			"defaults.additional_notify_emails[0]"},
+		"bad additional user": {base + "users: [{email: a@x.io, additional_notify_emails: [nope]}]\n", "users[0] (a@x.io): additional_notify_emails[0]"},
+		"bad user product":    {base + "users: [{email: a@x.io, product: \"a,b\"}]\n", "users[0] (a@x.io): product:"},
+		"bad account":         {strings.Replace(base, `"123456789012"`, `"12"`, 1), "account"},
+		"bad id":              {strings.Replace(base, "acmeprod", "Acme Prod", 1), "id:"},
+		"web search region":   {base + "web_search: {enabled: true}\n", "only available in us-east-1"},
+		"web search domain":   {strings.Replace(base, "us-west-2", "us-east-1", 1) + "web_search: {enabled: true, exclude_domains: [Example.com]}\n", "exclude_domains[0]"},
+		"bad iam_user":        {base + "users: [{email: a@x.io, iam_user: \"a b\"}]\n", "iam_user: not an IAM user name"},
+		"dup iam_user":        {base + "users: [{email: a@x.io, iam_user: dave}, {email: b@x.io, iam_user: Dave}]\n", "iam_user: Dave is also used by users[0]"},
+		"no limit any":        {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
+		"tag aws prefix":      {base + "  tags: {\"AWS:x\": y}\n", `key "AWS:x": the aws: prefix is reserved`},
+		"tag id key":          {base + "  tags: {\"bedrock-admin:id\": y}\n", `key "bedrock-admin:id" is set by bedrock-admin`},
+		"tag bad key":         {base + "  tags: {\"a,b\": y}\n", `key "a,b" must be 1-128`},
+		"tag long value":      {base + "  tags: {k: " + strings.Repeat("v", 257) + "}\n", "cost_export.tags.k: value must be at most 256"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

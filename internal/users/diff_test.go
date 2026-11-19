@@ -112,6 +112,30 @@ func TestAlertsAndNotify(t *testing.T) {
 	}
 }
 
+func TestAdditionalNotifyEmailsDiff(t *testing.T) {
+	w := want(50, 100)
+	w.AdditionalNotifyEmails = []string{"ops@example.com", "finance@example.com"}
+	o := observed(50, 100, 0, pause.Paused)
+	c := Diff(w, o, "acme", now)
+	if c.Op != plan.Update || len(c.ResubAlert) != 1 || c.ResubAlert[0] != 80 || !c.UpdateAction || c.Rearm || c.RecreateAction {
+		t.Fatalf("adding recipients: %+v", c)
+	}
+	o.Alerts[80] = []string{"finance@example.com", w.Notify, "ops@example.com"}
+	o.ActionSubscribers = []string{"ops@example.com", "finance@example.com", w.Notify}
+	if c := Diff(w, o, "acme", now); c.Op != plan.OK {
+		t.Fatalf("subscriber ordering caused drift: %+v", c)
+	}
+	o.Alerts[80] = []string{w.Notify}
+	if c := Diff(w, o, "acme", now); c.Op != plan.Update || len(c.ResubAlert) != 1 || c.UpdateAction {
+		t.Fatalf("alert-only drift: %+v", c)
+	}
+	o.Alerts[80] = []string{"finance@example.com", w.Notify, "ops@example.com"}
+	w.AdditionalNotifyEmails = nil
+	if c := Diff(w, o, "acme", now); c.Op != plan.Update || len(c.ResubAlert) != 1 || !c.UpdateAction || c.Rearm {
+		t.Fatalf("removing additional recipients: %+v", c)
+	}
+}
+
 func TestRecreateNeedsYes(t *testing.T) {
 	o := observed(50, 100, 0, pause.Armed)
 	o.ActionShapeOK = false
