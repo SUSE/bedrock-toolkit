@@ -123,6 +123,7 @@ defaults:
   pause_at_percent: 100         # pause when actual spend reaches this % of the limit
   alert_at_percent: [80]        # email alerts on actual spend; [] for none
   notify: owner                 # the user's email, or a fixed address
+  additional_notify_emails: [finops@example.com] # optional, added to every budget
 
 cost_export:                    # optional; the default bucket is bedrock-cur-<account>-<id>
   bucket: bedrock-cur-111122223333-acmeprod
@@ -147,6 +148,7 @@ users:
   - email: bkim@example.com
     limit_usd: 100
     pause_at_percent: 110
+    additional_notify_emails: [research-lead@example.com] # adds to the defaults
     product: research             # this user's role gets another product tag
 ```
 
@@ -169,7 +171,7 @@ users:
 
 | | Configuration, in `bedrock.yaml` | Runtime actions, as commands |
 | --- | --- | --- |
-| What | Who has access, limit, pause and alert thresholds, notify address, name, account settings | `pause`, `unpause` |
+| What | Who has access, limit, pause and alert thresholds, budget email recipients, name, account settings | `pause`, `unpause` |
 | Changed by | Editing the file, then `plan` and `apply` | Running the command |
 | Lasts | Until the file changes | Until AWS Budgets, the monthly Lambda or another command changes it |
 | Record | Git history | `--reason`, saved as tags on the role, plus CloudTrail |
@@ -426,11 +428,13 @@ Each user has a monthly cost budget, `bedrock-<id>-<name>`:
 
 - Limit: `limit_usd`. Filter: the cost allocation tag `iamPrincipal/owner` equals the user's email.
   Metric: unblended cost.
-- One email notification on actual spend for each `alert_at_percent`, sent to the `notify`
-  address.
+- One email notification on actual spend for each `alert_at_percent`, sent to the budget's email recipients.
 - One budget action: at `pause_at_percent` of actual spend, with automatic approval, attach
-  `bedrock-deny-<id>` to the user's role, run by the budget actions role. It also emails the `notify`
-  address.
+  `bedrock-deny-<id>` to the user's role, run by the budget actions role. It emails the same recipients.
+- Recipients are the primary `notify` address (the owner by default), plus the combined
+  `defaults.additional_notify_emails` and per-user `additional_notify_emails` lists. Deduplication
+  is case-insensitive, and validation caps the effective list at 10 email recipients, including
+  the primary. With neither list set, only the primary receives email.
 
 `apply` updates the limit, the notifications and the action's threshold in place. It never
 recreates the action for a limit change, because a new action is armed.

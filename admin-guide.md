@@ -369,6 +369,7 @@ defaults:
   pause_at_percent: 100         # pause when spend reaches 100% of the limit
   alert_at_percent: [80]        # email at 80%; [] for none
   notify: owner                 # the user's SSO email, or a fixed address
+  additional_notify_emails: [finops@example.com] # optional, added to every user's budget emails
 
 cost_export:                    # optional; these are the defaults
   bucket: bedrock-cur-111122223333-acmeprod
@@ -386,7 +387,7 @@ users:                          # or: users: !include users.yaml
     pause_at_percent: 110       # 10% grace before the pause
   - email: cdiaz@example.com
     limit_usd: 30
-    notify: cdiaz-lead@example.com
+    additional_notify_emails: [cdiaz-lead@example.com] # also send to her lead
     product: data-platform      # her role is tagged with this product instead
 ```
 
@@ -405,6 +406,7 @@ users:                          # or: users: !include users.yaml
 | `pause_at_percent` | 1–200. The pause fires when spend reaches `limit_usd × pause_at_percent / 100` (the trigger). Default 100. |
 | `alert_at_percent` | Up to 4 values, each 1–200. Default `[80]`. |
 | `notify` | `owner` (the user's SSO email) or an email address. Use an address when the SSO email gets no mail. |
+| `additional_notify_emails` | Optional list of email addresses for spend alerts and budget-triggered pauses. A user's list adds to `defaults.additional_notify_emails`; `[]` adds nothing and does not remove defaults. Duplicates are ignored, including the primary `notify` address. AWS Budgets allows up to 10 distinct email recipients in total. |
 | `iam_user` (per user) | Optional. An existing IAM user the user signs in with instead of (or as well as) SSO; see [IAM users](#users-without-sso-iam-users). Letters, digits and `+=,.@_-`, up to 64. Each IAM user may belong to one user. |
 | `name` (per user) | Overrides the name derived from the email (`achen@example.com` → `achen`). At most 30 characters, so the role name fits IAM's 64. The role is `bedrock-user-<id>-<name>`, the budget `bedrock-<id>-<name>`. |
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
@@ -635,7 +637,7 @@ bedrock-admin apply          # add --yes when it removes users
 | Give dlee access | Add `- email: dlee@example.com` |
 | Raise bkim's limit | `limit_usd: 100` → `150` |
 | Let bkim go 10% over before the pause | `pause_at_percent: 110` on bkim |
-| Send cdiaz's alerts to her lead | `notify: cdiaz-lead@example.com` on cdiaz |
+| Copy cdiaz's lead on budget emails | `additional_notify_emails: [cdiaz-lead@example.com]` on cdiaz |
 | Charge cdiaz's spend to another product | `product: data-platform` on cdiaz |
 | No alerts for anyone | `defaults.alert_at_percent: []` |
 | Remove achen | Delete the entry, then `apply --yes` |
@@ -711,7 +713,7 @@ Access returns within about a minute.
 <summary>Details</summary>
 
 When a user's spend reaches their trigger, AWS Budgets attaches `bedrock-deny-<id>` to their role. Their
-model calls fail with an explicit deny, and the address in `notify` gets an email from AWS Budgets.
+model calls fail with an explicit deny, and AWS Budgets emails `notify` and any additional recipients.
 
 **Give them more budget and keep a cap.** Raise `limit_usd` or `pause_at_percent` in the file and
 `apply`. If their spend is below the new trigger, `apply` unpauses them and re-arms the pause at the
@@ -1280,8 +1282,8 @@ Only AWS Budgets sends email, from `budgets@costalerts.amazonaws.com`, with fixe
 
 | Email | Sent to |
 | --- | --- |
-| Alert at each `alert_at_percent` | The user's `notify` address |
-| Paused at `pause_at_percent` | The user's `notify` address |
+| Alert at each `alert_at_percent` | The user's `notify` address and any `additional_notify_emails` |
+| Paused at `pause_at_percent` | The user's `notify` address and any `additional_notify_emails` |
 
 No email is sent for a pause or unpause by hand, an unpause by `apply`, or a monthly report.
 
