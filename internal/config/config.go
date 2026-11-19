@@ -386,8 +386,15 @@ func (c *Config) Validate() error {
 	}
 	checkAdditionalEmails("defaults.additional_notify_emails", c.Defaults.AdditionalNotifyEmails)
 	const maxBudgetEmails = 10
-	if len(mergeNotifyEmails("", c.Defaults.AdditionalNotifyEmails)) > maxBudgetEmails {
-		add("defaults.additional_notify_emails: AWS Budgets allows at most %d distinct email recipients", maxBudgetEmails)
+	// Count the default primary too, so a defaults list that is too long is reported once, not for every user.
+	defaultPrimary := c.Defaults.Notify
+	if defaultPrimary == "owner" {
+		defaultPrimary = ""
+	}
+	defaultsTooMany := false
+	if n := 1 + len(mergeNotifyEmails(defaultPrimary, c.Defaults.AdditionalNotifyEmails)); n > maxBudgetEmails {
+		add("defaults.additional_notify_emails: AWS Budgets allows at most %d distinct email recipients including notify (got %d)", maxBudgetEmails, n)
+		defaultsTooMany = true
 	}
 	if !bucketRe.MatchString(c.CostExport.Bucket) {
 		add("cost_export.bucket: not a valid S3 bucket name (got %q)", c.CostExport.Bucket)
@@ -491,7 +498,7 @@ func (c *Config) Validate() error {
 			}
 		}
 		checkAdditionalEmails(where+": additional_notify_emails", u.AdditionalNotifyEmails)
-		if n := 1 + len(mergeNotifyEmails(c.notifyAddress(u), c.Defaults.AdditionalNotifyEmails, u.AdditionalNotifyEmails)); n > maxBudgetEmails {
+		if n := 1 + len(mergeNotifyEmails(c.notifyAddress(u), c.Defaults.AdditionalNotifyEmails, u.AdditionalNotifyEmails)); n > maxBudgetEmails && !defaultsTooMany {
 			add("%s: additional_notify_emails: AWS Budgets allows at most %d distinct email recipients including notify (got %d)", where, maxBudgetEmails, n)
 		}
 		if u.Product != "" && !productRe.MatchString(u.Product) {
