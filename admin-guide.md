@@ -373,6 +373,7 @@ defaults:
 cost_export:                    # optional; these are the defaults
   bucket: bedrock-cur-111122223333-acmeprod
   prefix: cur
+  tags: {}                      # extra bucket tags, such as one your org's cleanup job requires
 
 web_search:                     # optional, see step 10
   enabled: false
@@ -409,6 +410,7 @@ users:                          # or: users: !include users.yaml
 | `cost_export.bucket` | Default `bedrock-cur-<account>-<id>`. |
 | `cost_export.name` | Export name. Default `bedrock-cur-<id>`. |
 | `cost_export.snapshot_prefix` | Where the Lambda writes snapshots in the bucket. Default `bedrock-admin/snapshots`. |
+| `cost_export.tags` | Optional. Extra tags on the cost export bucket, as a map. Use it when a cleanup job in your org deletes buckets without a certain tag, for example `tags: {pcw_ignore: "1"}`. `apply` sets them when it creates the bucket and adds missing or changed ones later; it never removes tags. At most 49 (S3 allows 50 tags per bucket and bedrock-admin uses one for `bedrock-admin:id`); keys may not start with `aws:` or be `bedrock-admin:id`. |
 | `report.bucket`, `report.region` | Optional. The central report bucket and its region, from your central admin; see [Central reporting](#central-reporting-optional). Both or neither. |
 | `report.include_emails` | Default false. True also sends each user's email, product, set up and paused. |
 

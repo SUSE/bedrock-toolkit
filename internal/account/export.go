@@ -3,6 +3,8 @@ package account
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -44,32 +46,60 @@ func (e *Env) costExport(ctx context.Context) ([]*plan.Item, error) {
 
 // BucketID returns the bucket's bedrock-admin:id, its region and whether the bucket exists.
 func BucketID(ctx context.Context, c *awsx.Clients, bucket string) (id, region string, exists bool, err error) {
+	tags, region, exists, err := bucketTags(ctx, c, bucket)
+	return tags[policy.IDTag], region, exists, err
+}
+
+// bucketTags returns the bucket's tags, its region and whether the bucket exists.
+func bucketTags(ctx context.Context, c *awsx.Clients, bucket string) (tags map[string]string, region string, exists bool, err error) {
 	region, exists, err = c.BucketRegion(ctx, bucket)
 	if err != nil {
-		return "", "", false, fmt.Errorf("checking bucket %s: %w", bucket, err)
+		return nil, "", false, fmt.Errorf("checking bucket %s: %w", bucket, err)
 	}
 	if !exists {
-		return "", "", false, nil
+		return nil, "", false, nil
 	}
 	t, err := c.S3In(region).GetBucketTagging(ctx, &s3.GetBucketTaggingInput{Bucket: aws.String(bucket)})
 	if err != nil {
 		if awsx.IsNotFound(err) {
-			return "", region, true, nil
+			return map[string]string{}, region, true, nil
 		}
-		return "", region, true, fmt.Errorf("reading tags of bucket %s: %w", bucket, err)
+		return nil, region, true, fmt.Errorf("reading tags of bucket %s: %w", bucket, err)
 	}
+	tags = map[string]string{}
 	for _, tag := range t.TagSet {
-		if aws.ToString(tag.Key) == policy.IDTag {
-			return aws.ToString(tag.Value), region, true, nil
+		tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	return tags, region, true, nil
+}
+
+// tagUpdate returns the tags the bucket should have, keeping the ones it has, and what changes, or
+// nil if every tag in want is already set.
+func tagUpdate(have, want map[string]string) (map[string]string, []string) {
+	var d []string
+	for _, k := range slices.Sorted(maps.Keys(want)) {
+		switch v, ok := have[k]; {
+		case !ok:
+			d = append(d, fmt.Sprintf("tag %s missing", k))
+		case v != want[k]:
+			d = append(d, fmt.Sprintf("tag %s is %q, the file says %q", k, v, want[k]))
 		}
 	}
-	return "", region, true, nil
+	if len(d) == 0 {
+		return nil, nil
+	}
+	merged := maps.Clone(have)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, want)
+	return merged, d
 }
 
 func (e *Env) bucket(ctx context.Context) (*plan.Item, error) {
 	bucket := e.Cfg.CostExport.Bucket
 	it := e.item("1.1", "cost export bucket "+bucket)
-	id, region, exists, err := BucketID(ctx, e.C, bucket)
+	tags, region, exists, err := bucketTags(ctx, e.C, bucket)
 	if err != nil {
 		if awsx.ErrorCode(err) == "Forbidden" || awsx.IsAccessDenied(err) {
 			it.Op, it.Status = plan.Conflict, "the name is taken by a bucket you can't read (another account?)"
@@ -77,9 +107,18 @@ func (e *Env) bucket(ctx context.Context) (*plan.Item, error) {
 		}
 		return nil, err
 	}
+	id := tags[policy.IDTag]
 	pol := policy.CurBucket(bucket, e.C.Account)
 	if !exists {
 		it.Op, it.Details = plan.Create, []string{"create (private, writable only by Data Exports)"}
+		want := maps.Clone(e.Cfg.CostExport.Tags)
+		if want == nil {
+			want = map[string]string{}
+		}
+		want[policy.IDTag] = e.Cfg.ID
+		for _, k := range slices.Sorted(maps.Keys(e.Cfg.CostExport.Tags)) {
+			it.Details = append(it.Details, fmt.Sprintf("tag %s=%s", k, e.Cfg.CostExport.Tags[k]))
+		}
 		it.Apply = func(ctx context.Context) error {
 			in := &s3.CreateBucketInput{Bucket: aws.String(bucket)}
 			if e.Cfg.Region != "us-east-1" {
@@ -92,7 +131,7 @@ func (e *Env) bucket(ctx context.Context) (*plan.Item, error) {
 				}
 				return fmt.Errorf("creating bucket %s: %w", bucket, err)
 			}
-			return e.fixBucket(ctx, bucket, pol, true, true, true)
+			return e.fixBucket(ctx, bucket, pol, true, true, want)
 		}
 		return it, nil
 	}
@@ -125,9 +164,11 @@ func (e *Env) bucket(ctx context.Context) (*plan.Item, error) {
 		fixPAB = true
 		it.Details = append(it.Details, "public access not fully blocked")
 	}
-	if fixPolicy || fixPAB {
+	newTags, tagDetails := tagUpdate(tags, e.Cfg.CostExport.Tags)
+	it.Details = append(it.Details, tagDetails...)
+	if fixPolicy || fixPAB || newTags != nil {
 		it.Op = plan.Update
-		it.Apply = func(ctx context.Context) error { return e.fixBucket(ctx, bucket, pol, fixPolicy, fixPAB, false) }
+		it.Apply = func(ctx context.Context) error { return e.fixBucket(ctx, bucket, pol, fixPolicy, fixPAB, newTags) }
 	}
 	return it, nil
 }
@@ -137,7 +178,8 @@ func allBlocked(c *stypes.PublicAccessBlockConfiguration) bool {
 		aws.ToBool(c.BlockPublicPolicy) && aws.ToBool(c.RestrictPublicBuckets)
 }
 
-func (e *Env) fixBucket(ctx context.Context, bucket, pol string, fixPolicy, fixPAB, tag bool) error {
+// fixBucket sets what's flagged; tags, when not nil, replace all the bucket's tags.
+func (e *Env) fixBucket(ctx context.Context, bucket, pol string, fixPolicy, fixPAB bool, tags map[string]string) error {
 	if fixPAB {
 		if _, err := e.C.S3.PutPublicAccessBlock(ctx, &s3.PutPublicAccessBlockInput{Bucket: aws.String(bucket),
 			PublicAccessBlockConfiguration: &stypes.PublicAccessBlockConfiguration{BlockPublicAcls: aws.Bool(true),
@@ -150,9 +192,13 @@ func (e *Env) fixBucket(ctx context.Context, bucket, pol string, fixPolicy, fixP
 			return fmt.Errorf("setting the policy of %s: %w", bucket, err)
 		}
 	}
-	if tag {
+	if tags != nil {
+		var set []stypes.Tag
+		for _, k := range slices.Sorted(maps.Keys(tags)) {
+			set = append(set, stypes.Tag{Key: aws.String(k), Value: aws.String(tags[k])})
+		}
 		if _, err := e.C.S3.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{Bucket: aws.String(bucket),
-			Tagging: &stypes.Tagging{TagSet: []stypes.Tag{{Key: aws.String(policy.IDTag), Value: aws.String(e.Cfg.ID)}}}}); err != nil {
+			Tagging: &stypes.Tagging{TagSet: set}}); err != nil {
 			return fmt.Errorf("tagging %s: %w", bucket, err)
 		}
 	}
