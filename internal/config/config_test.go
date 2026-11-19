@@ -120,6 +120,10 @@ func TestValidation(t *testing.T) {
 		"bad iam_user":      {base + "users: [{email: a@x.io, iam_user: \"a b\"}]\n", "iam_user: not an IAM user name"},
 		"dup iam_user":      {base + "users: [{email: a@x.io, iam_user: dave}, {email: b@x.io, iam_user: Dave}]\n", "iam_user: Dave is also used by users[0]"},
 		"no limit any":      {strings.Replace(base, "  limit_usd: 50\n", "", 1) + "users: [{email: a@x.io}]\n", "limit_usd: not set"},
+		"tag aws prefix":    {base + "  tags: {\"AWS:x\": y}\n", `key "AWS:x": the aws: prefix is reserved`},
+		"tag id key":        {base + "  tags: {\"bedrock-admin:id\": y}\n", `key "bedrock-admin:id" is set by bedrock-admin`},
+		"tag bad key":       {base + "  tags: {\"a,b\": y}\n", `key "a,b" must be 1-128`},
+		"tag long value":    {base + "  tags: {k: " + strings.Repeat("v", 257) + "}\n", "cost_export.tags.k: value must be at most 256"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -208,7 +212,7 @@ func TestNameFromEmail(t *testing.T) {
 }
 
 func TestMarshalRoundTrip(t *testing.T) {
-	p := write(t, t.TempDir(), "bedrock.yaml", base+"users: [{email: a@x.io, alert_at_percent: []}]\n")
+	p := write(t, t.TempDir(), "bedrock.yaml", base+"  tags: {pcw_ignore: \"1\"}\nusers: [{email: a@x.io, alert_at_percent: []}]\n")
 	c, err := Load(p)
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +228,9 @@ func TestMarshalRoundTrip(t *testing.T) {
 	}
 	if c2.Users[0].AlertAtPercent == nil || len(*c2.Users[0].AlertAtPercent) != 0 {
 		t.Fatalf("empty alert list lost:\n%s", out)
+	}
+	if c2.CostExport.Tags["pcw_ignore"] != "1" {
+		t.Fatalf("cost_export.tags lost:\n%s", out)
 	}
 }
 

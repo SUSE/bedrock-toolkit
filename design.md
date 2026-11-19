@@ -126,6 +126,7 @@ defaults:
 
 cost_export:                    # optional; the default bucket is bedrock-cur-<account>-<id>
   bucket: bedrock-cur-111122223333-acmeprod
+  tags: {}                      # optional: extra bucket tags, e.g. one an org cleanup job requires
 
 sso:                            # optional: users' SSO sign-in, added to the setup commands
   start_url: https://example.awsapps.com/start
@@ -184,7 +185,7 @@ and the record is the role tag and CloudTrail. Pause overrides in the file (for 
 
 | Step | Creates or checks | Why |
 | --- | --- | --- |
-| 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
+| 1.1 | A CUR 2.0 cost export `bedrock-cur-<id>` with caller identity, and its private bucket `bedrock-cur-<account>-<id>` (writable only by Data Exports, with any `cost_export.tags`) | The only source of who made each call, including calls no budget sees. Cost Explorer can't group by caller. |
 | 1.2 | The `bedrock-deny-<id>` policy (path `/bedrock/`) | The pause: one policy per setup that denies `bedrock:InvokeModel`, `InvokeModelWithResponseStream`, `CreateModelInvocationJob`, `CallWithBearerToken` and `bedrock-agentcore:InvokeGateway` (web search) |
 | 1.3 | The budget actions role `bedrock-budget-actions-<id>` | AWS Budgets needs a role to attach the policy. It may only attach and detach `bedrock-deny-<id>` on the id's roles under `/bedrock-users/<id>/` and on IAM users tagged `bedrock-admin:id=<id>`. |
 | 1.4 | The monthly Lambda `bedrock-monthly-unpause-<id>` (1024 MB), its schedule (06:00 UTC on the 1st) and the daily schedule `bedrock-daily-<id>` (07:00 UTC) | Re-arms every pause of the id's users each month, after saving a snapshot; writes each user's daily usage file and, with `report:`, sends the central report. See [section 8](#8-the-monthly-lambda-snapshots-and-central-reports). |

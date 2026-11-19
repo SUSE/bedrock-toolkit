@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ const (
 	// DefaultAdminPermissionSet is the permission set bedrock-admin block exempts from its deny.
 	DefaultAdminPermissionSet = "BedrockAdmin"
 	EnvConfig                 = "BEDROCK_ADMIN_CONFIG"
+	// MaxBucketTags is how many cost_export.tags fit: S3 allows 50 tags, bedrock-admin:id is one.
+	MaxBucketTags = 49
 )
 
 // DefaultAlertAtPercent is used when neither the user nor defaults set alert_at_percent.
@@ -70,6 +73,9 @@ type CostExport struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// SnapshotPrefix is where the monthly Lambda writes snapshots; default bedrock-admin/snapshots.
 	SnapshotPrefix string `yaml:"snapshot_prefix,omitempty" json:"snapshot_prefix,omitempty"`
+	// Tags are extra tags on the bucket, such as ones an org cleanup job requires; apply adds or
+	// corrects them and never removes tags.
+	Tags map[string]string `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // WebSearch turns on the AgentCore Web Search gateway for every user.
@@ -150,6 +156,8 @@ var (
 	productRe = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,128}$`)
 	iamUserRe = regexp.MustCompile(`^[A-Za-z0-9+=,.@_-]{1,64}$`)
 	domainRe  = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+	tagKeyRe  = regexp.MustCompile(`^[\p{L}\p{N} _.:/=+@-]{1,128}$`)
+	tagValRe  = regexp.MustCompile(`^[\p{L}\p{N} _.:/=+@-]{0,256}$`)
 	invalidCh = regexp.MustCompile(`[^a-z0-9.-]+`)
 )
 
@@ -369,6 +377,22 @@ func (c *Config) Validate() error {
 	}
 	if !exportRe.MatchString(c.CostExport.Name) {
 		add("cost_export.name: lowercase letters, digits and '-' only (got %q)", c.CostExport.Name)
+	}
+	if len(c.CostExport.Tags) > MaxBucketTags {
+		add("cost_export.tags: at most %d tags (S3 allows 50; bedrock-admin uses one)", MaxBucketTags)
+	}
+	for _, k := range slices.Sorted(maps.Keys(c.CostExport.Tags)) {
+		switch {
+		case !tagKeyRe.MatchString(k):
+			add("cost_export.tags: key %q must be 1-128 letters, digits, spaces and _.:/=+@-", k)
+		case strings.HasPrefix(strings.ToLower(k), "aws:"):
+			add("cost_export.tags: key %q: the aws: prefix is reserved by AWS", k)
+		case k == policy.IDTag:
+			add("cost_export.tags: key %q is set by bedrock-admin", k)
+		}
+		if v := c.CostExport.Tags[k]; !tagValRe.MatchString(v) {
+			add("cost_export.tags.%s: value must be at most 256 letters, digits, spaces and _.:/=+@- (got %q)", k, v)
+		}
 	}
 	if c.WebSearch.Enabled && !slices.Contains(WebSearchRegions, c.Region) {
 		add("web_search.enabled: web search is only available in %s (region is %q)", strings.Join(WebSearchRegions, ", "), c.Region)
