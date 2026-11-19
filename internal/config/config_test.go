@@ -144,6 +144,19 @@ func TestAdditionalNotifyEmailsLimit(t *testing.T) {
 	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "at most 10 distinct email recipients including notify (got 11)") {
 		t.Fatalf("want merged recipient limit error, got %v", err)
 	}
+	ten := strings.Replace(base, "  limit_usd: 50\n", `  limit_usd: 50
+  additional_notify_emails: [a@x.io, b@x.io, c@x.io, d@x.io, e@x.io, f@x.io, g@x.io, h@x.io, i@x.io, j@x.io]
+`, 1)
+	p = write(t, t.TempDir(), "bedrock.yaml", ten+"users: [{email: u1@x.io}, {email: u2@x.io}]\n")
+	_, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "defaults.additional_notify_emails: AWS Budgets allows at most 10 distinct email recipients including notify (got 11)") ||
+		strings.Contains(err.Error(), "u1@x.io") {
+		t.Fatalf("want one defaults error and no per-user errors, got %v", err)
+	}
+	p = write(t, t.TempDir(), "bedrock.yaml", strings.Replace(ten, "  limit_usd: 50\n", "  limit_usd: 50\n  notify: a@x.io\n", 1)+"users: [{email: u1@x.io}]\n")
+	if _, err := Load(p); err != nil {
+		t.Fatalf("a fixed notify among the ten defaults is 10 recipients: %v", err)
+	}
 }
 
 func TestInclude(t *testing.T) {
