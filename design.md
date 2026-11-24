@@ -558,7 +558,8 @@ spend up to a day late.
 `bedrock-admin users` (`internal/fleet.Collect`) lists the id's onboarded users (personal roles with a
 pause action) with their pause state and the IAM `RoleLastUsed` date of each role. `bedrock setup`
 uses the role, so a date means the person has set up; AWS updates it with up to about 4 hours of
-delay. Users in the file without a role show `not applied`.
+delay. Users in the file without a role show `not applied`. `--commands` prints each applied user's
+setup command again (`users.SetupCommand`, the same line `apply` prints when it onboards them).
 
 ### Central reports
 

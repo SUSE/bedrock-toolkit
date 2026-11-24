@@ -47,6 +47,33 @@ func TestUsersView(t *testing.T) {
 	}
 }
 
+func TestUsersCommands(t *testing.T) {
+	cfg := &config.Config{ID: "acme", Region: "us-west-2", Users: []config.User{{Email: "a@x.com"}, {Email: "b@x.com", IAMUser: "bob"}, {Email: "c@x.com"}}}
+	got := []fleet.User{
+		{Email: "a@x.com", Kind: fleet.KindSSO, State: pause.Armed},
+		{Email: "b@x.com", Kind: fleet.KindIAMUser, State: pause.Armed},
+		{Email: "old@x.com", Kind: fleet.KindSSO, State: pause.Armed},
+	}
+	v := UsersView(cfg, got)
+	AddCommands(&v, cfg, "111122223333", "us-west-2")
+	cmds := map[string]string{}
+	for _, r := range v.Users {
+		cmds[r.Email] = r.Command
+	}
+	if cmds["a@x.com"] != "bedrock setup --id acme" || !strings.HasPrefix(cmds["b@x.com"], "bedrock configure access-key && ") ||
+		cmds["c@x.com"] != "" || cmds["old@x.com"] != "" {
+		t.Fatalf("%+v", cmds)
+	}
+	var b bytes.Buffer
+	if err := writeCommands(&b, v); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "  a@x.com: bedrock setup --id acme\n") || !strings.Contains(b.String(), "  c@x.com: not applied yet") ||
+		strings.Contains(b.String(), "old@x.com") {
+		t.Fatal(b.String())
+	}
+}
+
 func TestFillProducts(t *testing.T) {
 	cfg := &config.Config{ID: "acme", Product: "p", Users: []config.User{{Email: "a@x.com"}, {Email: "b@x.com", Product: "q"}}}
 	us := []usage.User{{Email: "A@x.com"}, {Email: "b@x.com", Product: "old"}, {Email: "gone@x.com"}}

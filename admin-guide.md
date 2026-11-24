@@ -88,7 +88,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin pause` | Pauses a user by hand, until `unpause`. The monthly Lambda leaves it in place | [6](#6-pause-someone-yourself) |
 | `bedrock-admin unpause` | Restores a paused user's access | [5](#5-someone-got-paused) |
 | `bedrock-admin usage` | Spend per user (or per product or day with `--by`), and spend outside personal roles. Exits 2 on untracked spend | [7](#7-read-spend) |
-| `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused | [7](#who-has-set-up) |
+| `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused; `--commands` prints the commands to send each user | [7](#who-has-set-up) |
 | `bedrock-admin setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones | [id](#list-change-or-remove-a-setup) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
 | `bedrock-admin block` | Blocks model calls outside personal roles: `policy` writes the file for your org admin, `status` checks, `apply` is for the org admin | [9](#9-block-direct-model-calls) |
@@ -547,7 +547,8 @@ With `sso:` in `bedrock.yaml` (see [step 2](#2-create-bedrockyaml)), `bedrock co
 creates the user's SSO profile and signs them in, so they need nothing else: no AWS CLI, no
 `~/.aws/config` editing. Without it, the command is just `bedrock setup --id acmeprod` and users
 sign in first with their own SSO profile. `bedrock configure` needs a recent `bedrock`: users with
-an older one get `unknown command` and must upgrade first.
+an older one get `unknown command` and must upgrade first. To print the commands again later, run
+`bedrock-admin users --commands`.
 
 Send it, and point them to the [user guide](user-guide.md). Step 1.6 clears by itself within 24
 hours of the first user call.
@@ -932,8 +933,9 @@ change slightly. Snapshots are not deleted by `uninstall` unless you pass `--del
 ### Who has set up
 
 ```bash
-bedrock-admin users          # every user: kind, set up (date or never), pause state
-bedrock-admin users --json   # for scripts
+bedrock-admin users             # every user: kind, set up (date or never), pause state
+bedrock-admin users --commands  # the commands to send each user, as apply printed them
+bedrock-admin users --json      # for scripts
 ```
 
 `users` shows who has run `bedrock setup` on their machine. "Set up" is the day the person's
@@ -949,6 +951,9 @@ ci@example.com     iam-user  2026-10-02  paused
 
 3 onboarded, 2 set up, 1 paused (1 with an IAM user).
 ```
+
+If a user lost the commands `apply` printed when it onboarded them, `--commands` prints them again
+for every applied user in the file (with `--json`, in each user's `command`).
 
 ## 8. Check production
 
@@ -1329,6 +1334,7 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Block a user now | `bedrock-admin pause <email> --reason "..."` |
 | See spend | `bedrock-admin usage` |
 | See who has set up | `bedrock-admin users` |
+| Send a user their commands again | `bedrock-admin users --commands` |
 | List the setups (ids) in the account | `bedrock-admin setups` |
 | Report to a central bucket | Add `report:` to `bedrock.yaml`, then `apply` |
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |

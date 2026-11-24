@@ -11,6 +11,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/cli"
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
+	"github.com/SUSE/bedrock-toolkit/internal/users"
 )
 
 // UserRow is one line of bedrock-admin users.
@@ -22,6 +23,8 @@ type UserRow struct {
 	Pause string `json:"pause"`
 	// InFile is false for a managed role that apply would offboard.
 	InFile bool `json:"in_file"`
+	// Command is what to send the user to set up, with --commands, for applied users in the file.
+	Command string `json:"command,omitempty"`
 }
 
 // UsersJSON is the users --json output.
@@ -33,14 +36,18 @@ type UsersJSON struct {
 }
 
 func (a *App) usersCmd() *cobra.Command {
-	return &cobra.Command{
+	var commands bool
+	cmd := &cobra.Command{
 		Use:   "users",
 		Short: "Who is onboarded, who has set up their machine, who is paused",
 		Long: `users lists every user with their kind (SSO or IAM user), whether they ran bedrock setup and their
 pause state. "Set up" is the day their personal role was last used: bedrock setup uses it, so "never"
 means they haven't set up yet. AWS updates it with a delay of up to about 4 hours.
 
-Users in the file that apply hasn't created yet show "not applied".`,
+Users in the file that apply hasn't created yet show "not applied".
+
+--commands prints the commands to send each user instead, the same ones apply prints when it
+onboards them: for a user who lost them or hasn't set up yet.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -57,12 +64,46 @@ Users in the file that apply hasn't created yet show "not applied".`,
 				return err
 			}
 			out := UsersView(cfg, got)
+			if commands {
+				AddCommands(&out, cfg, c.Account, a.profileRegion(ctx, cfg))
+			}
 			if a.JSON {
 				return cli.WriteJSON(a.Out, out)
+			}
+			if commands {
+				return writeCommands(a.Out, out)
 			}
 			return writeUsers(a.Out, out)
 		},
 	}
+	cmd.Flags().BoolVar(&commands, "commands", false, "print the commands to send each user to set up")
+	return cmd
+}
+
+// AddCommands fills in the setup command of the applied users in the file.
+func AddCommands(v *UsersJSON, cfg *config.Config, account, profileRegion string) {
+	byEmail := map[string]config.Resolved{}
+	for _, r := range cfg.Resolve() {
+		byEmail[strings.ToLower(r.Email)] = r
+	}
+	for i, row := range v.Users {
+		if r, ok := byEmail[strings.ToLower(row.Email)]; ok && row.InFile && row.SetUp != "not applied" {
+			v.Users[i].Command = users.SetupCommand(cfg, account, profileRegion, r)
+		}
+	}
+}
+
+func writeCommands(w io.Writer, v UsersJSON) error {
+	_, _ = fmt.Fprintln(w, "Send each user their commands (IAM users also need their access key):")
+	for _, r := range v.Users {
+		switch {
+		case r.Command != "":
+			_, _ = fmt.Fprintf(w, "  %s: %s\n", r.Email, r.Command)
+		case r.InFile:
+			_, _ = fmt.Fprintf(w, "  %s: not applied yet: run apply first\n", r.Email)
+		}
+	}
+	return nil
 }
 
 // UsersView joins the users of the file with what the account has.
