@@ -276,6 +276,35 @@ A Second Setup In The Same Account Is Separate
     ...    AND    Admin    apply    --yes    config=${f}    rc=any
     ...    AND    Admin    uninstall    --yes    --delete-data    config=${f}    rc=any
 
+Move Replaces Another Setup
+    [Documentation]    move --from offboards the other id's users and uninstalls it, leaving this id alone,
+    ...    and marks the other id's central report moved.
+    ${old}=    Set Variable    ${ID}m
+    ${f}=    Write Config With Id    ${old}    x
+    Admin    apply    --yes    config=${f}
+    ${r_old}=    Role Of    x    ${old}
+    Role Should Exist    ${r_old}
+    Add User    x
+    Apply
+    ${r_new}=    Role Of    x
+    Admin    move    --from    ${old}    --yes    --delete-data
+    Role Should Not Exist    ${r_old}
+    ${b_old}=    Budget Of    x    ${old}
+    Budget Should Not Exist    ${b_old}
+    Lambda Should Not Exist    ${old}
+    Deny Policy Should Not Exist    ${old}
+    Cost Export Should Not Exist    ${old}
+    Bucket Should Not Exist    ${old}
+    Role Should Exist    ${r_new}
+    Lambda Should Exist
+    ${report}=    Central Report    ${old}
+    Should Be Equal    ${report}[status]    moved
+    Should Be Equal    ${report}[source]    move
+    Should Be Equal    ${report}[moved_to]    ${ID}
+    Plan Should Show No Changes
+    [Teardown]    Run Keywords    Remove User    x    AND    Apply    rc=any
+    ...    AND    Run Keyword If Test Failed    Admin    move    --from    ${old}    --yes    --delete-data    rc=any
+
 Uninstall Keeps The Bucket
     Admin    uninstall    --yes
     Lambda Should Not Exist
