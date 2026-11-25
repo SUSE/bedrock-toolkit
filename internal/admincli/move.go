@@ -13,6 +13,7 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/config"
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 	"github.com/SUSE/bedrock-toolkit/internal/plan"
+	"github.com/SUSE/bedrock-toolkit/internal/policy"
 )
 
 func (a *App) moveCmd() *cobra.Command {
@@ -47,6 +48,16 @@ is given. It asks first unless --yes is given.
 			ids, err := account.SetupIDs(ctx, c.IAM)
 			if err != nil {
 				return err
+			}
+			if from != "" && !slices.Contains(ids, from) {
+				// A move that stopped after the pause policy went leaves only the cost export; resume it.
+				arn, err := account.FindExport(ctx, c.Exports, policy.ExportName(from))
+				if err != nil {
+					return err
+				}
+				if arn != "" {
+					ids = append(ids, from)
+				}
 			}
 			newRoles, err := account.UserRoles(ctx, c.IAM, cfg.ID)
 			if err != nil {
