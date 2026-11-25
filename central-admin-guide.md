@@ -133,12 +133,16 @@ harvester  1       3          2       0       32.30
 
 2 installed setups: 37 onboarded, 13 set up, 1 paused; $469.40 this month.
 ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.
+SPEND: tracked spend of the setup's personal roles, from its daily usage.
 ```
 
 One line per setup (account and id), its latest report. `PRODUCTS` lists the setup's `product:`
 first, then the other products its users have (a user's own `product:` overrides the setup's). The
 `PRODUCT` table and the totals count `active` setups only, and spend only of reports from this
-month. A report from a version before v1.2.0 has no products and shows `-` until the team applies
+month. `SPEND` is the tracked spend of the setup's own personal roles, from its daily usage. A
+setup without daily usage of the report's month shows its users' budgets' spend instead, and the
+note below the table names it. Budgets filter by the user's email only, so a person in two setups
+of one account (for example while moving to a new id) counts in both. A report from a version before v1.2.0 has no products and shows `-` until the team applies
 with a newer one. `--json` prints the full reports, with emails where sent.
 Objects that aren't valid reports, or whose content doesn't match their key, are listed as problems.
 
@@ -198,8 +202,7 @@ SPEND is tracked spend of personal roles. Setups send daily usage from v1.2.0 on
 
 Months before a setup ran v1.2.0 have no daily usage, so they show `-`.
 
-The numbers come from the setups' cost exports, not their budgets, so they can differ a little from
-`SPEND` in the setup table. Setups that send no daily usage (before v1.2.0, or not applied since)
+The numbers come from the setups' daily usage, like `SPEND` in the setup table. Setups that send no daily usage (before v1.2.0, or not applied since)
 are listed below the table; uninstalled setups count for the months they sent. `--json` prints the
 same.
 
@@ -250,7 +253,7 @@ includes users' emails, unlike `--json`. `--format` can't be used with `--json`.
 | `defaults` | Default `limit_usd`, `pause_at_percent`, `alert_at_percent` |
 | `models`, `web_search` | The setup's `models:` (empty: any Claude model) and whether web search is on |
 | `users` | Counts: `onboarded`, `set_up`, `paused`, `iam_users` |
-| `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day) |
+| `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day). `fleet report --json` replaces it, and each product's, with the daily usage's tracked spend when the setup sent usage that month, and adds `spend_from: usage` |
 | `products` | Per product (each user's, else the setup's): `product`, `users` counts, `spend_usd` |
 | `people` | Only with `include_emails: true`: each user's `email`, `kind`, `product`, `set_up`, `paused` |
 

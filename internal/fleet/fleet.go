@@ -237,10 +237,13 @@ type Report struct {
 	WebSearch bool     `json:"web_search"`
 	Users     Counts   `json:"users"`
 	// Month and SpendUSD: the sum of the users' budgets' actual spend this month (lags up to a day).
-	Month    string           `json:"month"`
-	SpendUSD float64          `json:"spend_usd"`
-	Products []ProductSummary `json:"products,omitempty"`
-	People   []Person         `json:"people,omitempty"`
+	Month    string  `json:"month"`
+	SpendUSD float64 `json:"spend_usd"`
+	// SpendFrom is set by fleet report, not sent: "usage" when SpendUSD and the products' spend were
+	// replaced by the tracked spend of the setup's daily usage (UseTrackedSpend).
+	SpendFrom string           `json:"spend_from,omitempty"`
+	Products  []ProductSummary `json:"products,omitempty"`
+	People    []Person         `json:"people,omitempty"`
 }
 
 // ProductSummary is one product's users and spend in a report.

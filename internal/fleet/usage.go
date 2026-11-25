@@ -40,6 +40,45 @@ func ReadUsage(ctx context.Context, r Reader, bucket, month string, reports []Re
 	return out, nil
 }
 
+// SpendFromUsage marks a report whose spend comes from its daily usage.
+const SpendFromUsage = "usage"
+
+// UseTrackedSpend replaces each report's spend, and its products' spend, with the tracked spend of
+// the setup's usage file of the report's month. Budgets filter by the user's email only, so a person
+// in two setups of one account counts in both setups' budgets; the usage file counts only spend
+// through the setup's own roles. Reports without such a file keep their budgets' spend.
+func UseTrackedSpend(reports []Report, us map[string]*usage.FleetUsage) {
+	for i := range reports {
+		r := &reports[i]
+		u := us[Key(r.Account, r.ID)]
+		if u == nil || u.Month != r.Month {
+			continue
+		}
+		tracked := map[string]float64{}
+		total := 0.0
+		for _, p := range u.Products {
+			name := p.Product
+			if name == usage.NoProduct {
+				name = r.Product
+			}
+			tracked[name] += p.TrackedUSD
+			total += p.TrackedUSD
+		}
+		products := slices.Clone(r.Products)
+		for j := range products {
+			products[j].SpendUSD = cents(tracked[products[j].Product])
+			delete(tracked, products[j].Product)
+		}
+		if len(r.Products) > 0 {
+			for _, p := range slices.Sorted(maps.Keys(tracked)) {
+				products = append(products, ProductSummary{Product: p, SpendUSD: cents(tracked[p])})
+			}
+			sort.SliceStable(products, func(a, b int) bool { return products[a].SpendUSD > products[b].SpendUSD })
+		}
+		r.Products, r.SpendUSD, r.SpendFrom = products, cents(total), SpendFromUsage
+	}
+}
+
 // ProductUsage is one product's month across setups.
 type ProductUsage struct {
 	Product     string  `json:"product"`

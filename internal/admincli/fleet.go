@@ -502,7 +502,9 @@ func (a *App) fleetReportCmd() *cobra.Command {
 its products, users (onboarded, set up, paused), this month's spend, when it last reported and
 whether it is still installed, then the installed setups' users and spend per product. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
 ACTIVE is the users who spent at least $0.01 this month, of those onboarded, from the setup's daily
-usage file ("-" when the setup doesn't send one yet).
+usage file ("-" when the setup doesn't send one yet). SPEND is that file's tracked spend of the
+setup's own personal roles; without the file it's the users' budgets' spend, which counts a person
+in two setups of one account in both.
 
 --by product sums the setups' daily usage per product (each team's active users and spend), --by
 day per day and --by month per month (the last --months, 6 by default), with a bar. They take
@@ -600,6 +602,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 				}()
 				return writeFleetUsage(a, by, product, month, reports, us, now)
 			}
+			fleet.UseTrackedSpend(reports, us)
 			_ = fleet.SortReports(reports, sortBy)
 			names := accountNames(ctx, c)
 			if a.JSON {
@@ -760,6 +763,17 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 	}
 	productHeader := []string{"PRODUCT", "SETUPS", "ONBOARDED", "SET UP", "PAUSED", "SPEND (USD)"}
 	summary := fmt.Sprintf("%d installed setups: %s; $%.2f this month.", setups, total.Text(), spend)
+	var budgetIDs []string
+	for _, r := range reports {
+		if r.Status == fleet.StatusActive && r.Month == month && r.SpendFrom == "" {
+			budgetIDs = append(budgetIDs, r.Account+"/"+r.ID)
+		}
+	}
+	spendNote := "SPEND: tracked spend of the setup's personal roles, from its daily usage."
+	if len(budgetIDs) > 0 {
+		spendNote += fmt.Sprintf(" Without daily usage (%s) it's the users' budgets, which count a person in two setups of one account in both.",
+			strings.Join(budgetIDs, ", "))
+	}
 	if a.sharing() {
 		tables := []shareTable{{Header: header, Rows: shareRows}}
 		if known {
@@ -769,6 +783,7 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 		if len(us) > 0 {
 			notes = append(notes, "ACTIVE: users who spent at least $0.01 this month; empty when the setup sends no daily usage yet.")
 		}
+		notes = append(notes, spendNote)
 		return a.writeShare("Fleet report, "+now.UTC().Format("January 2, 2006"), tables, notes)
 	}
 	writeTabs(a, header, rows)
@@ -780,6 +795,7 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 	if len(us) > 0 {
 		a.printf("ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.\n")
 	}
+	a.printf("%s\n", spendNote)
 	writeOldDefaultProduct(a, reports)
 	return nil
 }

@@ -84,3 +84,31 @@ func TestUsageByMonth(t *testing.T) {
 		t.Fatalf("product: %+v", m)
 	}
 }
+
+func TestUseTrackedSpend(t *testing.T) {
+	// The same person in two setups of one account: both budgets saw $3.65, the roles $3 and $0.65.
+	reports := []Report{
+		{Account: "1", ID: "old", Product: "sec", Month: "2026-05", SpendUSD: 3.65,
+			Products: []ProductSummary{{Product: "sec", SpendUSD: 3.65}, {Product: "qa", SpendUSD: 1}}},
+		{Account: "1", ID: "new", Product: "sec", Month: "2026-05", SpendUSD: 3.65, Products: []ProductSummary{{Product: "sec", SpendUSD: 3.65}}},
+		{Account: "2", ID: "nousage", Month: "2026-05", SpendUSD: 7},
+		{Account: "3", ID: "lastmonth", Month: "2026-04", SpendUSD: 9},
+	}
+	us := map[string]*usage.FleetUsage{
+		"1/old.json":       {Month: "2026-05", Products: []usage.FleetProduct{{Product: usage.NoProduct, TrackedUSD: 2}, {Product: "sec", TrackedUSD: 1}}},
+		"1/new.json":       {Month: "2026-05", Products: []usage.FleetProduct{{Product: "sec", TrackedUSD: 0.4}, {Product: "moved", TrackedUSD: 0.25}}},
+		"3/lastmonth.json": {Month: "2026-05", Products: []usage.FleetProduct{{Product: "x", TrackedUSD: 1}}},
+	}
+	UseTrackedSpend(reports, us)
+	old, new := reports[0], reports[1]
+	if old.SpendUSD != 3 || old.SpendFrom != SpendFromUsage || old.Products[0] != (ProductSummary{Product: "sec", SpendUSD: 3}) ||
+		old.Products[1].SpendUSD != 0 {
+		t.Errorf("old: %+v", old)
+	}
+	if new.SpendUSD != 0.65 || len(new.Products) != 2 || new.Products[0].SpendUSD != 0.4 || new.Products[1] != (ProductSummary{Product: "moved", SpendUSD: 0.25}) {
+		t.Errorf("new: %+v", new)
+	}
+	if reports[2].SpendUSD != 7 || reports[2].SpendFrom != "" || reports[3].SpendUSD != 9 || reports[3].SpendFrom != "" {
+		t.Errorf("without a usage file of the report's month, budgets' spend stays: %+v", reports[2:])
+	}
+}

@@ -40,6 +40,19 @@ func TestWriteFleet(t *testing.T) {
 	}
 }
 
+func TestWriteFleetBudgetSpendNote(t *testing.T) {
+	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	_ = writeFleet(&App{Out: &out}, []fleet.Report{
+		{Account: "111111111111", ID: "a", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10", SpendFrom: fleet.SpendFromUsage},
+		{Account: "222222222222", ID: "b", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
+		{Account: "333333333333", ID: "gone", Status: fleet.StatusUninstalled, ReportedAt: now, Month: "2025-10"},
+	}, nil, nil, now)
+	if want := "Without daily usage (222222222222/b) it's the users' budgets"; !strings.Contains(out.String(), want) {
+		t.Errorf("lacks %q:\n%s", want, out.String())
+	}
+}
+
 func TestWriteFleetNamesAndOldDefault(t *testing.T) {
 	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
 	var out bytes.Buffer
