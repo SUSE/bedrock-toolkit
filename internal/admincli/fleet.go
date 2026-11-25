@@ -503,7 +503,8 @@ its products, users (onboarded, set up, paused), this month's spend, when it las
 whether it is still installed, then the installed setups' users and spend per product. Setups report on every apply and daily at 07:00 UTC; spend lags up to a day.
 ACTIVE is the users who spent at least $0.01 this month, of those onboarded, from the setup's daily
 usage file ("-" when the setup doesn't send one yet). SPEND is that file's tracked spend of the
-setup's own personal roles; without the file it's the users' budgets' spend, which counts a person
+setup's own personal roles; without the file, or when its cost export is more than 2 days older
+than the report, it's the users' budgets' spend, which counts a person
 in two setups of one account in both.
 
 --by product sums the setups' daily usage per product (each team's active users and spend), --by
@@ -771,7 +772,7 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 	}
 	spendNote := "SPEND: tracked spend of the setup's personal roles, from its daily usage."
 	if len(budgetIDs) > 0 {
-		spendNote += fmt.Sprintf(" Without daily usage (%s) it's the users' budgets, which count a person in two setups of one account in both.",
+		spendNote += fmt.Sprintf(" Without current daily usage (%s) it's the users' budgets, which count a person in two setups of one account in both.",
 			strings.Join(budgetIDs, ", "))
 	}
 	if a.sharing() {

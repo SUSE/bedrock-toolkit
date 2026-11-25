@@ -48,7 +48,7 @@ func TestWriteFleetBudgetSpendNote(t *testing.T) {
 		{Account: "222222222222", ID: "b", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10"},
 		{Account: "333333333333", ID: "gone", Status: fleet.StatusUninstalled, ReportedAt: now, Month: "2025-10"},
 	}, nil, nil, now)
-	if want := "Without daily usage (222222222222/b) it's the users' budgets"; !strings.Contains(out.String(), want) {
+	if want := "Without current daily usage (222222222222/b) it's the users' budgets"; !strings.Contains(out.String(), want) {
 		t.Errorf("lacks %q:\n%s", want, out.String())
 	}
 }

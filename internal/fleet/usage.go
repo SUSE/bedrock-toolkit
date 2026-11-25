@@ -43,15 +43,23 @@ func ReadUsage(ctx context.Context, r Reader, bucket, month string, reports []Re
 // SpendFromUsage marks a report whose spend comes from its daily usage.
 const SpendFromUsage = "usage"
 
+// UsageFreshness is how far a usage file's cost export (as_of) may lag the report for
+// UseTrackedSpend to use it: AWS delivers the export up to a day late.
+const UsageFreshness = 48 * time.Hour
+
 // UseTrackedSpend replaces each report's spend, and its products' spend, with the tracked spend of
 // the setup's usage file of the report's month. Budgets filter by the user's email only, so a person
 // in two setups of one account counts in both setups' budgets; the usage file counts only spend
-// through the setup's own roles. Reports without such a file keep their budgets' spend.
+// through the setup's own roles. Reports without such a file, or whose file's cost export is more
+// than UsageFreshness older than the report (the export stopped), keep their budgets' spend.
 func UseTrackedSpend(reports []Report, us map[string]*usage.FleetUsage) {
 	for i := range reports {
 		r := &reports[i]
 		u := us[Key(r.Account, r.ID)]
 		if u == nil || u.Month != r.Month {
+			continue
+		}
+		if asOf, err := time.Parse(time.RFC3339, u.AsOf); err != nil || r.ReportedAt.Sub(asOf) > UsageFreshness {
 			continue
 		}
 		tracked := map[string]float64{}

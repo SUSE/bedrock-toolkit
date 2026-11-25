@@ -140,7 +140,8 @@ One line per setup (account and id), its latest report. `PRODUCTS` lists the set
 first, then the other products its users have (a user's own `product:` overrides the setup's). The
 `PRODUCT` table and the totals count `active` setups only, and spend only of reports from this
 month. `SPEND` is the tracked spend of the setup's own personal roles, from its daily usage. A
-setup without daily usage of the report's month shows its users' budgets' spend instead, and the
+setup without daily usage of the report's month, or whose cost export (`as_of`) is more than 2 days
+older than the report, shows its users' budgets' spend instead, and the
 note below the table names it. Budgets filter by the user's email only, so a person in two setups
 of one account (for example while moving to a new id) counts in both. A report from a version before v1.2.0 has no products and shows `-` until the team applies
 with a newer one. `--json` prints the full reports, with emails where sent.
@@ -253,7 +254,7 @@ includes users' emails, unlike `--json`. `--format` can't be used with `--json`.
 | `defaults` | Default `limit_usd`, `pause_at_percent`, `alert_at_percent` |
 | `models`, `web_search` | The setup's `models:` (empty: any Claude model) and whether web search is on |
 | `users` | Counts: `onboarded`, `set_up`, `paused`, `iam_users` |
-| `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day). `fleet report --json` replaces it, and each product's, with the daily usage's tracked spend when the setup sent usage that month, and adds `spend_from: usage` |
+| `month`, `spend_usd` | This month's actual spend, summed over the users' budgets (lags up to a day). `fleet report --json` replaces it, and each product's, with the daily usage's tracked spend when the setup sent usage that month with a cost export at most 2 days older than the report, and adds `spend_from: usage` |
 | `products` | Per product (each user's, else the setup's): `product`, `users` counts, `spend_usd` |
 | `people` | Only with `include_emails: true`: each user's `email`, `kind`, `product`, `set_up`, `paused` |
 
