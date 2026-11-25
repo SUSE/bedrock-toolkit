@@ -26,7 +26,9 @@ report to it, under its own account ID, with the setup admin's or its Lambda's o
 - daily at 07:00 UTC, from the setup's monthly Lambda (schedule `bedrock-daily-<id>`), with the
   setup's daily usage per product (`<account>/<id>/usage/YYYY-MM.json`, from v1.2.0);
 - once more on `bedrock-admin uninstall`, marked `uninstalled`, or on `bedrock-admin move`, marked
-  `moved` (STATUS `moved to <new id>`).
+  `moved` (STATUS `moved to <new id>`). Uninstalled and moved setups stay in the setup table until
+  the end of the month they last reported, then are hidden (a note says how many); `--all` shows
+  them. They're never in the totals, and `--by product|day|month` still count their months.
 
 A setup can write only its own account's reports and can't read any. You need no access to the
 teams' accounts. No shared bucket, organization or vendor is built in: the bucket is in your
@@ -306,6 +308,7 @@ Ask the teams to remove `report:` and run `apply` (it removes the daily schedule
 | The fleet, or one team, per day | `bedrock-admin fleet report --by day` (`--product NAME`) |
 | The fleet, or one team, per month | `bedrock-admin fleet report --by month` (`--months N`, `--product NAME`) |
 | Only some setups, in any view | `bedrock-admin fleet report --account ACCOUNT --id ID` (each repeatable) |
+| Also removed setups from earlier months | `bedrock-admin fleet report --all` |
 | Setups with the most users first | `bedrock-admin fleet report --sort onboarded` (or `set-up`; `spend` is the default) |
 | A view to share, as CSV or Markdown | `bedrock-admin fleet report ... --format csv` (or `markdown`) |
 | An earlier month | add `--month YYYY-MM` to `--by product` or `--by day` |

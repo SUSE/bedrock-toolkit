@@ -35,6 +35,8 @@ type App struct {
 	fleetCfg *config.Config
 	// fleetFormat is fleet report's --format: "" or text, csv or markdown.
 	fleetFormat string
+	// fleetHidden is how many removed setups fleet report left out.
+	fleetHidden int
 	// Login signs in for the login command; nil means the real sign-in.
 	Login *sso.Login
 	// Identity returns the caller ARN of a profile for whoami; nil means STS.

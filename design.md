@@ -616,6 +616,8 @@ admins.
   `--account` and `--id` (repeatable, both must match) keep only those setups before any view; an
   unknown account or id is an error listing the known ones. The setup table puts the highest
   spend first; `--sort set-up|onboarded` orders it by those counts instead (ties by account and id).
+  Uninstalled and moved setups are hidden from the setup table (and its `--json`) after the month
+  they last reported, with a note; `--all` shows them.
 - The report's `region` is in the file so neither the CLI nor the Lambda needs to read the bucket's
   location across accounts.
 

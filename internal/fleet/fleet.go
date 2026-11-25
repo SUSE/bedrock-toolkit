@@ -411,6 +411,19 @@ func Filter(reports []Report, accounts, ids []string) ([]Report, error) {
 	return out, nil
 }
 
+// HideRemoved drops uninstalled and moved setups whose last report is from before month (YYYY-MM)
+// and returns the rest and how many it dropped.
+func HideRemoved(reports []Report, month string) ([]Report, int) {
+	var out []Report
+	for _, r := range reports {
+		if r.Status != StatusActive && r.Month < month {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, len(reports) - len(out)
+}
+
 // checkKnown errors when a wanted value isn't any report's field, listing the known values.
 func checkKnown(reports []Report, want []string, what string, field func(Report) string) error {
 	known := map[string]bool{}

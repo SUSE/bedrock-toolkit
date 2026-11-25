@@ -495,6 +495,7 @@ func (a *App) fleetReportCmd() *cobra.Command {
 	var months int
 	var ids, accounts []string
 	var sortBy string
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "report",
 		Short: "Show the latest report of every setup",
@@ -517,6 +518,9 @@ them for more. With both, a setup must match both.
 
 --sort orders the setups (by setup only), highest first: spend (the default), set-up or
 onboarded. Ties are ordered by account and id.
+
+Uninstalled and moved setups are shown until the end of the month they last reported; --all shows
+them later too (by setup only). The other views always count them for the months they sent.
 
 --format csv or markdown prints the same view to share: plain numbers, no bars, ACTIVE split into
 ACTIVE and ONBOARDED, a PARTIAL column instead of *, and no emails. csv is the main table only, for
@@ -551,6 +555,9 @@ Without --bucket it reads the bucket fleet init tagged.`,
 			}
 			if cmd.Flags().Changed("sort") && by != "setup" {
 				return errors.New("--sort works only with --by setup")
+			}
+			if all && by != "setup" {
+				return errors.New("--all works only with --by setup")
 			}
 			if err := fleet.SortReports(nil, sortBy); err != nil {
 				return err
@@ -603,6 +610,9 @@ Without --bucket it reads the bucket fleet init tagged.`,
 				}()
 				return writeFleetUsage(a, by, product, month, reports, us, now)
 			}
+			if !all {
+				reports, a.fleetHidden = fleet.HideRemoved(reports, month)
+			}
 			fleet.UseTrackedSpend(reports, us)
 			_ = fleet.SortReports(reports, sortBy)
 			names := accountNames(ctx, c)
@@ -631,6 +641,7 @@ Without --bucket it reads the bucket fleet init tagged.`,
 	fl.StringSliceVar(&accounts, "account", nil, "only the setups in this AWS account; repeat for more")
 	fl.StringSliceVar(&ids, "id", nil, "only the setups with this id; repeat for more")
 	fl.StringVar(&sortBy, "sort", "spend", "with --by setup: spend, set-up or onboarded (highest first)")
+	fl.BoolVar(&all, "all", false, "with --by setup: also uninstalled and moved setups from earlier months")
 	fl.IntVar(&months, "months", 6, "with --by month: how many months, up to 24")
 	fl.StringVar(&format, "format", "text", "text, csv or markdown (to share: plain numbers, no emails)")
 	return cmd
@@ -663,6 +674,10 @@ func accountNames(ctx context.Context, c *awsx.Clients) map[string]string {
 func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage, names map[string]string, now time.Time) error {
 	if len(reports) == 0 {
 		if a.fleetFormat == "csv" {
+			return nil
+		}
+		if a.fleetHidden > 0 {
+			a.printf("No installed setups. %s\n", hiddenNote(a.fleetHidden))
 			return nil
 		}
 		a.printf("No reports yet.\n")
@@ -785,6 +800,9 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 			notes = append(notes, "ACTIVE: users who spent at least $0.01 this month; empty when the setup sends no daily usage yet.")
 		}
 		notes = append(notes, spendNote)
+		if a.fleetHidden > 0 {
+			notes = append(notes, hiddenNote(a.fleetHidden))
+		}
 		return a.writeShare("Fleet report, "+now.UTC().Format("January 2, 2006"), tables, notes)
 	}
 	writeTabs(a, header, rows)
@@ -797,6 +815,9 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 		a.printf("ACTIVE: users who spent at least $0.01 this month, of those onboarded; - when the setup sends no daily usage yet.\n")
 	}
 	a.printf("%s\n", spendNote)
+	if a.fleetHidden > 0 {
+		a.printf("%s\n", hiddenNote(a.fleetHidden))
+	}
 	writeOldDefaultProduct(a, reports)
 	return nil
 }
@@ -868,4 +889,9 @@ func reportStatus(r fleet.Report) string {
 		return "moved to " + r.MovedTo
 	}
 	return r.Status
+}
+
+// hiddenNote says how many removed setups fleet report left out.
+func hiddenNote(n int) string {
+	return fmt.Sprintf("%d uninstalled or moved setups from earlier months are hidden; --all shows them.", n)
 }

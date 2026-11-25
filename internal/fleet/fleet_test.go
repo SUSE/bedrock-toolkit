@@ -224,3 +224,19 @@ func TestSortReports(t *testing.T) {
 		t.Errorf("bad order: %v", err)
 	}
 }
+
+func TestHideRemoved(t *testing.T) {
+	got, hidden := HideRemoved([]Report{
+		{ID: "a", Status: StatusActive, Month: "2026-10"},
+		{ID: "b", Status: StatusUninstalled, Month: "2026-10"},
+		{ID: "c", Status: StatusMoved, Month: "2026-10"},
+		{ID: "d", Status: StatusMoved, Month: "2026-11"},
+	}, "2026-11")
+	var ids []string
+	for _, r := range got {
+		ids = append(ids, r.ID)
+	}
+	if strings.Join(ids, ",") != "a,d" || hidden != 2 {
+		t.Errorf("got %v, %d hidden; want a,d and 2", ids, hidden)
+	}
+}

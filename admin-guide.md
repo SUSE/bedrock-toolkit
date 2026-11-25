@@ -1237,7 +1237,8 @@ new setup command yet lose access until they do; users of the old id who aren't 
 for good, and `move` names them before it asks. It refuses until the new setup is applied, keeps the
 old cost export bucket unless you pass `--delete-data`, and refuses `--delete-data` when the new
 setup writes to the same bucket. Its last central report is marked `moved`, so `fleet report` shows
-the old setup as `moved to <new>` and leaves it out of the totals; its earlier months stay.
+the old setup as `moved to <new>` until the month ends, and leaves it out of the totals; its months
+stay in the usage views.
 
 ## Several accounts
 

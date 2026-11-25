@@ -329,3 +329,12 @@ func TestWriteFleetMoved(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteFleetHiddenNote(t *testing.T) {
+	now := time.Date(2025, 12, 2, 9, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	_ = writeFleet(&App{Out: &out, fleetHidden: 1}, nil, nil, nil, now)
+	if want := "No installed setups. 1 uninstalled or moved setups from earlier months are hidden; --all shows them."; !strings.Contains(out.String(), want) {
+		t.Errorf("lacks %q:\n%s", want, out.String())
+	}
+}
