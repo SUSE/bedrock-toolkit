@@ -314,3 +314,18 @@ func TestFleetReportFormatFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteFleetMoved(t *testing.T) {
+	now := time.Date(2025, 10, 21, 9, 0, 0, 0, time.UTC)
+	var out bytes.Buffer
+	_ = writeFleet(&App{Out: &out}, []fleet.Report{
+		{Account: "111111111111", ID: "new", Status: fleet.StatusActive, ReportedAt: now, Month: "2025-10", SpendUSD: 2, Users: fleet.Counts{Onboarded: 3}},
+		{Account: "111111111111", ID: "old", Status: fleet.StatusMoved, MovedTo: "new", ReportedAt: now, Month: "2025-10", SpendUSD: 5, Users: fleet.Counts{Onboarded: 3}},
+	}, nil, nil, now)
+	s := out.String()
+	for _, want := range []string{"moved to new", "1 installed setups: 3 onboarded, 0 set up, 0 paused; $2.00 this month."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("lacks %q:\n%s", want, s)
+		}
+	}
+}

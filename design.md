@@ -38,7 +38,7 @@ There are two CLIs:
 
 | CLI | For | Commands |
 | --- | --- | --- |
-| `bedrock-admin` | The account admin | `login`, `whoami`, `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
+| `bedrock-admin` | The account admin | `login`, `whoami`, `configure`, `doctor`, `models`, `plan`, `apply`, `export`, `uninstall`, `move`, `setups`, `users`, `pause`, `unpause`, `usage`, `block`; `fleet` for the central admin |
 | `bedrock` | Users | `configure`, `login`, `whoami`, `setup`, `doctor`, `claude`, `models`, `usage` |
 
 ## 2. Key concepts
@@ -581,8 +581,8 @@ admins.
   the file given with `-f`) and `fleet report` stops. `fleet` reads a `bedrock.yaml` only when `-f`
   is given, and takes only its `profile:` and `region:`.
 - **Report** (`internal/fleet.Report`, schema 1): `s3://<bucket>/<account>/<id>.json` with the id,
-  region, `bedrock-admin` version, default product, status (`active` or `uninstalled`), source (`apply`, `lambda` or
-  `uninstall`), time, default limit, pause and alert percentages, `models:`, web search, user counts
+  region, `bedrock-admin` version, default product, status (`active`, `uninstalled` or `moved`, with `moved_to`), source (`apply`, `lambda`,
+  `uninstall` or `move`), time, default limit, pause and alert percentages, `models:`, web search, user counts
   (onboarded, set up, paused, with an IAM user), the month and the sum of the id's budgets' actual
   spend, and the same counts and spend per product (the product tag on each user's role, else the
   setup's). With `include_emails: true`, also each user's email, kind, product, set up and paused.
@@ -591,7 +591,7 @@ admins.
   and tracked spend, overall and per product, and per product the month's active users, onboarded
   users and tracked spend. No emails, whatever `include_emails` says. The product is the role's
   `product` tag, else the setup's.
-- **Senders**: `apply` after a run with no failures, and `uninstall` (status `uninstalled`), with
+- **Senders**: `apply` after a run with no failures, `uninstall` (status `uninstalled`) and `move` (status `moved`, on the old id), with
   the admin's credentials; a failure is a warning. The Lambda, in its daily run (`bedrock-daily-<id>`,
   input `{"action":"daily"}`; `{"action":"report"}` sends only the report). `apply` passes it
   the setup part as the `REPORT_SETUP` environment variable (`fleet.Setup` as JSON) and grants its
@@ -708,7 +708,12 @@ for teams with their own admins, models or settings.
   users, paused count, latest personal-role use, spend and budget. A setup is idle when no personal
   role has been used for 30 days and the policy is older than that; `plan` adds a best-effort note
   for other idle ids. An id can't be renamed: apply the new id, users rerun `bedrock setup --id`,
-  then the old one is exported, emptied (`users: []`, `apply --yes`) and uninstalled.
+  then `move --from <old>` (run with the new id's file) offboards the old id's users and uninstalls
+  it, as `users: []`, `apply --yes` and `uninstall` with the old file would. It rebuilds the old
+  setup's cost export and report settings the way `export` does, refuses until every user in the
+  file has a role with the new id, names the old users missing from the file, and refuses
+  `--delete-data` when both ids share the cost export bucket. Its report has status `moved` and
+  `moved_to`, so `fleet report` shows the old setup as moved and leaves it out of the totals.
 - Shared by every setup in the account (org level): the `iamPrincipal/owner` cost allocation tag
   (Step 1.6) and the block on direct model calls, and Identity Center itself.
 

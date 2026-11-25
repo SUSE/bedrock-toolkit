@@ -71,32 +71,8 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 			if a.DryRun {
 				return nil
 			}
-			if !a.Yes {
-				if !cli.IsTerminal(a.In) {
-					return errors.New("uninstall needs --yes when not run from a terminal")
-				}
-				pr := cli.NewPrompter(a.In, a.Err)
-				ok, err := pr.Confirm("Remove these?")
-				if err != nil {
-					return err
-				}
-				if !ok {
-					return errors.New("cancelled")
-				}
-				for _, it := range items {
-					if it.Apply == nil || !account.IsBucket(it) {
-						continue
-					}
-					_, _ = fmt.Fprintf(a.Err, "\nThe %s %s.\n", it.Target, account.BucketDeleteNote)
-					ok, err := pr.Confirm("Delete the bucket too?")
-					if err != nil {
-						return err
-					}
-					if !ok {
-						it.Apply = nil
-						a.info("Keeping %s.\n", it.Target)
-					}
-				}
+			if err := a.confirmRemoval("uninstall", items); err != nil {
+				return err
 			}
 			for _, it := range items {
 				if it.Apply == nil {
@@ -108,12 +84,46 @@ and snapshots, is kept unless --delete-data is given. It asks first unless --yes
 				}
 			}
 			a.info("Uninstalled.\n")
-			a.sendReport(ctx, cfg, c, fleet.StatusUninstalled, fleet.SourceUninstall)
+			a.sendReport(ctx, cfg, c, fleet.StatusUninstalled, fleet.SourceUninstall, "")
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&deleteData, "delete-data", false, "also delete the cost export bucket (billing history and snapshots); S3 may not let you reuse its name right away")
 	return cmd
+}
+
+// confirmRemoval asks before removing items unless --yes is given, and asks again before deleting
+// the cost export bucket; a no keeps it. cmd names the command in the error without a terminal.
+func (a *App) confirmRemoval(cmd string, items []*plan.Item) error {
+	if a.Yes {
+		return nil
+	}
+	if !cli.IsTerminal(a.In) {
+		return fmt.Errorf("%s needs --yes when not run from a terminal", cmd)
+	}
+	pr := cli.NewPrompter(a.In, a.Err)
+	ok, err := pr.Confirm("Remove these?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("cancelled")
+	}
+	for _, it := range items {
+		if it.Apply == nil || !account.IsBucket(it) {
+			continue
+		}
+		_, _ = fmt.Fprintf(a.Err, "\nThe %s %s.\n", it.Target, account.BucketDeleteNote)
+		ok, err := pr.Confirm("Delete the bucket too?")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			it.Apply = nil
+			a.info("Keeping %s.\n", it.Target)
+		}
+	}
+	return nil
 }
 
 // Check is one doctor result.

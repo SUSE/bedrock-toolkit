@@ -172,9 +172,12 @@ func (c Counts) Text() string {
 const (
 	StatusActive      = "active"
 	StatusUninstalled = "uninstalled"
-	SourceApply       = "apply"
-	SourceLambda      = "lambda"
-	SourceUninstall   = "uninstall"
+	// StatusMoved is an uninstalled setup whose users moved to the setup MovedTo in the same account.
+	StatusMoved     = "moved"
+	SourceApply     = "apply"
+	SourceLambda    = "lambda"
+	SourceUninstall = "uninstall"
+	SourceMove      = "move"
 )
 
 // SchemaVersion is the report format version.
@@ -227,8 +230,10 @@ type Report struct {
 	Region  string `json:"region"`
 	Version string `json:"version"`
 	// Product is the setup's default product; Products splits users and spend by each user's product.
-	Product    string    `json:"product,omitempty"`
-	Status     string    `json:"status"`
+	Product string `json:"product,omitempty"`
+	Status  string `json:"status"`
+	// MovedTo is the id the users moved to, with StatusMoved.
+	MovedTo    string    `json:"moved_to,omitempty"`
 	Source     string    `json:"source"`
 	ReportedAt time.Time `json:"reported_at"`
 	Defaults   Defaults  `json:"defaults"`

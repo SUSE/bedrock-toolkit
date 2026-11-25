@@ -25,7 +25,8 @@ report to it, under its own account ID, with the setup admin's or its Lambda's o
 - on every `bedrock-admin apply` that had no failures;
 - daily at 07:00 UTC, from the setup's monthly Lambda (schedule `bedrock-daily-<id>`), with the
   setup's daily usage per product (`<account>/<id>/usage/YYYY-MM.json`, from v1.2.0);
-- once more on `bedrock-admin uninstall`, marked `uninstalled`.
+- once more on `bedrock-admin uninstall`, marked `uninstalled`, or on `bedrock-admin move`, marked
+  `moved` (STATUS `moved to <new id>`).
 
 A setup can write only its own account's reports and can't read any. You need no access to the
 teams' accounts. No shared bucket, organization or vendor is built in: the bucket is in your
@@ -250,7 +251,8 @@ includes users' emails, unlike `--json`. `--format` can't be used with `--json`.
 | --- | --- |
 | `account`, `id`, `region`, `version` | The setup and the `bedrock-admin` version that applied it |
 | `product` | The setup's default `product:` |
-| `status`, `source`, `reported_at` | `active` or `uninstalled`; sent by `apply`, `lambda` or `uninstall`; when |
+| `status`, `source`, `reported_at` | `active`, `uninstalled` or `moved`; sent by `apply`, `lambda`, `uninstall` or `move`; when |
+| `moved_to` | with `moved`: the id in the same account that replaced it |
 | `defaults` | Default `limit_usd`, `pause_at_percent`, `alert_at_percent` |
 | `models`, `web_search` | The setup's `models:` (empty: any Claude model) and whether web search is on |
 | `users` | Counts: `onboarded`, `set_up`, `paused`, `iam_users` |

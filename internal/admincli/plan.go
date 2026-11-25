@@ -188,7 +188,7 @@ Exit 2 when something is still pending afterwards (for example a conflict, or a 
 			}
 			err = a.apply(ctx, p)
 			if applied(err) {
-				a.sendReport(ctx, cfg, c, fleet.StatusActive, fleet.SourceApply)
+				a.sendReport(ctx, cfg, c, fleet.StatusActive, fleet.SourceApply, "")
 			}
 			return err
 		},

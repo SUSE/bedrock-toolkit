@@ -11,9 +11,10 @@ import (
 	"github.com/SUSE/bedrock-toolkit/internal/fleet"
 )
 
-// sendReport writes the setup's report to the central bucket when report: is set. A failure is a
-// warning: the report must never fail the command that triggered it.
-func (a *App) sendReport(ctx context.Context, cfg *config.Config, c *awsx.Clients, status, source string) {
+// sendReport writes the setup's report to the central bucket when report: is set. movedTo is the
+// new id with fleet.StatusMoved. A failure is a warning: the report must never fail the command
+// that triggered it.
+func (a *App) sendReport(ctx context.Context, cfg *config.Config, c *awsx.Clients, status, source, movedTo string) {
 	if !cfg.Report.Enabled() {
 		return
 	}
@@ -27,6 +28,7 @@ func (a *App) sendReport(ctx context.Context, cfg *config.Config, c *awsx.Client
 		}
 	}
 	r := fleet.Build(fleet.SetupFrom(cfg, a.Version), c.Account, status, source, us, a.Now())
+	r.MovedTo = movedTo
 	if err := fleet.Send(ctx, c.S3In(cfg.Report.Region), cfg.Report.Bucket, r); err != nil {
 		_, _ = fmt.Fprintf(a.Err, "warning: central report not sent: %v\n", shortAWSError(err.Error()))
 		return

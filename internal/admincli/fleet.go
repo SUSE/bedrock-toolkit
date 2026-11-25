@@ -709,7 +709,7 @@ func writeFleet(a *App, reports []fleet.Report, us map[string]*usage.FleetUsage,
 			active, shareActive = fmt.Sprintf("%d/%d", n, of), fmt.Sprint(n)
 		}
 		row := []string{r.Account, r.ID, r.Region, r.Version, list, fmt.Sprint(r.Users.Onboarded), fmt.Sprint(r.Users.SetUp),
-			fmt.Sprint(r.Users.Paused), active, usd(r.SpendUSD), r.Month, ago(now, r.ReportedAt), r.Status}
+			fmt.Sprint(r.Users.Paused), active, usd(r.SpendUSD), r.Month, ago(now, r.ReportedAt), reportStatus(r)}
 		shareRow := slices.Clone(row)
 		shareRow[8] = shareActive
 		shareRow[11] = r.ReportedAt.UTC().Format("2006-01-02 15:04")
@@ -860,4 +860,12 @@ func ago(now, t time.Time) string {
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+// reportStatus is the STATUS column: the status, and the new id of a moved setup.
+func reportStatus(r fleet.Report) string {
+	if r.Status == fleet.StatusMoved && r.MovedTo != "" {
+		return "moved to " + r.MovedTo
+	}
+	return r.Status
 }

@@ -233,30 +233,8 @@ func (a *App) export(ctx context.Context, c *awsx.Clients, base *config.Config, 
 	if len(models) > 0 {
 		cfg.Models = models
 	}
-	if cfg.CostExport.Name == "" {
-		cfg.CostExport.Name = policy.ExportName(cfg.ID)
-	}
-	if cfg.CostExport.Bucket == "" {
-		arn, err := account.FindExport(ctx, c.Exports, cfg.CostExport.Name)
-		if err != nil {
-			return nil, err
-		}
-		if arn == "" {
-			return nil, fmt.Errorf("no cost export named %s; pass -f with a file that sets cost_export", cfg.CostExport.Name)
-		}
-		x, err := c.Exports.GetExport(ctx, &bcmdataexports.GetExportInput{ExportArn: aws.String(arn)})
-		if err != nil {
-			return nil, err
-		}
-		d := x.Export.DestinationConfigurations.S3Destination
-		cfg.CostExport.Bucket, cfg.CostExport.Prefix = aws.ToString(d.S3Bucket), aws.ToString(d.S3Prefix)
-	}
-	if !cfg.Report.Enabled() {
-		r, err := account.DeployedReport(ctx, c.Lambda, cfg.ID)
-		if err != nil {
-			return nil, err
-		}
-		cfg.Report = r
+	if err := deployedSettings(ctx, c, &cfg); err != nil {
+		return nil, err
 	}
 
 	// Users: every personal role with this id.
@@ -414,4 +392,35 @@ func exportIAMUsers(ctx context.Context, c *awsx.Clients, id string) (map[string
 		}
 	}
 	return out, nil
+}
+
+// deployedSettings fills the cost export and report settings that cfg doesn't set from what the
+// account has for cfg.ID: the cost export named for the id and the Lambda's report settings.
+func deployedSettings(ctx context.Context, c *awsx.Clients, cfg *config.Config) error {
+	if cfg.CostExport.Name == "" {
+		cfg.CostExport.Name = policy.ExportName(cfg.ID)
+	}
+	if cfg.CostExport.Bucket == "" {
+		arn, err := account.FindExport(ctx, c.Exports, cfg.CostExport.Name)
+		if err != nil {
+			return err
+		}
+		if arn == "" {
+			return fmt.Errorf("no cost export named %s; pass -f with a file that sets cost_export", cfg.CostExport.Name)
+		}
+		x, err := c.Exports.GetExport(ctx, &bcmdataexports.GetExportInput{ExportArn: aws.String(arn)})
+		if err != nil {
+			return err
+		}
+		d := x.Export.DestinationConfigurations.S3Destination
+		cfg.CostExport.Bucket, cfg.CostExport.Prefix = aws.ToString(d.S3Bucket), aws.ToString(d.S3Prefix)
+	}
+	if !cfg.Report.Enabled() {
+		r, err := account.DeployedReport(ctx, c.Lambda, cfg.ID)
+		if err != nil {
+			return err
+		}
+		cfg.Report = r
+	}
+	return nil
 }

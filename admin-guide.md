@@ -91,6 +91,7 @@ bedrock-admin usage                               # spend per user, and spend ou
 | `bedrock-admin users` | Who is onboarded, who has run `bedrock setup`, and who is paused; `--commands` prints the commands to send each user | [7](#who-has-set-up) |
 | `bedrock-admin setups` | Every setup (id) in the account, with users, last use and spend; flags idle ones | [id](#list-change-or-remove-a-setup) |
 | `bedrock-admin uninstall` | Removes the account setup. Refuses while users remain | [11](#11-remove-everything) |
+| `bedrock-admin move` | Replaces another setup in the account with this one: offboards its users and uninstalls it | [List, change or remove a setup](#list-change-or-remove-a-setup) |
 | `bedrock-admin block` | Blocks model calls outside personal roles: `policy` writes the file for your org admin, `status` checks, `apply` is for the org admin | [9](#9-block-direct-model-calls) |
 
 Common flags: `-f` (config file), `--profile`, `--json`, `--quiet`, `--dry-run` and `--yes`. Exit
@@ -1219,15 +1220,24 @@ A setup is `idle` when none of its personal roles has been used for 30 days and 
 that. `plan` also prints a `Note:` for other idle setups in the account. Tenants that are in use are
 never flagged.
 
-An id can't be renamed. To move to a new id, set `id:` to it and `apply`, have users run
-`bedrock setup --id <new> --yes`, then remove the old setup:
+An id can't be renamed: a new `id:` is a new setup next to the old one, and `apply` never touches
+the old one. Until the old setup is removed, both report to `fleet report`, and the old one keeps
+the users' spend while they still use its roles. To move to a new id:
 
-```sh
-bedrock-admin export --id <old> > <old>.yaml
-# set users: [] in <old>.yaml
-bedrock-admin apply -f <old>.yaml --yes
-bedrock-admin uninstall -f <old>.yaml
-```
+1. Set `id:` to the new id and `apply`. Send the users their commands again
+   (`bedrock-admin users --commands`): each runs `bedrock setup --id <new> --yes`.
+2. Once they have, remove the old setup:
+
+   ```sh
+   bedrock-admin move --from <old>        # add --dry-run to see what it removes
+   ```
+
+`move` offboards every user of the old id and uninstalls the old setup. Users who haven't run their
+new setup command yet lose access until they do; users of the old id who aren't in your file lose it
+for good, and `move` names them before it asks. It refuses until the new setup is applied, keeps the
+old cost export bucket unless you pass `--delete-data`, and refuses `--delete-data` when the new
+setup writes to the same bucket. Its last central report is marked `moved`, so `fleet report` shows
+the old setup as `moved to <new>` and leaves it out of the totals; its earlier months stay.
 
 ## Several accounts
 
@@ -1340,5 +1350,6 @@ The end-to-end tests run the real binaries against a real AWS account, by hand, 
 | Capture an account in a file | `bedrock-admin export > bedrock.yaml` |
 | Check my setup | `bedrock-admin doctor` |
 | Stop direct model calls | `bedrock-admin block policy`, send the file to your org admin; then `bedrock-admin block status` |
+| Move users to a new id | New `id:`, `apply`, users rerun `bedrock setup --id <new> --yes`, then `bedrock-admin move --from <old>` |
 | Remove everything | `users: []`, `bedrock-admin apply --yes`, then `bedrock-admin uninstall` |
 | Set up a user's machine | The commands `apply` printed (the user runs them) |
